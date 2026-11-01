@@ -1,0 +1,4 @@
+# qemu-test-all also builds update-test's image twice from the same trust
+# anchors and bundles and compares the two byte for byte (make
+# image-reproducible): keys made for each run must not make two builds
+# of the same inputs differ.

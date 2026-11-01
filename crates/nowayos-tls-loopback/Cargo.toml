@@ -1,0 +1,25 @@
+[package]
+name = "nowayos-tls-loopback"
+description = "Test instrument: a rustls client and server on nowayos-tls-crypto, joined by memory buffers, for TLS inside one protection domain"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+nowayos-tls-crypto = { path = "../nowayos-tls-crypto" }
+# Apache-2.0 OR ISC OR MIT. No std, no logging, no TLS 1.2, no provider of
+# its own: nowayos-tls-crypto is the provider.
+rustls = { version = "=0.23.46", default-features = false }
+# BSD-3-Clause, already in nowayos-tls-crypto's tree: here it signs, for the
+# test server's raw public key only.
+ed25519-dalek = { version = "2.2.0", default-features = false }
+
+[dev-dependencies]
+# MIT OR Apache-2.0 - a counting global allocator for the host test of the
+# arena's size (its `stats` feature keeps the peak); dev-dependency only.
+cap = { version = "0.1.2", features = ["stats"] }
+
+[lints]
+workspace = true

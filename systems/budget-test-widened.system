@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Budget-test.system with the looper's budget widened to its
+    period - 10 ms in every 10 ms - and nothing else (make tools-test
+    checks): what every PD but one had before W3. The looper, above
+    the heartbeat, starts after the third beat and never stops, and the
+    heartbeat below it stops with it: the expect file requires the third
+    beat and forbids a fourth.
+
+    Every grant above is also listed in budget-test-widened.grants, which
+    tools/check-system compares with this file and with the kernel objects
+    the Microkit tool generates (make image, make qemu-test).
+-->
+<system>
+    <protection_domain name="timer" priority="200" stack_size="0x10000">
+        <program_image path="nowayos-timer.elf" />
+        <irq irq="@phys_timer" id="0" trigger="@phys_timer" />
+    </protection_domain>
+
+    <protection_domain name="looper" priority="150" budget="10000" period="10000" stack_size="0x10000">
+        <program_image path="nowayos-budget-probe.elf" />
+    </protection_domain>
+
+    <protection_domain name="heartbeat" priority="100" stack_size="0x10000">
+        <program_image path="nowayos-budget-probe.elf" />
+    </protection_domain>
+
+    <!-- The heartbeat calls the timer; the timer notifies it of expiries. -->
+    <channel>
+        <end pd="heartbeat" id="0" pp="true" notify="false" />
+        <end pd="timer" id="1" />
+    </channel>
+
+    <!-- "Start looping": the heartbeat to the looper. -->
+    <channel>
+        <end pd="heartbeat" id="1" />
+        <end pd="looper" id="0" notify="false" />
+    </channel>
+</system>

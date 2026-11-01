@@ -1,0 +1,35 @@
+# Lines tools/qemu-test must see, in this order, as whole serial lines:
+# every way into getrandom in a PD is refused before
+# nowayos-entropy's generator is seeded, writing nothing; draws from that one
+# generator, in turn, once seeded; and is refused again once it is dropped.
+NOWAYOS: getrandom-probe: starting
+NOWAYOS: getrandom-probe: not seeded:
+NOWAYOS: getrandom-probe: ok: getrandom 0.2.17 refused with the back end's error (it zeroes the buffer itself first)
+NOWAYOS: getrandom-probe: ok: getrandom 0.3.4 refused, nothing written
+NOWAYOS: getrandom-probe: ok: getrandom 0.4.3 refused with the same error, made as 0.3's and received as 0.4's, nothing written
+NOWAYOS: getrandom-probe: ok: rand_core 0.9.5's OsRng refused, nothing written
+NOWAYOS: getrandom-probe: ok: getrandom 0.4.3's SysRng refused, nothing written
+NOWAYOS: getrandom-probe: ok: seeded the generator with the test seed, which was wiped
+NOWAYOS: getrandom-probe: ok: getrandom 0.2.17 drew request 1 from the one generator
+NOWAYOS: getrandom-probe: ok: getrandom 0.3.4 drew request 2 from it
+NOWAYOS: getrandom-probe: ok: getrandom 0.4.3 drew request 3 from it
+NOWAYOS: getrandom-probe: ok: rand_core 0.9.5's OsRng drew request 4 from it
+NOWAYOS: getrandom-probe: ok: getrandom 0.4.3's SysRng drew request 5 from it
+NOWAYOS: getrandom-probe: ok: the five draws differ from each other and from zeros
+NOWAYOS: getrandom-probe: ok: dropped the generator, as a restart drops it
+NOWAYOS: getrandom-probe: after the drop:
+NOWAYOS: getrandom-probe: ok: getrandom 0.2.17 refused with the back end's error (it zeroes the buffer itself first)
+NOWAYOS: getrandom-probe: ok: getrandom 0.3.4 refused, nothing written
+NOWAYOS: getrandom-probe: ok: getrandom 0.4.3 refused with the same error, made as 0.3's and received as 0.4's, nothing written
+NOWAYOS: getrandom-probe: ok: rand_core 0.9.5's OsRng refused, nothing written
+NOWAYOS: getrandom-probe: ok: getrandom 0.4.3's SysRng refused, nothing written
+NOWAYOS: getrandom-probe: every check passed
+
+# Output that fails the test at once if it appears anywhere (substring
+# match), including in the settle period after the last line above: a fault
+# reported by the Microkit monitor, a kernel error message, a panic, or a
+# check that failed.
+!MON|ERROR
+!seL4(CPU
+!panicked
+!FAILED

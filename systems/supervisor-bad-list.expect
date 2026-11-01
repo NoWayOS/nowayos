@@ -1,0 +1,31 @@
+# Lines tools/qemu-test must see, in this order, as whole serial lines.
+# The supervisor reports each entry of its program's list that it
+# will not honour - a child of class app marked to keep, an id named twice
+# and an id out of range - then reads its stand-in counts before any child
+# runs; the restart count is at its limit, so it enters the fail-safe state,
+# keeps nothing and stops both children.
+NOWAYOS: supervisor: starting; children kept_app (0), stopped_child (1), named_twice (1) and out_of_range (64)
+NOWAYOS: supervisor: cannot keep kept_app (0) running in the fail-safe state: class app is stopped there
+NOWAYOS: supervisor: cannot supervise named_twice: id 1 is already stopped_child's
+NOWAYOS: supervisor: cannot supervise out_of_range: id 64 is not a Microkit child's (0 to 63)
+NOWAYOS: supervisor: counts read from the test stand-in, which stores nothing: restart count 4, sensitive count 0
+NOWAYOS: supervisor: this start: a reset whose cause was not written down
+NOWAYOS: supervisor: restart count 5 of 4, sensitive count 0 of 2: enter the fail-safe state
+NOWAYOS: supervisor: kept_app (0) stopped
+NOWAYOS: supervisor: stopped_child (1) stopped
+NOWAYOS: supervisor: in the fail-safe state; kept running: none
+
+# Output that fails the test at once if it appears anywhere (substring match):
+# a child starting, the board reset, the reset returning, a fault the monitor
+# had to handle, a kernel error message, or the supervisor or a probe failing.
+!kept_app starting
+!stopped_child starting
+!resetting the board
+!the reset returned
+!NOT stopped
+!MON|ERROR
+!seL4(CPU
+!ISOLATION FAILURE
+!no probe is defined
+!no children are defined
+!cannot stop

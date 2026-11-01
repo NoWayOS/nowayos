@@ -1,0 +1,24 @@
+[package]
+name = "nowayos-ipc-consumer"
+description = "Receives input events from nowayos-ipc-producer through a read-only shared-memory ring; copies, validates, decodes and reports each"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "nowayos-ipc-consumer"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+nowayos-input.workspace = true
+nowayos-ipc.workspace = true
+nowayos-ipc-demo.workspace = true
+nowayos-region.workspace = true
+sel4-microkit.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    In QEMU: the serial driver PD for QEMU's virtio console,
+    both ways. nowayos-virtio-console finds the console on transport 31 and
+    passes a byte stream between it and serial_test, a test instrument
+    standing in for its client, through nowayos-serial's two rings: the
+    transmit ring from the client and the receive ring to it.
+    virtio-console-test.qemu joins the console's port to a UDP socket that
+    sends to itself, so the client's two lines come back to it, and it
+    prints them.
+
+    The same driver, given one direction only, carries a one-way link.
+    QEMU only: boards carry links on UARTs.
+
+    Capabilities: the driver maps one page of virtio-mmio transports (24 to
+    31) uncached, read-write, and holds transport 31's interrupt; one 4 KiB
+    DMA region for each queue - receive and transmit - whose physical
+    addresses it learns to give the device. Each ring is two 4 KiB regions:
+    the transmit ring's messages read-write in serial_test and read-only in
+    the driver, its control the other way round; the receive ring's messages
+    read-write in the driver, its control read-write in serial_test. One
+    channel, on which each notifies the other. serial_test holds no device,
+    interrupt or other memory. The driver runs above its client.
+
+    Every grant above is also listed in virtio-console-test.grants, which
+    tools/check-system compares with this file and with the kernel objects
+    the Microkit tool generates (make image, make qemu-test).
+-->
+<system>
+    <memory_region name="virtio_regs" size="@virtio_mmio_24_31" phys_addr="@virtio_mmio_24_31" />
+    <memory_region name="receive_queue" size="0x1000" />
+    <memory_region name="transmit_queue" size="0x1000" />
+    <memory_region name="transmit_messages" size="0x1000" />
+    <memory_region name="transmit_control" size="0x1000" />
+    <memory_region name="receive_messages" size="0x1000" />
+    <memory_region name="receive_control" size="0x1000" />
+
+    <protection_domain name="console" priority="150" stack_size="0x10000">
+        <program_image path="nowayos-virtio-console.elf" />
+        <map mr="virtio_regs" vaddr="0x200_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_device_0_vaddr" setvar_size="nowayos_device_0_size" />
+        <map mr="receive_queue" vaddr="0x300_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_dma_0_vaddr" setvar_size="nowayos_dma_0_size" />
+        <map mr="transmit_queue" vaddr="0x300_1000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_dma_1_vaddr" setvar_size="nowayos_dma_1_size" />
+        <setvar symbol="nowayos_dma_0_paddr" region_paddr="receive_queue" />
+        <setvar symbol="nowayos_dma_1_paddr" region_paddr="transmit_queue" />
+        <map mr="transmit_control" vaddr="0x4000_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+        <map mr="transmit_messages" vaddr="0x4000_1000" perms="r"
+             setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+        <map mr="receive_messages" vaddr="0x4000_2000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_1_vaddr" setvar_size="nowayos_rw_region_1_size" />
+        <map mr="receive_control" vaddr="0x4000_3000" perms="r"
+             setvar_vaddr="nowayos_ro_region_1_vaddr" setvar_size="nowayos_ro_region_1_size" />
+        <irq irq="@virtio_mmio_24_31[7]" id="1" trigger="@virtio_mmio_24_31" />
+    </protection_domain>
+
+    <protection_domain name="serial_test" priority="100" stack_size="0x10000">
+        <program_image path="nowayos-serial-test.elf" />
+        <map mr="transmit_messages" vaddr="0x4000_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+        <map mr="transmit_control" vaddr="0x4000_1000" perms="r"
+             setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+        <map mr="receive_control" vaddr="0x4000_2000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_1_vaddr" setvar_size="nowayos_rw_region_1_size" />
+        <map mr="receive_messages" vaddr="0x4000_3000" perms="r"
+             setvar_vaddr="nowayos_ro_region_1_vaddr" setvar_size="nowayos_ro_region_1_size" />
+    </protection_domain>
+
+    <channel>
+        <end pd="console" id="0" />
+        <end pd="serial_test" id="0" />
+    </channel>
+</system>

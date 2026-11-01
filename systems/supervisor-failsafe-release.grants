@@ -1,0 +1,45 @@
+# Everything supervisor-failsafe-release grants, one fact per line.
+# tools/check-system fails the build if the system description grants anything
+# not listed here, or lists anything it does not grant, and checks the map
+# rights again in the kernel objects the Microkit tool generates (format: see
+# tools/check-system). A change here is a security change: call it out in the
+# pull request.
+
+# The kind of system, and each PD's role (tools/grant-rules.toml): only a test
+# system may give the supervisor memory - here, a ring to a test console and
+# its stand-in counts - and only a test system may prefill a region from
+# test-counts-*.bin (rule 12).
+system test
+role failsafe_release_supervisor supervisor
+role console test
+role unnamed_faulter test
+
+# The supervisor has the highest priority, so its start-up - reading the
+# counts and stopping every child it does not keep - runs before any child's;
+# the console prints its reports next. Full budgets.
+pd failsafe_release_supervisor priority=254 budget=1000 period=1000
+pd console priority=200 budget=1000 period=1000
+pd unnamed_faulter priority=100 budget=1000 period=1000
+
+# The supervisor: its children, and the SMC capability for PSCI SYSTEM_RESET
+# (unbadged in Microkit 2.3.1: it could make any firmware call).
+child failsafe_release_supervisor console
+child failsafe_release_supervisor unnamed_faulter
+smc failsafe_release_supervisor
+
+# The ring to the console, and one channel: the supervisor notifies it of a
+# report, and the console tells it when the lines are out.
+map failsafe_release_supervisor console_messages rw
+map failsafe_release_supervisor console_control r
+map console console_control rw
+map console console_messages r
+channel console failsafe_release_supervisor
+
+# The stand-in counts: prefilled at build time, read-only (rule 12).
+map failsafe_release_supervisor counts r
+
+# The console's one device: the debug UART's registers.
+device console debug_uart rw
+# The board's facts about it (device-debug_uart.bin), read-only: which
+# PL011 it is, and how many bytes of its page are registers.
+map console uart_facts r

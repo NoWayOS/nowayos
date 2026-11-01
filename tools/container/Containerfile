@@ -1,0 +1,379 @@
+# SPDX-License-Identifier: MIT OR Apache-2.0
+# NoWayOS development container: the pinned toolchain for all four repos.
+#
+# Build it from the nowayos repo root with `make container` (podman by default,
+# `make container ENGINE=docker` for Docker). Every download below is pinned by
+# version and checked by sha256, per architecture (arm64 and amd64).
+#
+# Updating a pin is a deliberate, reviewed change: Microkit, rust-sel4 and the
+# nightly toolchain move together. See tools/container/README.md.
+
+# debian:bookworm, multi-arch index digest (arm64 + amd64), resolved 2026-09-30.
+ARG BASE_IMAGE=docker.io/library/debian:bookworm@sha256:f37a335e82bca302e955fa39f9dfe28f1be618f016f8a2b56318e5a5111afc26
+
+# --- seL4 for the Raspberry Pi 5, from source ---------------------
+# Microkit 2.3.1's release gives rpi5b_2gb's kernel RAM up to 0x3fc0_0000, over
+# the framebuffer the firmware scans out from 0x3f80_0000. This stage
+# builds that board's kernel again from the commits the release was made from -
+# seL4 16.0.0 and Microkit 2.3.1, as microkit-manifest 5fd3777 pins them - with
+# Microkit's own build_sdk.py and one more device-tree overlay, which ends the
+# RAM at 0x3f40_0000: below the largest framebuffer a station supports, a 32-bit
+# 1080p one. The dev image takes only each configuration's kernel
+# (elf/sel4.elf) and the memory description the Microkit tool reads
+# (platform_gen.json); the rest of the SDK stays the release's. Built from the
+# same source without the overlay, platform_gen.json, object_sizes.json,
+# address_space_constants.json, invocations_all.json and the headers match the
+# release's (2026-10-16; only the headers' source-path comments differ).
+# The build's tools stay in this stage and never reach the dev image: cmake
+# (BSD-3-Clause), ninja (Apache-2.0), xmllint (libxml2-utils, MIT), Python's ply
+# (BSD-3-Clause), jinja2 (BSD-3-Clause), yaml (MIT), lxml (BSD-3-Clause) and
+# pyfdt (Apache-2.0, PyPI's sdist, pinned by sha256), and dtc
+# (device-tree-compiler, GPL-2.0-or-later), signed off for this build only.
+# Each is pinned by version, so a Debian update stops the build until
+# it is reviewed.
+ARG SEL4_COMMIT=6e7c3b733d296cfd88d5fbf635c96e447a882374
+ARG MICROKIT_COMMIT=ec86afdcd662b5976d11d4994acf1b11a2979882
+ARG PYFDT_VERSION=0.3
+ARG PYFDT_SHA256=61601c2005ff394a25a6c84c6da2088bbf888328038400d27e4eeb1b04b9f4f0
+# The Debian archive as it stood at one moment, from snapshot.debian.org: every
+# build installs the same package versions, the ones debian-packages-<arch>.lock
+# lists, until this moment is moved - a reviewed change, made with
+# `make container NO_CACHE=1 UPDATE_DEBIAN_LOCK=1` and the lists' diff. Plain
+# HTTP, as Debian's own mirrors are: apt checks every file against the
+# archive's signed Release files.
+ARG DEBIAN_SNAPSHOT=20261031T000000Z
+# The RAM the overlay leaves seL4 on rpi5b_2gb: [0x8_0000, SEL4_RPI5B_RAM_END).
+ARG SEL4_RPI5B_RAM_END=0x3f400000
+
+FROM ${BASE_IMAGE} AS sel4-rpi5b
+ARG SEL4_COMMIT
+ARG MICROKIT_COMMIT
+ARG PYFDT_VERSION
+ARG PYFDT_SHA256
+ARG SEL4_RPI5B_RAM_END
+ARG DEBIAN_SNAPSHOT
+RUN set -eu; printf '%s\n' \
+        'Types: deb' \
+        "URIs: http://snapshot.debian.org/archive/debian/${DEBIAN_SNAPSHOT}" \
+        'Suites: bookworm bookworm-updates' \
+        'Components: main' \
+        'Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg' \
+        'Check-Valid-Until: no' \
+        '' \
+        'Types: deb' \
+        "URIs: http://snapshot.debian.org/archive/debian-security/${DEBIAN_SNAPSHOT}" \
+        'Suites: bookworm-security' \
+        'Components: main' \
+        'Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg' \
+        'Check-Valid-Until: no' \
+        > /etc/apt/sources.list.d/debian.sources
+RUN set -eu; apt-get update -q; \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends \
+        build-essential \
+        ca-certificates \
+        curl \
+        git \
+        python3 \
+        cmake=3.25.1-1 \
+        device-tree-compiler=1.6.1-4+b1 \
+        libxml2-utils=2.9.14+dfsg-1.3~deb12u6 \
+        ninja-build=1.11.1-2~deb12u1 \
+        python3-jinja2=3.1.2-1+deb12u3 \
+        python3-lxml=4.9.2-1+deb12u1 \
+        python3-ply=3.11-5 \
+        python3-yaml=6.0-3+b2; \
+    rm -rf /var/lib/apt/lists/*
+RUN set -eu; mkdir -p /src /py /out; cd /src; \
+    curl -sSfL -o pyfdt.tar.gz \
+        "https://files.pythonhosted.org/packages/source/p/pyfdt/pyfdt-${PYFDT_VERSION}.tar.gz"; \
+    echo "${PYFDT_SHA256}  pyfdt.tar.gz" | sha256sum -c -; \
+    tar -xzf pyfdt.tar.gz --no-same-owner; cp -r "pyfdt-${PYFDT_VERSION}/pyfdt" /py/; \
+    for pin in "seL4 $SEL4_COMMIT" "microkit $MICROKIT_COMMIT"; do \
+        set -- $pin; \
+        git init -q "$1"; git -C "$1" remote add origin "https://github.com/seL4/$1.git"; \
+        git -C "$1" fetch -q --depth 1 origin "$2"; git -C "$1" checkout -q FETCH_HEAD; \
+        test "$(git -C "$1" rev-parse HEAD)" = "$2"; \
+    done; \
+    printf '/ {\n    memory@0 {\n        device_type = "memory";\n        reg = <0x0 0x0 0x0 %s>;\n    };\n};\n' \
+        "$SEL4_RPI5B_RAM_END" > /src/rpi5b-ram.dts; \
+    cd /src/microkit; \
+    sed -i 's|^\( *\)"KernelPlatform": "bcm2712",$|&\n\1"KernelCustomDTSOverlay": Path("/src/rpi5b-ram.dts"),|' build_sdk.py; \
+    test "$(grep -c '"KernelCustomDTSOverlay": Path("/src/rpi5b-ram.dts")' build_sdk.py)" = 1; \
+    PYTHONPATH=/py python3 build_sdk.py --sel4 /src/seL4 --boards rpi5b_2gb \
+        --skip-tool --skip-initialiser --skip-docs --skip-tar \
+        --gcc-toolchain-prefix-aarch64 aarch64-linux-gnu --version 2.3.1 > /src/build.log 2>&1 \
+        || { tail -40 /src/build.log; exit 1; }; \
+    cd release/microkit-sdk-2.3.1/board/rpi5b_2gb; \
+    for config in *; do \
+        mkdir -p "/out/$config/elf"; \
+        cp "$config/elf/sel4.elf" "/out/$config/elf/sel4.elf"; \
+        cp "$config/platform_gen.json" "/out/$config/platform_gen.json"; \
+    done; \
+    chmod -R a+rX /out; ls /out
+
+FROM ${BASE_IMAGE}
+
+# --- Pins -------------------------------------------------------------------
+
+# Library / host toolchain (every repo's rust-toolchain.toml).
+ARG RUST_STABLE=1.93.1
+# Protection-domain toolchain: the rust-sel4 v5.0.0 pin (nowayos/pds only).
+ARG RUST_NIGHTLY=nightly-2026-04-04
+
+ARG RUSTUP_VERSION=1.29.1
+ARG RUSTUP_SHA256_ARM64=15f6e4ce9f583b929c996c91562bad6d4454f3281de858b02cdfdef615fac433
+ARG RUSTUP_SHA256_AMD64=dda7234360b7f578ca8b0ddcb80145646fa61a67c1720a5abc7051b35c9fcb71
+
+# cargo-deny (MIT OR Apache-2.0): prebuilt musl release binaries.
+ARG CARGO_DENY_VERSION=0.20.2
+ARG CARGO_DENY_SHA256_ARM64=995c82be0defc7a025cae49a2aa2644ce8245c9a3318fc4103907c6a285e8c7d
+ARG CARGO_DENY_SHA256_AMD64=9f12ed4c49936e09b48bf862b595cde2fe64fcbd9d74dfacac6131ca824c8d5f
+
+# seL4 Microkit SDK. The SDK is a host tool plus prebuilt kernel/loader images;
+# the seL4 kernel inside it is GPL-2.0-only (development use approved by the
+# project owner, 2026-09-30).
+ARG MICROKIT_VERSION=2.3.1
+ARG MICROKIT_SHA256_ARM64=979553f288e8e2c099dae8fbec86cbe2cfda2ca006ee36de8234649d6d23bbee
+ARG MICROKIT_SHA256_AMD64=b1b285b8785db7557eba6d0665dd4fbf2f265ea5c0b39d6f91ae3dcc43d2c424
+
+# --- Debian packages ----------------------------------------------------------
+# From the snapshot DEBIAN_SNAPSHOT names (see its ARG above).
+ARG DEBIAN_SNAPSHOT
+RUN set -eu; printf '%s\n' \
+        'Types: deb' \
+        "URIs: http://snapshot.debian.org/archive/debian/${DEBIAN_SNAPSHOT}" \
+        'Suites: bookworm bookworm-updates' \
+        'Components: main' \
+        'Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg' \
+        'Check-Valid-Until: no' \
+        '' \
+        'Types: deb' \
+        "URIs: http://snapshot.debian.org/archive/debian-security/${DEBIAN_SNAPSHOT}" \
+        'Suites: bookworm-security' \
+        'Components: main' \
+        'Signed-By: /usr/share/keyrings/debian-archive-keyring.gpg' \
+        'Check-Valid-Until: no' \
+        > /etc/apt/sources.list.d/debian.sources
+# qemu-system-arm provides qemu-system-aarch64 (GPL-2.0, development tool only).
+# libclang-dev is needed by bindgen when rust-sel4's sel4-sys builds.
+# openssl makes tools/update-bundles' throwaway test keys and signatures.
+RUN set -eu; apt-get update -q; \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends \
+        build-essential \
+        ca-certificates \
+        curl \
+        git \
+        libclang-dev \
+        openssl \
+        python3 \
+        qemu-system-arm; \
+    rm -rf /var/lib/apt/lists/*
+
+# --- Rust (rustup + two pinned toolchains) -----------------------------------
+# Toolchains live read-only under /opt/rust. CARGO_HOME (registry and git
+# caches) is pointed at a named volume at run time, see below.
+ENV RUSTUP_HOME=/opt/rust/rustup \
+    PATH=/opt/rust/cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+RUN set -eu; arch="$(dpkg --print-architecture)"; \
+    case "$arch" in \
+        arm64) triple=aarch64-unknown-linux-gnu; sha="$RUSTUP_SHA256_ARM64" ;; \
+        amd64) triple=x86_64-unknown-linux-gnu;  sha="$RUSTUP_SHA256_AMD64" ;; \
+        *) echo "unsupported architecture: $arch" >&2; exit 1 ;; \
+    esac; \
+    curl -sSfL -o /tmp/rustup-init \
+        "https://static.rust-lang.org/rustup/archive/${RUSTUP_VERSION}/${triple}/rustup-init"; \
+    echo "${sha}  /tmp/rustup-init" | sha256sum -c -; \
+    chmod 0755 /tmp/rustup-init; \
+    export CARGO_HOME=/opt/rust/cargo; \
+    /tmp/rustup-init -y -q --no-modify-path --profile minimal --default-toolchain none; \
+    rm /tmp/rustup-init; \
+    rustup toolchain install "$RUST_STABLE" --profile minimal \
+        --component rustfmt --component clippy \
+        --target aarch64-unknown-none; \
+    rustup toolchain install "$RUST_NIGHTLY" --profile minimal \
+        --component rust-src --component rustfmt --component clippy --component miri; \
+    rustup default "$RUST_STABLE"; \
+    rm -rf /opt/rust/cargo/registry /opt/rust/cargo/git; \
+    chmod -R a+rX /opt/rust; \
+    rustup toolchain list; \
+    rustc --version; \
+    rustc "+$RUST_NIGHTLY" --version
+
+# --- cargo-deny ---------------------------------------------------------------
+RUN set -eu; arch="$(dpkg --print-architecture)"; \
+    case "$arch" in \
+        arm64) triple=aarch64-unknown-linux-musl; sha="$CARGO_DENY_SHA256_ARM64" ;; \
+        amd64) triple=x86_64-unknown-linux-musl;  sha="$CARGO_DENY_SHA256_AMD64" ;; \
+        *) echo "unsupported architecture: $arch" >&2; exit 1 ;; \
+    esac; \
+    name="cargo-deny-${CARGO_DENY_VERSION}-${triple}"; \
+    curl -sSfL -o "/tmp/${name}.tar.gz" \
+        "https://github.com/EmbarkStudios/cargo-deny/releases/download/${CARGO_DENY_VERSION}/${name}.tar.gz"; \
+    echo "${sha}  /tmp/${name}.tar.gz" | sha256sum -c -; \
+    tar -xzf "/tmp/${name}.tar.gz" -C /tmp --no-same-owner; \
+    install -m 0755 "/tmp/${name}/cargo-deny" /usr/local/bin/cargo-deny; \
+    rm -rf "/tmp/${name}" "/tmp/${name}.tar.gz"; \
+    cargo-deny --version
+
+# --- seL4 Microkit SDK ----------------------------------------------------------
+ENV MICROKIT_SDK=/opt/microkit/sdk
+
+RUN set -eu; arch="$(dpkg --print-architecture)"; \
+    case "$arch" in \
+        arm64) sdkarch=linux-aarch64; sha="$MICROKIT_SHA256_ARM64" ;; \
+        amd64) sdkarch=linux-x86-64;  sha="$MICROKIT_SHA256_AMD64" ;; \
+        *) echo "unsupported architecture: $arch" >&2; exit 1 ;; \
+    esac; \
+    name="microkit-sdk-${MICROKIT_VERSION}-${sdkarch}.tar.gz"; \
+    curl -sSfL -o "/tmp/${name}" \
+        "https://github.com/seL4/microkit/releases/download/${MICROKIT_VERSION}/${name}"; \
+    echo "${sha}  /tmp/${name}" | sha256sum -c -; \
+    mkdir -p "$MICROKIT_SDK"; \
+    tar -xzf "/tmp/${name}" -C "$MICROKIT_SDK" --strip-components=1 --no-same-owner; \
+    rm "/tmp/${name}"; \
+    chmod -R a+rX /opt/microkit; \
+    test "$(cat "$MICROKIT_SDK/VERSION")" = "$MICROKIT_VERSION"; \
+    test -x "$MICROKIT_SDK/bin/microkit"
+
+# --- U-Boot for the Raspberry Pi 5 ---------------------------------------------
+# `make uboot` builds it from this source (tools/make/system.mk). U-Boot is
+# GPL-2.0-or-later, approved for development use. Its build tools -
+# bc, bison and flex, which bring m4 - are signed off for development use only.
+# The pins are declared here rather than at the top so that changing
+# them rebuilds only this layer: an ARG is an implicit input to every RUN after
+# it. The release's signature was checked once against the U-Boot maintainer's
+# key (tools/container/README.md); the sha256 pins it from then on.
+ARG UBOOT_VERSION=2026.07
+ARG UBOOT_SHA256=78e8bfc382fe388f9b55aa1daf8c563522a037779b5d4c349d1415e381f1243e
+ENV UBOOT_SOURCE=/opt/u-boot/u-boot-${UBOOT_VERSION}.tar.bz2
+
+RUN set -eu; apt-get update -q; \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -q --no-install-recommends \
+        bc \
+        bison \
+        flex; \
+    rm -rf /var/lib/apt/lists/*; \
+    mkdir -p /opt/u-boot; \
+    curl -sSfL -o "$UBOOT_SOURCE" \
+        "https://ftp.denx.de/pub/u-boot/u-boot-${UBOOT_VERSION}.tar.bz2"; \
+    echo "${UBOOT_SHA256}  $UBOOT_SOURCE" | sha256sum -c -; \
+    chmod -R a+rX /opt/u-boot
+
+# --- Raspberry Pi 5 boot firmware -----------------------------------------------
+# The files the seL4 Pi 5 guide puts on the SD card next to U-Boot, from one
+# Raspberry Pi firmware release, for `make sdcard`: start4.elf and fixup4.dat
+# (Broadcom's binary licence, boot/LICENCE.broadcom), bcm2712-rpi-5-b.dtb
+# (GPL-2.0 OR MIT) and overlays/ (Linux device-tree overlays, GPL-2.0,
+# boot/COPYING.linux) - development use only. Every file is
+# pinned by its sha256 in rpi-firmware.sha256, written from the release
+# commit's git tree; the pins sit here so that changing them rebuilds only
+# this layer.
+ARG RPI_FIRMWARE_VERSION=1.20260915
+ARG RPI_FIRMWARE_COMMIT=6f0881cba8bea8ec24956a5718714730e9936ec5
+ENV RPI_FIRMWARE=/opt/rpi-firmware/boot
+
+COPY rpi-firmware.sha256 /opt/rpi-firmware/rpi-firmware.sha256
+RUN set -eu; cd /opt/rpi-firmware; \
+    awk -v base="https://raw.githubusercontent.com/raspberrypi/firmware/${RPI_FIRMWARE_COMMIT}" \
+        '{ printf "url = \"%s/%s\"\noutput = \"%s\"\n", base, $2, $2 }' \
+        rpi-firmware.sha256 > /tmp/rpi-firmware.curl; \
+    curl -sSfL --retry 3 --parallel --parallel-max 8 --create-dirs -K /tmp/rpi-firmware.curl; \
+    rm /tmp/rpi-firmware.curl; \
+    sha256sum -c --quiet --strict rpi-firmware.sha256; \
+    test "$(find boot -type f | wc -l)" = "$(wc -l < rpi-firmware.sha256)"; \
+    chmod -R a+rX /opt/rpi-firmware
+
+# --- Kani, the bounded model checker -------------------------------------
+# `make kani` proves nowayos-ipc's, nowayos-input's and nowayos-display's
+# decoders free of panics, overflow and out-of-bounds reads. Kani is MIT OR
+# Apache-2.0; the CBMC it bundles (BSD-4-Clause) and the crate foldhash
+# compiled into it (Zlib) are signed off for development use in this image
+# only: nothing from Kani ships. The bundle is pinned by sha256, the
+# cargo-kani launcher by version with --locked, and Kani's own nightly comes
+# through rustup. The arm64 bundle's kani-driver needs glibc 2.39, newer than
+# this image's 2.36, so on arm64 it is rebuilt from the release's tagged
+# source, pinned by commit, with the nightly setup installed, named in RUSTUP_TOOLCHAIN: the
+# source's own rust-toolchain.toml would add rustc-dev, llvm-tools, rust-src
+# and rustfmt, about 900 MB that nothing here uses. The pins sit here so that
+# changing them rebuilds only this layer.
+ARG KANI_VERSION=0.68.0
+ARG KANI_BUNDLE_SHA256_ARM64=0042d2688bf1550270def4a79c96aaeea138631818cb4ab5480120f2d51a942c
+ARG KANI_BUNDLE_SHA256_AMD64=32e2b484d73ede0bbf64a2cf0879c4259422497d8aec4ee67d448de9ae7843d3
+ARG KANI_COMMIT=0d2328a93f0e0ff66132d6bfa1a7d884877cf862
+ARG KANI_CHARON_COMMIT=b250680abd40ff1aaa07081d0497dc2755ed112e
+ENV KANI_HOME=/opt/kani
+
+RUN set -eu; arch="$(dpkg --print-architecture)"; \
+    case "$arch" in \
+        arm64) triple=aarch64-unknown-linux-gnu; sha="$KANI_BUNDLE_SHA256_ARM64" ;; \
+        amd64) triple=x86_64-unknown-linux-gnu;  sha="$KANI_BUNDLE_SHA256_AMD64" ;; \
+        *) echo "unsupported architecture: $arch" >&2; exit 1 ;; \
+    esac; \
+    export CARGO_HOME=/opt/rust/cargo; \
+    cargo install --locked --quiet kani-verifier --version "$KANI_VERSION"; \
+    bundle="/tmp/kani-${KANI_VERSION}-${triple}.tar.gz"; \
+    curl -sSfL -o "$bundle" \
+        "https://github.com/model-checking/kani/releases/download/kani-${KANI_VERSION}/kani-${KANI_VERSION}-${triple}.tar.gz"; \
+    echo "${sha}  ${bundle}" | sha256sum -c -; \
+    mkdir -p "$KANI_HOME"; \
+    cargo kani setup --use-local-bundle "$bundle"; \
+    rm "$bundle"; \
+    driver="$KANI_HOME/kani-${KANI_VERSION}/bin/kani-driver"; \
+    test -x "$driver"; \
+    if [ "$arch" = arm64 ]; then \
+        git init -q /tmp/kani-src; cd /tmp/kani-src; \
+        git remote add origin https://github.com/model-checking/kani; \
+        git fetch -q --depth 1 origin "$KANI_COMMIT"; \
+        git checkout -q FETCH_HEAD; \
+        git submodule update -q --init --depth 1 charon; \
+        test "$(git -C charon rev-parse HEAD)" = "$KANI_CHARON_COMMIT"; \
+        nightly="$(sed -n 's/^channel *= *"\(.*\)"$/\1/p' rust-toolchain.toml)"; \
+        rustup toolchain list | grep -q "^${nightly}-"; \
+        RUSTUP_TOOLCHAIN="$nightly" cargo build --quiet --release --locked -p kani-driver; \
+        install -m 0755 target/release/kani-driver "$driver"; \
+        cd /; rm -rf /tmp/kani-src; \
+    fi; \
+    "$driver" --version; \
+    rm -rf /opt/rust/cargo/registry /opt/rust/cargo/git; \
+    chmod -R a+rX /opt/rust "$KANI_HOME"; \
+    cargo kani --version
+
+# --- seL4 for the Raspberry Pi 5, from the stage above -------------------
+# Each rpi5b_2gb configuration's kernel and memory description replace the
+# release's, so that no seL4 RAM covers a framebuffer; the check
+# below fails the build if the RAM does not end where the stage was told. Here,
+# not beside the SDK, so that changing the stage rebuilds only this layer.
+ARG SEL4_RPI5B_RAM_END
+COPY --from=sel4-rpi5b /out/ /opt/microkit/sdk/board/rpi5b_2gb/
+RUN set -eu; cd "$MICROKIT_SDK/board/rpi5b_2gb"; \
+    for config in *; do \
+        python3 -c 'import json, sys; memory = json.load(open(sys.argv[1]))["memory"]; \
+assert memory == [{"start": 0x80000, "end": int(sys.argv[2], 16)}], memory' \
+            "$config/platform_gen.json" "$SEL4_RPI5B_RAM_END"; \
+    done
+
+# --- Run-time layout ------------------------------------------------------------
+# /cache/cargo and /cache/target are mount points for named volumes (cargo
+# registry/git caches and per-repo target directories), so container builds
+# never share a target directory with host builds and repeat runs do not
+# re-download. Mode 1777 lets whichever host UID runs the container write there.
+RUN set -eu; mkdir -p /cache/cargo /cache/target; \
+    chmod 1777 /cache /cache/cargo /cache/target
+
+ENV CARGO_HOME=/cache/cargo \
+    RUSTUP_AUTO_INSTALL=0 \
+    NOWAYOS_CONTAINER=1 \
+    NOWAYOS_RUST_STABLE=${RUST_STABLE} \
+    NOWAYOS_RUST_NIGHTLY=${RUST_NIGHTLY} \
+    NOWAYOS_MICROKIT_VERSION=${MICROKIT_VERSION} \
+    NOWAYOS_UBOOT_VERSION=${UBOOT_VERSION} \
+    NOWAYOS_RPI_FIRMWARE_VERSION=${RPI_FIRMWARE_VERSION}
+
+# Labels last, so changing one rebuilds only this layer.
+LABEL org.opencontainers.image.title="nowayos-dev" \
+      org.opencontainers.image.version="0.1" \
+      org.opencontainers.image.description="NoWayOS development toolchain: Rust ${RUST_STABLE} and ${RUST_NIGHTLY}, seL4 Microkit SDK ${MICROKIT_VERSION}, QEMU (AArch64), cargo-deny ${CARGO_DENY_VERSION}"
+
+WORKDIR /work
+CMD ["bash"]

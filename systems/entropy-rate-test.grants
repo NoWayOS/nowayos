@@ -1,0 +1,41 @@
+# Everything systems/entropy-rate-test.system grants, one fact per line.
+# tools/check-system fails the build if the system description grants anything
+# not listed here, or lists anything it does not grant, and checks the map
+# rights again in the kernel objects the Microkit tool generates (format: see
+# tools/check-system). A change here is a security change: call it out in the
+# pull request.
+
+system test
+role entropy entropy
+role timer driver
+role polite_consumer test
+role seed_flood test
+
+# The entropy PD above the PDs it seeds; the timer above its caller.
+pd entropy priority=200 budget=1000 period=1000
+pd timer priority=190 budget=1000 period=1000
+pd polite_consumer priority=150 budget=1000 period=1000
+pd seed_flood priority=100 budget=1000 period=1000
+
+# The random source, in the entropy PD only (as entropy-test).
+device entropy rng rw
+irq entropy rng 56
+map entropy rng_requests rw
+paddr entropy rng_requests
+
+# Two seed rings, one way, each read by its one consumer.
+map entropy polite_ring rw
+map entropy polite_ring_control r
+map polite_consumer polite_ring r
+map polite_consumer polite_ring_control rw
+map entropy flood_ring rw
+map entropy flood_ring_control r
+map seed_flood flood_ring r
+map seed_flood flood_ring_control rw
+channel entropy polite_consumer
+channel entropy seed_flood
+
+# The timer: the CPU's EL1 physical timer's interrupt; polite_consumer calls it.
+irq timer phys_timer
+channel polite_consumer timer notify=timer
+call polite_consumer timer

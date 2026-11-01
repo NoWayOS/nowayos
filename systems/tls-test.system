@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    TLS 1.3 inside one protection domain, on a fixed heap arena. One
+    test PD runs a rustls client and server on nowayos-tls-crypto, joined by
+    memory buffers: the server's Ed25519 raw public key is made at start
+    from the PD's generator, seeded with a fixed public test value; the
+    client pins it. Twice - the plain Certificate message, then the largest
+    rustls accepts - printing the suite, the group and the arena's peak;
+    then with another key pinned, which the client refuses. The arena
+    (nowayos-heap, 532 KiB) is in the PD's own image. No channels,
+    memory regions, devices or children. Everything it grants is listed in
+    tls-test.grants (checked by tools/check-system).
+-->
+<system>
+    <protection_domain name="tls_test" priority="1" stack_size="0x20000">
+        <program_image path="nowayos-tls-test.elf" />
+    </protection_domain>
+</system>

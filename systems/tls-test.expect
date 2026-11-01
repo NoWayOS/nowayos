@@ -1,0 +1,31 @@
+# Lines tools/qemu-test must see, in this order, as whole serial lines:
+# a TLS 1.3 handshake inside one PD, between a rustls client and
+# server on nowayos-tls-crypto, the client pinning the server's raw public
+# key; with the plain Certificate message and then the largest rustls
+# accepts, each printing the suite, the group and the arena's peak use;
+# then another key pinned, which the client refuses. The arena is
+# nowayos_tls_loopback::ARENA_BYTES. The peaks are what the PD asks for, as
+# the host test counts them: a change in rustls or the provider moves them,
+# and ARENA_BYTES is to be measured again.
+NOWAYOS: tls-test: starting; arena 544768 bytes
+NOWAYOS: tls-test: plain handshake starting
+NOWAYOS: tls-test: plain handshake: TLS 1.3, TLS13_AES_256_GCM_SHA384, X25519, Certificate payload 53 bytes
+NOWAYOS: tls-test: plain handshake: server's raw public key checked; data crossed both ways
+NOWAYOS: tls-test: plain handshake: arena peak 11510 bytes
+NOWAYOS: tls-test: largest handshake starting
+NOWAYOS: tls-test: largest handshake: TLS 1.3, TLS13_AES_256_GCM_SHA384, X25519, Certificate payload 65535 bytes
+NOWAYOS: tls-test: largest handshake: server's raw public key checked; data crossed both ways
+NOWAYOS: tls-test: largest handshake: arena peak 270501 bytes
+NOWAYOS: tls-test: another key pinned: refused: Client: invalid peer certificate: UnknownIssuer
+NOWAYOS: tls-test: done; 0 refusals by the arena
+
+# Output that fails the test at once if it appears anywhere (substring
+# match), including in the settle period after the last line above: a fault
+# reported by the Microkit monitor, a kernel error message, a panic, a
+# handshake that failed or the arena refusing a request.
+!MON|ERROR
+!seL4(CPU
+!panicked
+!handshake failed
+!the arena refused
+!another key pinned: accepted

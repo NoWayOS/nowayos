@@ -1,0 +1,20 @@
+[package]
+name = "nowayos-heartbeat-probe"
+description = "Test-only: a watched PD that answers the watchdog's heartbeat - or, as looper, stops answering and loops after a set number of rounds, starving every PD below it"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "nowayos-heartbeat-probe"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+sel4-microkit.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,35 @@
+# Everything systems/rpi5b_2gb/fan-test.system grants, one fact per line.
+# tools/check-system fails the build if the system description grants
+# anything not listed here, or lists anything it does not grant, and checks
+# the map rights again in the kernel objects the Microkit tool generates
+# (format: see tools/check-system). A change here is a security change: call
+# it out in the pull request.
+
+# A test system; the fan PD is a driver.
+system test
+role timer driver
+role fan cooling
+
+pd timer priority=240 budget=1000 period=1000
+pd fan priority=200 budget=1000 period=1000
+
+# The system timer's page and its channel 1 interrupt in the timer only.
+device timer system_timer rw
+irq timer system_timer 97
+
+# The fan's pages in the fan PD only: RP1's clock generators (every RP1
+# clock is in this page - the PD writes only PWM1's), GPIO bank 2 (USB's
+# power lines are in it too - the PD writes only GPIO45's CTRL), PWM1, and
+# the VideoCore mailbox, through which it asks the firmware for the
+# temperature; and the mailbox's buffer, whose physical address the
+# firmware is given.
+device fan rp1_clocks_main rw
+device fan rp1_gpio_bank2 rw
+device fan rp1_pwm1 rw
+device fan vc_mailbox rw
+map fan mailbox_buffer rw
+paddr fan mailbox_buffer
+
+# The fan PD calls the timer, which notifies it of each second.
+channel fan timer notify=timer
+call fan timer

@@ -1,0 +1,79 @@
+# Everything systems/ui-interactive.system grants, one fact per line.
+# tools/check-system fails the build if the system description grants anything
+# not listed here, or lists anything it does not grant, and checks the map
+# rights again in the kernel objects the Microkit tool generates (format: see
+# tools/check-system). A change here is a security change: call it out in the
+# pull request.
+
+# The kind of system, and each PD's role (tools/grant-rules.toml): the UI and
+# the broker may hold no device or interrupt.
+system demo
+role virtio_input input
+role display display
+role input_broker broker
+role ui ui
+
+# The driver highest, so input interrupts are served first; the display above
+# the broker and the UI, so a presented frame is shown at once; the broker
+# above the UI, so input is checked and counted however busy the UI is. Full
+# budgets: each PD runs only when notified, and each run is bounded - the
+# display copies one 800x480 frame, the broker drains at most two four-slot
+# rings - until the UI's frame budget is measured.
+pd virtio_input priority=4 budget=1000 period=1000
+pd display priority=3 budget=1000 period=1000
+pd input_broker priority=2 budget=1000 period=1000
+pd ui priority=1 budget=1000 period=1000
+
+# Configuration: the screen's size (1920x1064), read-only where it is needed.
+map virtio_input screen r
+map display screen r
+map input_broker screen r
+
+# The UI: exactly its grants in ui-demo.grants.
+map ui present_messages rw
+map ui present_control r
+map ui display_messages r
+map ui display_control rw
+map ui framebuffer rw
+map ui input_messages r
+map ui input_control rw
+channel display ui
+channel input_broker ui
+
+# The display: its side of the display contract, as in ui-demo.grants, and
+# QEMU's ramfb through fw_cfg - its registers, uncached, this PD only; a DMA
+# region for fw_cfg's requests and the scan-out buffer, whose physical
+# addresses it learns.
+map display present_messages r
+map display present_control rw
+map display display_messages rw
+map display display_control r
+map display framebuffer r
+device display fw_cfg rw
+map display requests rw
+paddr display requests
+map display scan_out rw
+paddr display scan_out
+
+# The broker: the UI's input ring (messages written by the broker only), and
+# the driver's two rings, read-only but for its own index.
+map input_broker input_messages rw
+map input_broker input_control r
+map input_broker pointer_messages r
+map input_broker pointer_control rw
+map input_broker keyboard_messages r
+map input_broker keyboard_control rw
+channel input_broker virtio_input notify=virtio_input
+
+# The driver: as in virtio-input-test.grants.
+device virtio_input virtio_mmio_24_31 rw
+irq virtio_input virtio_mmio_24_31 78
+irq virtio_input virtio_mmio_24_31 79
+map virtio_input tablet_events rw
+paddr virtio_input tablet_events
+map virtio_input keyboard_events rw
+paddr virtio_input keyboard_events
+map virtio_input pointer_messages rw
+map virtio_input pointer_control r
+map virtio_input keyboard_messages rw
+map virtio_input keyboard_control r

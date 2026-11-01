@@ -1,0 +1,4 @@
+# QEMU devices entropy-test-no-rng's PDs drive (tools/make/system.mk): the
+# virtio transports on the modern interface, and no virtio-rng - transport 8
+# is empty, so the entropy PD has no random source.
+-global virtio-mmio.force-legacy=false

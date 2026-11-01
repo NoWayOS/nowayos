@@ -1,0 +1,10 @@
+# QEMU devices net-test's PDs drive (tools/make/system.mk): the virtio
+# transports on the modern interface (virtio 1.x), and a virtio-net card on
+# QEMU's user-mode network, which QEMU places on transport 31. The network
+# is 10.0.2.0/24 with the gateway at 10.0.2.2, stated rather than left to
+# QEMU's defaults; restrict=on cuts it off from the host and beyond, so the
+# test reaches nothing outside QEMU; ipv6=off keeps it to what the client
+# asks for. The card's MAC address is the one nowayos-net-client uses.
+-global virtio-mmio.force-legacy=false
+-netdev user,id=net0,ipv6=off,restrict=on,net=10.0.2.0/24,host=10.0.2.2
+-device virtio-net-device,netdev=net0,mac=52:54:00:12:34:56

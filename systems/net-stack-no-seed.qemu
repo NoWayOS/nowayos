@@ -1,0 +1,17 @@
+# QEMU devices net-stack-no-seed's PDs drive (tools/make/system.mk), as in
+# net-test.qemu: the virtio transports on the modern interface, and a
+# virtio-net card on QEMU's user-mode network, which QEMU places on
+# transport 31. The network is 10.0.2.0/24 with the gateway at 10.0.2.2,
+# stated rather than left to QEMU's defaults, and QEMU's DHCP server hands
+# out addresses from 10.0.2.15 (its default start); ipv6=off keeps it to
+# what the stack speaks. Unlike net-test, the network is not restricted
+# (restrict=off): QEMU's DHCP server names the gateway (and a DNS server)
+# only on a network that is not, and the lease must name it (AC 2).
+# The stack has no socket but its DHCP client - no TCP, no UDP of its own,
+# no DNS - so it opens nothing beyond QEMU; its frames reach only QEMU's own
+# DHCP server and ARP. The card's MAC address is the one the stack PD
+# uses. Here the stack has no seed, so it must ask the DHCP server for
+# nothing.
+-global virtio-mmio.force-legacy=false
+-netdev user,id=net0,ipv6=off,restrict=off,net=10.0.2.0/24,host=10.0.2.2,dhcpstart=10.0.2.15
+-device virtio-net-device,netdev=net0,mac=52:54:00:12:34:56

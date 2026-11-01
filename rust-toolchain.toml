@@ -1,0 +1,7 @@
+# Toolchain for the root workspace (library crates, host tests, no_std checks).
+# The protection-domain workspace in pds/ pins its own nightly toolchain.
+[toolchain]
+channel = "1.93.1"
+profile = "minimal"
+components = ["rustfmt", "clippy"]
+targets = ["aarch64-unknown-none"]

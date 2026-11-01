@@ -1,0 +1,23 @@
+[package]
+name = "nowayos-console"
+description = "Test instrument: prints other PDs' lines through the debug UART's own registers, for test systems run in the release configuration"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "nowayos-console"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+nowayos-hw.workspace = true
+nowayos-ipc.workspace = true
+nowayos-region.workspace = true
+sel4-microkit.workspace = true
+
+[lints]
+workspace = true

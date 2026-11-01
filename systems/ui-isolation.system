@@ -1,0 +1,142 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    negative tests at the UI PD's boundaries - the run-time
+    half of "the UI holds nothing but its draw surface". Each probe maps
+    exactly what the display PD or the UI PD maps in ui-demo.system - the
+    same regions, rights and addresses, though not their channels - and has
+    its role, and makes one access those maps do not allow. seL4 must stop it
+    and send the fault to ui_isolation_parent, which reports it; display_side,
+    a bystander standing in for the display's private state, must keep
+    running with its private page intact.
+
+        display_writes_framebuffer  the display's maps; writes the
+                                    framebuffer it maps read-only
+        ui_writes_display_index     the UI's maps; writes present_control,
+                                    the display's index on the Present
+                                    ring, which it maps read-only
+        ui_reads_display_private    the UI's maps; draws a pixel (allowed),
+                                    then reads 0x6000_0000, where
+                                    display_side keeps its private page
+        ui_reads_device             the UI's maps; reads 0x0900_0000, the
+                                    physical address of QEMU's PL011 UART,
+                                    as a virtual address
+
+    The probes run the same program image and pick their probe by PD name
+    (pds/isolation-probe); the parent picks its test by its own name.
+    tools/test_tools.py checks each probe's maps, stack size and role
+    against ui-demo.system.
+
+    The static half is the grants check, run on ui-demo itself: the UI and
+    the display map exactly their listed regions, with those page rights, and
+    can signal only their channels (rules 1, 4 and 6), and a ui PD may hold no
+    device, interrupt, child or channel to a security PD (rule 11,
+    tools/grant-rules.toml). These probes show seL4 enforcing such grants for
+    four accesses; the other read-only maps and the channels are not probed.
+
+    ui-isolation-widened.system is this system with one grant widened on
+    purpose; its expect file requires the isolation failure that
+    ui-isolation.expect forbids (tools/test_tools.py keeps the two in step).
+
+    Priorities make the order deterministic on one core: the parent, then
+    display_side, then the probes in the order above. The device probe's
+    address is QEMU virt's: the system builds for rpi5b_2gb too, but only in
+    QEMU does that probe aim at a device.
+-->
+<system>
+    <memory_region name="present_messages" size="0x1000" />
+    <memory_region name="present_control" size="0x1000" />
+    <memory_region name="display_messages" size="0x1000" />
+    <memory_region name="display_control" size="0x1000" />
+    <memory_region name="framebuffer" size="0x400000" />
+    <memory_region name="input_messages" size="0x1000" />
+    <memory_region name="input_control" size="0x1000" />
+    <memory_region name="display_private" size="0x1000" />
+
+    <protection_domain name="ui_isolation_parent" priority="100" stack_size="0x10000">
+        <program_image path="nowayos-isolation-parent.elf" />
+
+        <!-- The display's maps (ui-demo.system, "display"). -->
+        <protection_domain name="display_writes_framebuffer" id="0" priority="40" stack_size="0x10000">
+            <program_image path="nowayos-isolation-probe.elf" />
+            <map mr="present_control" vaddr="0x4000_0000" perms="rw"
+                 setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+            <map mr="present_messages" vaddr="0x4000_1000" perms="r"
+                 setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+            <map mr="display_messages" vaddr="0x4000_2000" perms="rw"
+                 setvar_vaddr="nowayos_rw_region_1_vaddr" setvar_size="nowayos_rw_region_1_size" />
+            <map mr="display_control" vaddr="0x4000_3000" perms="r"
+                 setvar_vaddr="nowayos_ro_region_1_vaddr" setvar_size="nowayos_ro_region_1_size" />
+            <map mr="framebuffer" vaddr="0x5000_0000" perms="r"
+                 setvar_vaddr="nowayos_ro_region_2_vaddr" setvar_size="nowayos_ro_region_2_size" />
+        </protection_domain>
+
+        <!-- The UI's maps (ui-demo.system, "ui"), three times. -->
+        <protection_domain name="ui_writes_display_index" id="1" priority="30" stack_size="0x20000">
+            <program_image path="nowayos-isolation-probe.elf" />
+            <map mr="present_messages" vaddr="0x4000_0000" perms="rw"
+                 setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+            <map mr="present_control" vaddr="0x4000_1000" perms="r"
+                 setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+            <map mr="display_control" vaddr="0x4000_2000" perms="rw"
+                 setvar_vaddr="nowayos_rw_region_1_vaddr" setvar_size="nowayos_rw_region_1_size" />
+            <map mr="display_messages" vaddr="0x4000_3000" perms="r"
+                 setvar_vaddr="nowayos_ro_region_1_vaddr" setvar_size="nowayos_ro_region_1_size" />
+            <map mr="framebuffer" vaddr="0x5000_0000" perms="rw"
+                 setvar_vaddr="nowayos_rw_region_2_vaddr" setvar_size="nowayos_rw_region_2_size" />
+            <map mr="input_control" vaddr="0x4000_4000" perms="rw"
+                 setvar_vaddr="nowayos_rw_region_3_vaddr" setvar_size="nowayos_rw_region_3_size" />
+            <map mr="input_messages" vaddr="0x4000_5000" perms="r"
+                 setvar_vaddr="nowayos_ro_region_2_vaddr" setvar_size="nowayos_ro_region_2_size" />
+        </protection_domain>
+
+        <protection_domain name="ui_reads_display_private" id="2" priority="20" stack_size="0x20000">
+            <program_image path="nowayos-isolation-probe.elf" />
+            <map mr="present_messages" vaddr="0x4000_0000" perms="rw"
+                 setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+            <map mr="present_control" vaddr="0x4000_1000" perms="r"
+                 setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+            <map mr="display_control" vaddr="0x4000_2000" perms="rw"
+                 setvar_vaddr="nowayos_rw_region_1_vaddr" setvar_size="nowayos_rw_region_1_size" />
+            <map mr="display_messages" vaddr="0x4000_3000" perms="r"
+                 setvar_vaddr="nowayos_ro_region_1_vaddr" setvar_size="nowayos_ro_region_1_size" />
+            <map mr="framebuffer" vaddr="0x5000_0000" perms="rw"
+                 setvar_vaddr="nowayos_rw_region_2_vaddr" setvar_size="nowayos_rw_region_2_size" />
+            <map mr="input_control" vaddr="0x4000_4000" perms="rw"
+                 setvar_vaddr="nowayos_rw_region_3_vaddr" setvar_size="nowayos_rw_region_3_size" />
+            <map mr="input_messages" vaddr="0x4000_5000" perms="r"
+                 setvar_vaddr="nowayos_ro_region_2_vaddr" setvar_size="nowayos_ro_region_2_size" />
+        </protection_domain>
+
+        <protection_domain name="ui_reads_device" id="3" priority="10" stack_size="0x20000">
+            <program_image path="nowayos-isolation-probe.elf" />
+            <map mr="present_messages" vaddr="0x4000_0000" perms="rw"
+                 setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+            <map mr="present_control" vaddr="0x4000_1000" perms="r"
+                 setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+            <map mr="display_control" vaddr="0x4000_2000" perms="rw"
+                 setvar_vaddr="nowayos_rw_region_1_vaddr" setvar_size="nowayos_rw_region_1_size" />
+            <map mr="display_messages" vaddr="0x4000_3000" perms="r"
+                 setvar_vaddr="nowayos_ro_region_1_vaddr" setvar_size="nowayos_ro_region_1_size" />
+            <map mr="framebuffer" vaddr="0x5000_0000" perms="rw"
+                 setvar_vaddr="nowayos_rw_region_2_vaddr" setvar_size="nowayos_rw_region_2_size" />
+            <map mr="input_control" vaddr="0x4000_4000" perms="rw"
+                 setvar_vaddr="nowayos_rw_region_3_vaddr" setvar_size="nowayos_rw_region_3_size" />
+            <map mr="input_messages" vaddr="0x4000_5000" perms="r"
+                 setvar_vaddr="nowayos_ro_region_2_vaddr" setvar_size="nowayos_ro_region_2_size" />
+        </protection_domain>
+    </protection_domain>
+
+    <!-- display_side: a bystander standing in for the display's private state. 0x6000_0000:
+         pds/isolation-probe/src/forbidden.rs, Unmapped::DisplayPrivatePage -->
+    <protection_domain name="display_side" priority="50" stack_size="0x10000">
+        <program_image path="nowayos-isolation-bystander.elf" />
+        <map mr="display_private" vaddr="0x6000_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+    </protection_domain>
+
+    <!-- "Are you still running?" and the answer. -->
+    <channel>
+        <end pd="ui_isolation_parent" id="0" />
+        <end pd="display_side" id="0" />
+    </channel>
+</system>

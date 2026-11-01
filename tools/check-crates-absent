@@ -1,0 +1,95 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT OR Apache-2.0
+"""Check that crates which must never be in a workspace are not in its cargo tree.
+
+Usage:
+    check-crates-absent --what TEXT --forbid CRATE [--forbid CRATE]...
+                        [--reason TEXT] -- CARGO-TREE-COMMAND...
+
+Runs the cargo tree command given after `--`, one that prints a crate a
+line (`--prefix none --format '{p}'`), and fails if any crate it lists is
+one of the --forbid crates, naming each, with --reason. TEXT names the
+tree in every message, for example 'the cargo tree of pds'.
+
+A tree that cannot be read checks nothing, so it fails too: the command
+failing (a toolchain not installed, a lock file out of date), listing no
+crate at all, or printing a line that is not a crate and its version. The
+command's own errors pass through, above this tool's.
+
+NoWayOS's `make atlases-check` runs it for the root, pds/ and fuzz/
+workspaces: the glyph atlas tool's rasteriser and the font parsers it
+reads with belong to tools/glyph-atlas's workspace alone.
+
+Exit status: 0 pass; 1 a forbidden crate is in the tree; 2 usage error, or
+a tree that could not be read. Python 3 standard library only.
+"""
+
+import argparse
+import re
+import subprocess
+import sys
+
+EXIT_PASS = 0
+EXIT_FAIL = 1
+EXIT_ERROR = 2
+
+# A line of `cargo tree --prefix none --format '{p}'`: the crate's name and
+# version, then whatever cargo adds - a path, "(proc-macro)", "(*)".
+LINE = re.compile(r"^([A-Za-z0-9_-]+) v[0-9]\S*(?: .*)?$")
+
+
+class TreeError(Exception):
+    """The tree could not be read, so nothing was checked."""
+
+
+def read_tree(command):
+    """The names of the crates `command` lists, a crate a line."""
+    shown = " ".join(command)
+    try:
+        result = subprocess.run(command, stdout=subprocess.PIPE, text=True, check=False)
+    except OSError as err:
+        raise TreeError(f"cannot run `{shown}`: {err}") from err
+    if result.returncode != 0:
+        raise TreeError(f"`{shown}` failed with exit status {result.returncode} (its error is above)")
+    names = set()
+    for number, line in enumerate(result.stdout.splitlines(), start=1):
+        if not line.strip():
+            continue
+        match = LINE.match(line)
+        if match is None:
+            raise TreeError(f"line {number} of cargo tree's output is not a crate and its version: {line[:120]!r}")
+        names.add(match.group(1))
+    if not names:
+        raise TreeError("cargo tree listed no crate")
+    return names
+
+
+def main():
+    argv = sys.argv[1:]
+    if "--" not in argv or argv.index("--") == len(argv) - 1:
+        print("check-crates-absent: give the cargo tree command after --", file=sys.stderr)
+        return EXIT_ERROR
+    split = argv.index("--")
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n", 1)[0])
+    parser.add_argument("--what", required=True, help="the tree, for messages: 'the cargo tree of pds'")
+    parser.add_argument("--forbid", action="append", required=True, metavar="CRATE",
+                        help="a crate that must not be in the tree (repeat for each)")
+    parser.add_argument("--reason", default="", help="why they must not be")
+    args = parser.parse_args(argv[:split])
+    try:
+        names = read_tree(argv[split + 1:])
+    except TreeError as err:
+        print(f"check-crates-absent: FAIL - {args.what} was not checked: {err}", file=sys.stderr)
+        return EXIT_ERROR
+    found = sorted(set(args.forbid) & names)
+    for crate in found:
+        print(f"check-crates-absent: FAIL - {crate} is in {args.what}{': ' + args.reason if args.reason else ''}",
+              file=sys.stderr)
+    if found:
+        return EXIT_FAIL
+    print(f"    {args.what}: {len(names)} crates, none of {' '.join(args.forbid)}")
+    return EXIT_PASS
+
+
+if __name__ == "__main__":
+    sys.exit(main())

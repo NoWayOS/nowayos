@@ -1,0 +1,72 @@
+# Lines tools/qemu-test must see, in this order, as whole serial lines.
+# Keys typed on a terminal through the debug
+# UART reach the UI's stand-in as canonical key events, through the input
+# broker. uart-input-test.qmp types them - into QEMU's serial port, or, by
+# tools/pi-run, through the Pi 5's Debug Probe - each burst once the last
+# lines appeared. The lines are the same on every board: what differs (which
+# PL011, its interrupt mask at start-up) is on a line of its own, not checked.
+NOWAYOS: input-broker: starting; 1 source, screen 800x480, each source 64 events at once and 250 a second
+NOWAYOS: uart-input: starting
+NOWAYOS: uart-input: reading keys from the debug UART every 10 ms; the kernel keeps its transmitter
+# "Ada": Shift down, A, Shift up, d, a.
+NOWAYOS: input-print: key down 0xe1
+NOWAYOS: input-print: key down 0x04
+NOWAYOS: input-print: key up 0x04
+NOWAYOS: input-print: key up 0xe1
+NOWAYOS: input-print: key down 0x07
+NOWAYOS: input-print: key up 0x07
+NOWAYOS: input-print: key down 0x04
+NOWAYOS: input-print: key up 0x04
+# Enter, Backspace twice, Tab, Shift-Tab.
+NOWAYOS: input-print: key down 0x28
+NOWAYOS: input-print: key up 0x28
+NOWAYOS: input-print: key down 0x2a
+NOWAYOS: input-print: key up 0x2a
+NOWAYOS: input-print: key down 0x2a
+NOWAYOS: input-print: key up 0x2a
+NOWAYOS: input-print: key down 0x2b
+NOWAYOS: input-print: key up 0x2b
+NOWAYOS: input-print: key down 0xe1
+NOWAYOS: input-print: key down 0x2b
+NOWAYOS: input-print: key up 0x2b
+NOWAYOS: input-print: key up 0xe1
+# Up, Down, Right, Left; Up again (SS3).
+NOWAYOS: input-print: key down 0x52
+NOWAYOS: input-print: key up 0x52
+NOWAYOS: input-print: key down 0x51
+NOWAYOS: input-print: key up 0x51
+NOWAYOS: input-print: key down 0x4f
+NOWAYOS: input-print: key up 0x4f
+NOWAYOS: input-print: key down 0x50
+NOWAYOS: input-print: key up 0x50
+NOWAYOS: input-print: key down 0x52
+NOWAYOS: input-print: key up 0x52
+# Escape, alone.
+NOWAYOS: input-print: key down 0x29
+NOWAYOS: input-print: key up 0x29
+# Ctrl-Up, F1 and a byte above 0x7E: dropped and counted, nothing sent.
+NOWAYOS: uart-input: dropped so far - bytes of no key: 1, sequences of no key: 2, cut short: 0, bad bytes: 0, overruns: 0, presses with no room: 0
+# A sequence cut short by CR: counted, and the CR is Enter.
+NOWAYOS: uart-input: dropped so far - bytes of no key: 1, sequences of no key: 2, cut short: 1, bad bytes: 0, overruns: 0, presses with no room: 0
+NOWAYOS: input-print: key down 0x28
+NOWAYOS: input-print: key up 0x28
+# A sequence left open, cut short when the line goes quiet.
+NOWAYOS: uart-input: dropped so far - bytes of no key: 1, sequences of no key: 2, cut short: 2, bad bytes: 0, overruns: 0, presses with no room: 0
+# A key after it all.
+NOWAYOS: input-print: key down 0x1d
+NOWAYOS: input-print: key up 0x1d
+
+# Output that fails the test at once if it appears anywhere (substring match):
+# a fault reported by the Microkit monitor, a kernel error message, a panic, a
+# PD giving up, a record reaching the UI malformed, an event refused by the
+# broker, over its rate or that did not fit the UI's ring, or an interrupt
+# not acknowledged.
+!MON|ERROR
+!seL4(CPU
+!panicked
+!gave up
+!input-print: refused
+!input-broker: refused
+!over its rate
+!the UI's ring is full
+!could not acknowledge

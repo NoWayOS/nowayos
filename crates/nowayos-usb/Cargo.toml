@@ -1,0 +1,17 @@
+[package]
+name = "nowayos-usb"
+description = "USB host logic from the public specifications: xHCI's ring records, contexts and registers' fields, USB descriptors and requests, a device's enumeration, HID boot-protocol reports turned into canonical input events, audio streaming interfaces' isochronous transfers, and a USB camera's Motion JPEG frames, whole, for a client"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+nowayos-input.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true

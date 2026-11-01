@@ -1,0 +1,32 @@
+[package]
+name = "nowayos-watchdog"
+description = "The watchdog PD: services the hardware watchdog only while every PD it watches answers its heartbeat each round, and names every PD that missed. A library a system runs from a program of its own that names the PDs it watches, and the program NoWayOS's test systems run"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+# A library, so that a product system can run the watchdog from a program of
+# its own that names the PDs it watches (wrapping `init`), and the program
+# NoWayOS's test systems run.
+[lib]
+path = "src/lib.rs"
+test = false
+doctest = false
+bench = false
+
+[[bin]]
+name = "nowayos-watchdog"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+nowayos-heartbeat.workspace = true
+# The Pi 5's PM watchdog, through its registers.
+nowayos-hw.workspace = true
+sel4-microkit.workspace = true
+
+[lints]
+workspace = true

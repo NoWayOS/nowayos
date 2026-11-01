@@ -1,0 +1,37 @@
+# Lines tools/qemu-test must see, in this order, as whole serial lines.
+# The clickable demo with QEMU's display and input. The driver, the
+# display and the broker start; the UI learns the screen and shows its first
+# frame; then ui-interactive.qmp plays the session over QMP, and the display
+# shows each step's golden image (by hash; the QMP script also compares
+# QEMU's screen with each image), with the UI's actions between.
+NOWAYOS: virtio-input: starting
+NOWAYOS: virtio-input: 2 input devices ready, on transports 6 and 7
+NOWAYOS: display: starting
+NOWAYOS: display: showing a 1920x1064 Xrgb8888 screen on QEMU's ramfb, from 1920x1064 Rgb565 frames at scale 2
+NOWAYOS: input-broker: starting; 2 sources, screen 1920x1064, each source 64 events at once and 250 a second
+NOWAYOS: ui: starting
+NOWAYOS: ui: the display is 1920x1064 Rgb565 at scale 2
+NOWAYOS: display: showing 0xa1d7ff36f18a8b5e
+NOWAYOS: display: showing 0xa1a6c1e2b51a9df2
+NOWAYOS: display: showing 0x1f109f765165f4fd
+NOWAYOS: display: showing 0x80b7a1054e522dd6
+NOWAYOS: ui: action Help
+NOWAYOS: display: showing 0x6da482d0089f7e92
+NOWAYOS: ui: action Continue
+NOWAYOS: display: showing 0x040c3097a0720af6
+NOWAYOS: ui: action Start again
+NOWAYOS: display: showing 0xa1d7ff36f18a8b5e
+
+# Output that fails the test at once if it appears anywhere (substring match):
+# a fault reported by the Microkit monitor, a kernel error message, a panic, a
+# PD giving up, a record refused or rejected, or input dropped anywhere - by
+# the driver, at the broker's rate or for want of room in the UI's ring.
+!MON|ERROR
+!seL4(CPU
+!panicked
+!gave up
+!refused
+!rejected
+!dropped so far
+!over its rate
+!the UI's ring is full

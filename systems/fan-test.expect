@@ -1,0 +1,17 @@
+# Lines tools/pi-run must see, in this order, as whole serial lines (the Pi
+# 5 only: rpi5b_2gb/fan-test.system). The fan starts at full speed,
+# PWM1 counts, and after 3 s the fan follows the SoC's temperature; the
+# temperature, level and speed lines between them vary, and are not checked.
+NOWAYOS: fan: PWM1's channel 3 drives GPIO45 at 24 kHz: full speed for 3 s to start
+NOWAYOS: fan: PWM1 is counting
+NOWAYOS: fan: started: following the SoC's temperature
+
+# Output that fails the run at once if it appears anywhere (substring match).
+!MON|ERROR
+!seL4(CPU
+!fan: gave up
+!no temperature
+!not counting
+!could not set
+!refused
+!panicked

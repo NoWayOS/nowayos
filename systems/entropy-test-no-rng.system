@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    entropy-test's counterpart with no random source: the same PDs and grants, but entropy-test-no-rng.qemu puts no
+    virtio-rng on transport 8. The entropy PD finds no source and hands out
+    no seeds; the consumer is refused, finds no seed on its ring and stays
+    not ready. Every grant is listed in entropy-test-no-rng.grants (checked
+    by tools/check-system).
+-->
+<system>
+    <memory_region name="rng_regs" size="@rng" phys_addr="@rng" />
+    <memory_region name="rng_requests" size="0x1000" />
+    <memory_region name="seed_ring" size="0x1000" />
+    <memory_region name="seed_ring_control" size="0x1000" />
+
+    <protection_domain name="entropy" priority="200" stack_size="0x10000">
+        <program_image path="nowayos-entropy-source.elf" />
+        <map mr="rng_regs" vaddr="0x200_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_device_0_vaddr" setvar_size="nowayos_device_0_size" />
+        <map mr="rng_requests" vaddr="0x300_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_dma_0_vaddr" setvar_size="nowayos_dma_0_size" />
+        <setvar symbol="nowayos_dma_0_paddr" region_paddr="rng_requests" />
+        <map mr="seed_ring" vaddr="0x4000_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+        <map mr="seed_ring_control" vaddr="0x4000_1000" perms="r"
+             setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+        <irq irq="@rng[0]" id="8" trigger="@rng" />
+    </protection_domain>
+
+    <protection_domain name="seed_consumer" priority="100" stack_size="0x10000">
+        <program_image path="nowayos-seed-consumer.elf" />
+        <map mr="seed_ring_control" vaddr="0x4000_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+        <map mr="seed_ring" vaddr="0x4000_1000" perms="r"
+             setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+    </protection_domain>
+
+    <channel>
+        <end pd="entropy" id="0" />
+        <end pd="seed_consumer" id="0" />
+    </channel>
+</system>

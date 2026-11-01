@@ -1,0 +1,38 @@
+# Everything systems/usb-audio-test.system grants, one fact per line.
+# tools/check-system fails the build if the system description grants anything
+# not listed here, or lists anything it does not grant, and checks the map
+# rights again in the kernel objects the Microkit tool generates (format: see
+# tools/check-system). A change here is a security change: call it out in the
+# pull request.
+
+# A test system: usb0 runs nowayos-usb-tone, a test instrument.
+system test
+role timer driver
+role usb0 test
+
+# The timer runs above the PD that calls it. Full budgets.
+pd timer priority=200 budget=1000 period=1000
+pd usb0 priority=100 budget=1000 period=1000
+
+# The controller's register window, by name from the board file: uncached,
+# its PD only; and, on QEMU, its PCI function's configuration page, to place
+# the window (nowayos_hw::pci).
+device usb0 xhci0 rw
+device usb0 xhci0_config rw
+
+# The controller's rings, contexts, buffers and streams, which it reads and
+# writes by DMA: the PD learns the region's physical address to give the
+# controller.
+map usb0 usb0_memory rw
+paddr usb0 usb0_memory
+
+# The board's facts about the controller (device-xhci0.bin). Configuration,
+# read-only.
+map usb0 xhci0_facts r
+
+# Only the timer PD holds the timer's interrupt.
+irq timer phys_timer
+
+# usb0 calls the timer for its tick; the timer notifies it.
+channel usb0 timer notify=timer
+call usb0 timer

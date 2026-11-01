@@ -1,0 +1,33 @@
+[package]
+name = "nowayos-gem-net"
+description = "The NIC driver PD for a Cadence GEM MAC - RP1's on the Raspberry Pi 5 - polled, passing frames to one client through sDDF's network queues"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+# A library, so that a product's system can run this PD from a program of its
+# own (wrapping `init`), and the program NoWayOS's systems run.
+[lib]
+path = "src/lib.rs"
+test = false
+doctest = false
+bench = false
+
+[[bin]]
+name = "nowayos-gem-net"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+nowayos-gem.workspace = true
+nowayos-hw.workspace = true
+nowayos-net.workspace = true
+nowayos-region.workspace = true
+nowayos-timer-api = { workspace = true, features = ["client"] }
+sel4-microkit.workspace = true
+
+[lints]
+workspace = true

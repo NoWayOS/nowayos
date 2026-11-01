@@ -1,0 +1,11 @@
+# Standard-library crates compiled into the protection domains by build-std
+# (.cargo/config.toml), with their licences as the pinned nightly's rust-src
+# declares them. cargo-deny cannot see these: they are not in Cargo.lock.
+# tools/check-std-crates (make std-crates-check, part of make container-ci)
+# fails if the set the PDs are built from, or a licence, differs from this
+# list, so a toolchain bump that changes them is reviewed here.
+#
+# crate             licence
+core                MIT OR Apache-2.0
+alloc               MIT OR Apache-2.0
+compiler_builtins MIT AND Apache-2.0 WITH LLVM-exception AND (MIT OR Apache-2.0) # outside the house list, signed off

@@ -1,0 +1,7 @@
+# QEMU devices entropy-stuck-test's PDs drive (tools/make/system.mk): the
+# virtio transports on the modern interface, and virtio-rng on transport 8
+# fed from /dev/zero - a stuck source, the entropy design's test instrument
+# - so its every byte is zero.
+-global virtio-mmio.force-legacy=false
+-object rng-random,id=rng0,filename=/dev/zero
+-device virtio-rng-device,rng=rng0,bus=virtio-mmio-bus.8

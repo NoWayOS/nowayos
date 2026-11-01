@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    The timer PD gives other PDs a monotonic time
+    and bounded timeouts. Two clients run the same program and pick their
+    script by name:
+
+        client_alpha   reads the time five times and checks it never goes
+                       back; checks that malformed requests and bad timeouts
+                       are refused with their typed errors; sets three
+                       timeouts and cancels one at once
+        client_beta    sets three timeouts, fills its fourth slot, and
+                       checks that a fifth is refused
+
+    The two clients' timeouts interleave (100, 300, 500, 700, 1100 ms; the
+    cancelled one at 900 ms), so the serial output shows them expiring in
+    deadline order across clients, none early, and the cancelled one never.
+    The 200 ms gaps leave room for the serial output between the clients
+    setting their timeouts: about 40 ms at the Pi 5's 115200 baud.
+
+    The timer PD reads the counter and programs the CPU's EL1 physical
+    timer, whose interrupt (phys_timer in the qemu_virt_aarch64 board file)
+    Microkit 2.3.1 exports to user level on QEMU only. The Pi 5
+    builds rpi5b_2gb/timer-demo.system instead: this system with the
+    timer PD woken by BCM2712's system timer; the same expect file.
+
+    Capabilities: the timer PD holds the timer interrupt and nothing else.
+    Each client holds only its end of its channel, on which it may call the
+    timer PD (pp="true") and be notified by it, and may not notify it. A
+    protected procedure call must go to a strictly higher priority: the
+    timer PD runs above its clients. Priorities and budgets are justified in
+    timer-demo.grants.
+
+    Every grant above is also listed in timer-demo.grants, which
+    tools/check-system compares with this file and with the kernel objects
+    the Microkit tool generates (make image, make qemu-test).
+-->
+<system>
+    <protection_domain name="timer" priority="200" stack_size="0x10000">
+        <program_image path="nowayos-timer.elf" />
+        <irq irq="@phys_timer" id="0" trigger="@phys_timer" />
+    </protection_domain>
+
+    <protection_domain name="client_alpha" priority="100" stack_size="0x10000">
+        <program_image path="nowayos-timer-client.elf" />
+    </protection_domain>
+
+    <protection_domain name="client_beta" priority="90" stack_size="0x10000">
+        <program_image path="nowayos-timer-client.elf" />
+    </protection_domain>
+
+    <!-- Each client calls the timer; the timer notifies it of expiries. -->
+    <channel>
+        <end pd="client_alpha" id="0" pp="true" notify="false" />
+        <end pd="timer" id="1" />
+    </channel>
+    <channel>
+        <end pd="client_beta" id="0" pp="true" notify="false" />
+        <end pd="timer" id="2" />
+    </channel>
+</system>

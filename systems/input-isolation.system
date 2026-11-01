@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    negative tests at the UI's side of the input broker. Each
+    probe maps exactly what ui, the UI's stand-in, maps in
+    input-broker-test.system - the ring from the broker, with the same
+    regions, rights and addresses, though not its channel - and has the UI's
+    role, and makes one access those maps do not allow. seL4 must stop it and
+    send the fault to input_isolation_parent, which reports it; broker_side,
+    a bystander standing in for the broker's view of a driver's ring, must
+    keep running with its private page intact.
+
+        ui_writes_driver_ring   writes 0x4100_0000, where the broker maps the
+                                tablet's ring and broker_side keeps its
+                                private page: the UI cannot reach a driver's
+                                ring to forge input
+        ui_writes_broker_ring   writes its ring from the broker, which it maps
+                                read-only: the UI cannot alter the events the
+                                broker sends it
+
+    The probes run the same program image and pick their probe by PD name
+    (pds/isolation-probe); the parent picks its test by its own name.
+    tools/test_tools.py checks each probe's maps, stack size and role against
+    ui's in input-broker-test.system.
+
+    The static half is the grants check, run on input-broker-test itself: the
+    UI maps exactly its ring from the broker and the broker exactly its rings
+    (rules 1, 4 and 6), and neither the UI nor the broker may hold a device or
+    an interrupt (rule 11, tools/grant-rules.toml).
+
+    Priorities make the order deterministic on one core: the parent, then
+    broker_side, then the probes in the order above.
+-->
+<system>
+    <memory_region name="ui_messages" size="0x1000" />
+    <memory_region name="ui_control" size="0x1000" />
+    <memory_region name="driver_ring" size="0x1000" />
+
+    <protection_domain name="input_isolation_parent" priority="100" stack_size="0x10000">
+        <program_image path="nowayos-isolation-parent.elf" />
+
+        <!-- ui's maps (input-broker-test.system), twice. -->
+        <protection_domain name="ui_writes_driver_ring" id="0" priority="30" stack_size="0x10000">
+            <program_image path="nowayos-isolation-probe.elf" />
+            <map mr="ui_control" vaddr="0x4000_0000" perms="rw"
+                 setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+            <map mr="ui_messages" vaddr="0x4000_1000" perms="r"
+                 setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+        </protection_domain>
+
+        <protection_domain name="ui_writes_broker_ring" id="1" priority="20" stack_size="0x10000">
+            <program_image path="nowayos-isolation-probe.elf" />
+            <map mr="ui_control" vaddr="0x4000_0000" perms="rw"
+                 setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+            <map mr="ui_messages" vaddr="0x4000_1000" perms="r"
+                 setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+        </protection_domain>
+    </protection_domain>
+
+    <!-- broker_side: a bystander standing in for the broker's view of the tablet's ring.
+         0x4100_0000: pds/isolation-probe/src/forbidden.rs, Unmapped::DriverRing -->
+    <protection_domain name="broker_side" priority="50" stack_size="0x10000">
+        <program_image path="nowayos-isolation-bystander.elf" />
+        <map mr="driver_ring" vaddr="0x4100_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+    </protection_domain>
+
+    <!-- "Are you still running?" and the answer. -->
+    <channel>
+        <end pd="input_isolation_parent" id="0" />
+        <end pd="broker_side" id="0" />
+    </channel>
+</system>

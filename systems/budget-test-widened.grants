@@ -1,0 +1,22 @@
+# Everything systems/budget-test-widened.system grants, one fact per line.
+# tools/check-system fails the build if the system description grants
+# anything not listed here, or lists anything it does not grant (format: see
+# tools/check-system). A change here is a security change: call it out in the
+# pull request.
+
+# The kind of system, and each PD's role (tools/grant-rules.toml).
+system test
+role timer driver
+role looper test
+role heartbeat test
+
+# The looper's budget widened to its period: 10 ms in every 10 ms.
+pd timer priority=200 budget=1000 period=1000
+pd looper priority=150 budget=10000 period=10000
+pd heartbeat priority=100 budget=1000 period=1000
+
+irq timer phys_timer
+
+channel heartbeat timer notify=timer
+call heartbeat timer
+channel heartbeat looper notify=heartbeat

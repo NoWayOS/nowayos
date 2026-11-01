@@ -1,0 +1,15 @@
+# Lines tools/qemu-test must see, in this order, as whole serial lines:
+# on an arena below the largest handshake's peak, the handshake
+# starts, the arena refuses a request part way through, the PD reports it,
+# and the allocation error stops the PD - the Microkit monitor reports it
+# faulted. The request's size is printed too but not checked here.
+NOWAYOS: tls-test-small-arena: starting; arena 262144 bytes
+NOWAYOS: tls-test-small-arena: largest handshake starting
+NOWAYOS: tls-test-small-arena: the arena refused an allocation
+MON|ERROR: faulting PD: tls_test_small_arena
+
+# Output that fails the test at once if it appears anywhere (substring
+# match): the PD carrying on - a handshake that completed, or that failed
+# and returned - or a kernel error message.
+!handshake completed
+!handshake failed

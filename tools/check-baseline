@@ -1,0 +1,467 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT OR Apache-2.0
+"""Check Cargo workspaces against the NoWayOS baseline.
+
+Usage:
+    check-baseline [--baseline FILE] [--root DIR] [--no-metadata] WORKSPACE...
+
+Every Cargo workspace in NoWayOS must meet tools/baseline.toml. For each WORKSPACE directory, which holds
+a Cargo.toml with [workspace] and a deny.toml, this checks:
+
+* [workspace.lints]: every baseline lint, at its level or stricter;
+* [profile.release] and [profile.dev]: the baseline's values;
+* every member takes the workspace lints (`[lints] workspace = true`), or
+  has its own table meeting the baseline - where `unsafe_code` may be
+  "deny", for the approved-unsafe crates (tools/check-unsafe polices those);
+* deny.toml: the baseline's advisory, licence, ban and source settings,
+  with the allowed licences a subset of the house list;
+* the named bans: every crate the baseline bans ([deny.bans]
+  deny) is banned outright in deny.toml's [bans] deny - the whole crate,
+  with no version requirement, no `wrappers` it may still come through
+  and no `deny-multiple-versions`, which bans only a second version. A
+  workspace may ban more;
+* the whole graph: no deny.toml setting narrows the graph cargo-deny
+  checks, as each lets a banned crate through unseen - [graph] exclude in
+  any form (it also drops everything only an excluded crate brings in),
+  exclude-dev, a list of targets, no-default-features or
+  exclude-unpublished - and none of those keys, or features and
+  all-features, sits outside [graph], where cargo-deny still honours them;
+* Cargo.lock: the workspace has one, and it holds none of the banned
+  crates, in any spelling. It lists every crate a --locked build can use,
+  for every feature and platform, dev-dependencies included, so this
+  holds even where cargo-deny checks default features only
+  (all-features = false);
+* the local-crate guard: third-party code comes from crates.io, never as a
+  local crate, and a skipped licence check ([licenses.private] ignore =
+  true, which a product whose own crates carry no licence needs) must not
+  wave another licence through. Every local (path) crate in the dependency graph must be a
+  member this workspace declares, a member another WORKSPACE given in the
+  same run declares (a product's pds/ using its own root workspace's
+  crates), a NoWayOS crate in nowayos/crates, or a member NoWayOS's pds/
+  workspace declares (a product's PDs running NoWayOS's PD libraries, such
+  as the timer);
+  must have `publish = false`; and may carry a licence field only with
+  licences from the house list (NoWayOS's own, MIT OR Apache-2.0, among
+  them) - but for the reviewed allowances, LICENSED_LOCAL_CRATES: NoWayOS's
+  glyph atlases, which are the signed-off font's licence, OFL-1.1, at their
+  path. No crate from a registry or git may be marked `publish = false`. This runs
+  `cargo metadata`; --no-metadata skips it.
+
+Every failure names the workspace (relative to the NoWayOS workspace
+root, for example 'nowayos/pds') and the setting.
+
+Exit status: 0 every workspace meets the baseline; 1 drift found; 2 usage
+or setup error. Python 3.11 or later (tomllib), standard library only.
+"""
+
+import argparse
+import fnmatch
+import glob
+import json
+import os
+import subprocess
+import sys
+import tomllib
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+EXIT_PASS = 0
+EXIT_FAIL = 1
+EXIT_ERROR = 2
+LEVELS = {"allow": 0, "expect": 0, "warn": 1, "deny": 2, "forbid": 3}
+# A crate with its own lint table (the approved-unsafe crates) may relax
+# only this lint, and only this far.
+OWN_TABLE_RELAXED = {("rust", "unsafe_code"): "deny"}
+# deny.toml's [graph] settings that narrow the graph cargo-deny checks, and
+# what its bans then never see; only unset, false or [] keeps the whole
+# graph. cargo-deny 0.20.2 passed a banned crate from crates.io with each of
+# the first four.
+GRAPH_NARROWING = {
+    "exclude": "the crates it names, in any spelling, or anything only they bring in",
+    "exclude-dev": "a dev-dependency",
+    "targets": "a crate only other platforms use",
+    "no-default-features": "a crate only a default feature brings in",
+    "exclude-unpublished": "an unpublished crate",
+}
+# Graph keys cargo-deny still reads outside [graph] (deprecated there).
+GRAPH_KEYS_AT_TOP = ("targets", "exclude", "features", "all-features", "no-default-features",
+                     "exclude-dev")
+# The local crates that may declare a licence, each at one place with one
+# licence, reviewed. nowayos-glyphs: the glyph atlases are a Modified Version
+# of the signed-off font under the SIL Open Font License 1.1 and nothing else,
+# so their crate says so, whatever licence NoWayOS takes.
+LICENSED_LOCAL_CRATES = {
+    "nowayos-glyphs": (os.path.join("nowayos", "crates", "nowayos-glyphs"), "OFL-1.1"),
+    # nowayos-icons: the icons' masks are made from Lucide's icons under the
+    # ISC licence, so their crate says so.
+    "nowayos-icons": (os.path.join("nowayos", "crates", "nowayos-icons"), "ISC"),
+}
+
+
+class SetupError(Exception):
+    """A file that cannot be read or parsed; the message says which."""
+
+
+def load_toml(path):
+    try:
+        with open(path, "rb") as handle:
+            return tomllib.load(handle)
+    except OSError as err:
+        raise SetupError(f"cannot read {path}: {err}") from err
+    except tomllib.TOMLDecodeError as err:
+        raise SetupError(f"{path} is not valid TOML: {err}") from err
+
+
+def show(value):
+    """A setting as it would be written in TOML, or "unset"."""
+    if value is None:
+        return "unset"
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    return repr(value)
+
+
+def lint_level(value):
+    """A Cargo lint setting is "level" or {level = "...", priority = N}."""
+    if isinstance(value, dict):
+        value = value.get("level")
+    return value if value in LEVELS else None
+
+
+def check_lints(where, table, baseline, relaxed=None):
+    """Problems with one lints table (rust and clippy groups)."""
+    relaxed = relaxed or {}
+    problems = []
+    for group, lints in baseline.items():
+        have = table.get(group, {})
+        for lint, wanted in lints.items():
+            level = lint_level(have.get(lint))
+            floor = relaxed.get((group, lint), wanted)
+            if level is None or LEVELS[level] < LEVELS[floor]:
+                problems.append(f"{where} {group}::{lint} is {show(level)}; "
+                                f"the baseline needs {show(wanted)}")
+    return problems
+
+
+def members(workspace, manifest):
+    """Manifest paths of the workspace's members, from [workspace] members."""
+    section = manifest.get("workspace", {})
+    excluded = {os.path.normpath(os.path.join(workspace, e)) for e in section.get("exclude", [])}
+    found = []
+    if "package" in manifest:
+        found.append(os.path.join(workspace, "Cargo.toml"))
+    for pattern in section.get("members", []):
+        for directory in sorted(glob.glob(os.path.join(workspace, pattern))):
+            path = os.path.join(directory, "Cargo.toml")
+            if os.path.normpath(directory) not in excluded and os.path.isfile(path):
+                found.append(path)
+    return found
+
+
+def check_cargo(label, workspace, baseline):
+    """Problems with the workspace's Cargo.toml and its members' lint tables."""
+    manifest = load_toml(os.path.join(workspace, "Cargo.toml"))
+    if "workspace" not in manifest:
+        raise SetupError(f"{workspace}/Cargo.toml has no [workspace]")
+    problems = check_lints(f"{label}: Cargo.toml [workspace.lints]",
+                           manifest["workspace"].get("lints", {}), baseline["lints"])
+    profiles = manifest.get("profile", {})
+    for profile, settings in baseline["profile"].items():
+        for key, wanted in settings.items():
+            found = profiles.get(profile, {}).get(key)
+            if found != wanted:
+                problems.append(f"{label}: Cargo.toml [profile.{profile}] {key} is "
+                                f"{show(found)}; the baseline needs {show(wanted)}")
+    crate_manifests = members(workspace, manifest)
+    for path in crate_manifests:
+        crate = load_toml(path)
+        name = crate.get("package", {}).get("name", os.path.basename(os.path.dirname(path)))
+        lints = crate.get("lints")
+        if lints == {"workspace": True}:
+            continue
+        if not lints:
+            problems.append(f"{label}: crate {name} does not take the workspace lints "
+                            f"([lints] workspace = true)")
+            continue
+        problems += check_lints(f"{label}: crate {name} [lints]", lints, baseline["lints"],
+                                OWN_TABLE_RELAXED)
+    return problems, len(crate_manifests)
+
+
+def check_deny(label, workspace, baseline):
+    """Problems with the workspace's deny.toml."""
+    deny = load_toml(os.path.join(workspace, "deny.toml"))
+    wanted = baseline["deny"]
+    problems = []
+
+    def setting(section, key):
+        return deny.get(section, {}).get(key)
+
+    for section in ("advisories", "bans", "sources"):
+        for key, value in wanted[section].items():
+            if (section, key) == ("bans", "deny"):
+                continue  # the named bans: ban_problems
+            if setting(section, key) != value:
+                problems.append(f"{label}: deny.toml [{section}] {key} is "
+                                f"{show(setting(section, key))}; the baseline needs {show(value)}")
+    licences = wanted["licenses"]
+    extra = [name for name in setting("licenses", "allow") or [] if name not in licences["allow"]]
+    if extra:
+        problems.append(f"{label}: deny.toml [licenses] allow adds {', '.join(extra)}, outside "
+                        f"the house list; use a [[licenses.exceptions]] entry with its sign-off")
+    threshold = setting("licenses", "confidence-threshold")
+    if not isinstance(threshold, (int, float)) or threshold < licences["confidence-threshold"]:
+        problems.append(f"{label}: deny.toml [licenses] confidence-threshold is {show(threshold)}; "
+                        f"the baseline needs at least {licences['confidence-threshold']}")
+    if setting("licenses", "include-dev") != licences["include-dev"]:
+        problems.append(f"{label}: deny.toml [licenses] include-dev is "
+                        f"{show(setting('licenses', 'include-dev'))}; the baseline needs "
+                        f"{show(licences['include-dev'])}")
+    problems += ban_problems(label, deny, baseline_bans(wanted))
+    problems += graph_problems(label, deny)
+    skips_private = deny.get("licenses", {}).get("private", {}).get("ignore", False) is True
+    return problems, skips_private
+
+
+def baseline_bans(wanted):
+    """The crates the baseline bans, each a table naming a whole crate and
+    its reason, or raise SetupError."""
+    bans = wanted["bans"].get("deny", [])
+    if not isinstance(bans, list) or not all(
+            isinstance(ban, dict) and isinstance(ban.get("crate"), str) and "@" not in ban["crate"]
+            and str(ban.get("reason", "")).strip() for ban in bans):
+        raise SetupError("the baseline's [deny.bans] deny must list tables, each naming a whole crate "
+                         "(crate = NAME) and its reason")
+    return bans
+
+
+def listed(value):
+    """A list from deny.toml, or no entries when it is something else
+    (cargo-deny refuses that itself)."""
+    return value if isinstance(value, list) else []
+
+
+def ban_problems(label, deny, bans):
+    """The named bans: each crate in `bans` is banned outright by
+    deny.toml's [bans] deny. cargo-deny takes an entry as "NAME",
+    "NAME@VERSIONS" or a table whose crate is either; only the whole crate,
+    with no wrappers and no deny-multiple-versions, bans it outright. Any
+    other form (a `name` key, a source URL) is not counted, so it fails."""
+    outright, in_part = set(), {}
+    for entry in listed(deny.get("bans", {}).get("deny")):
+        table = entry if isinstance(entry, dict) else {}
+        spec = entry if isinstance(entry, str) else table.get("crate")
+        if not isinstance(spec, str):
+            continue
+        name, _, versions = spec.partition("@")
+        limits = []
+        if versions:
+            limits.append(f"only versions {versions}")
+        if table.get("wrappers"):
+            limits.append("not through its wrappers " + ", ".join(map(str, listed(table["wrappers"]))))
+        if table.get("deny-multiple-versions") is True:
+            limits.append("only a second version (deny-multiple-versions)")
+        if limits:
+            in_part.setdefault(name, []).extend(limits)
+        else:
+            outright.add(name)
+    problems = []
+    for ban in bans:
+        name, reason = ban["crate"], ban["reason"]
+        if name in in_part and name not in outright:
+            problems.append(f"{label}: deny.toml [bans] deny bans {name} only in part "
+                            f"({'; '.join(in_part[name])}); the baseline bans the whole crate ({reason})")
+        elif name not in outright:
+            problems.append(f"{label}: deny.toml [bans] deny does not ban {name}; the baseline "
+                            f"bans it ({reason})")
+    return problems
+
+
+def graph_problems(label, deny):
+    """The whole graph: no deny.toml setting narrows the graph
+    cargo-deny checks, since a ban never sees a crate left out of it. Every
+    [graph] key in GRAPH_NARROWING must be unset, false or empty - a list
+    is refused whatever it names, as cargo-deny accepts many spellings of a
+    crate and excluding a parent drops what only it brings in - and no graph
+    key may sit outside [graph]."""
+    problems = []
+    graph = deny.get("graph", {})
+    if not isinstance(graph, dict):
+        graph = {}
+    for key, unseen in GRAPH_NARROWING.items():
+        value = graph.get(key)
+        if value is not None and value is not False and value != []:
+            problems.append(f"{label}: deny.toml [graph] {key} is {show(value)}; the baseline needs it "
+                            f"unset, false or empty: with it, cargo-deny's bans never see {unseen}")
+    for key in GRAPH_KEYS_AT_TOP:
+        if key in deny:
+            problems.append(f"{label}: deny.toml sets {key} outside [graph], where cargo-deny still "
+                            f"reads it; the baseline needs graph settings in [graph], where it checks them")
+    return problems
+
+
+def canonical_crate_name(name):
+    """A crate name as crates.io compares names: case and - or _ aside."""
+    return name.lower().replace("_", "-")
+
+
+def lock_problems(label, workspace, bans):
+    """The named bans in Cargo.lock: it lists every crate a --locked
+    build can use, for every feature and platform, dev-dependencies
+    included, so a banned crate is refused here whatever cargo-deny's graph
+    leaves out (optional dependencies, where all-features = false). A crate
+    is matched by name, in any spelling, wherever it comes from."""
+    path = os.path.join(workspace, "Cargo.lock")
+    if not os.path.isfile(path):
+        return [f"{label}: has no Cargo.lock; every workspace commits one and builds with --locked, "
+                f"and the baseline's bans are checked against it"]
+    reasons = {canonical_crate_name(ban["crate"]): ban["reason"] for ban in bans}
+    problems = []
+    for package in listed(load_toml(path).get("package")):
+        name = package.get("name") if isinstance(package, dict) else None
+        if isinstance(name, str) and canonical_crate_name(name) in reasons:
+            problems.append(f"{label}: Cargo.lock holds {name} {package.get('version')}; the baseline "
+                            f"bans it ({reasons[canonical_crate_name(name)]})")
+    return problems
+
+
+def matches_glob(folder, pattern):
+    """Whether a folder matches a Cargo `members` glob, part by part: as in
+    Cargo, `*` never matches across a `/`."""
+    parts = folder.split(os.sep)
+    globs = pattern.split("/")
+    return len(parts) == len(globs) and all(
+        fnmatch.fnmatchcase(part, glob_part) for part, glob_part in zip(parts, globs))
+
+
+def declared_member_dirs(workspace):
+    """The real folders of the crates a workspace's Cargo.toml declares."""
+    manifest = load_toml(os.path.join(workspace, "Cargo.toml"))
+    found = set()
+    if "package" in manifest:
+        found.add(os.path.realpath(workspace))
+    for pattern in manifest.get("workspace", {}).get("members", []):
+        for folder in glob.glob(os.path.join(workspace, pattern)):
+            if os.path.isfile(os.path.join(folder, "Cargo.toml")):
+                found.add(os.path.realpath(folder))
+    return found
+
+
+def licence_ids(expression):
+    """The licence identifiers in an SPDX expression ("MIT OR Apache-2.0"),
+    or None for one this guard does not read (an exception, WITH)."""
+    tokens = expression.replace("(", " ").replace(")", " ").split()
+    if "WITH" in tokens:
+        return None
+    return [token for token in tokens if token not in ("OR", "AND")]
+
+
+def local_crate_problems(metadata, nowayos_root, sibling_members=frozenset(), house=()):
+    """The local-crate guard (see the module documentation) over `cargo
+    metadata` output for one workspace. `sibling_members`: the real folders
+    of the crates the other workspaces checked in the same run declare.
+    `house`: the licences the baseline allows."""
+    root = os.path.realpath(metadata["workspace_root"])
+    nowayos_crates = os.path.realpath(os.path.join(nowayos_root, "nowayos", "crates"))
+    nowayos_pds = os.path.join(nowayos_root, "nowayos", "pds")
+    nowayos_pds_members = (declared_member_dirs(nowayos_pds)
+                           if os.path.isfile(os.path.join(nowayos_pds, "Cargo.toml")) else set())
+    members = set(metadata.get("workspace_members", []))
+    member_globs = load_toml(os.path.join(root, "Cargo.toml"))["workspace"].get("members", [])
+    problems = []
+    for package in metadata.get("packages", []):
+        name = f"{package.get('name')} {package.get('version')}"
+        source = package.get("source")
+        if source is not None:
+            if package.get("publish") == []:
+                problems.append(f"{name} from {source} is marked publish = false, so cargo-deny "
+                                f"would skip its licence")
+            continue  # from a registry or git: cargo-deny checks its licence
+        manifest = os.path.realpath(package.get("manifest_path", ""))
+        folder = os.path.relpath(os.path.dirname(manifest), root)
+        declared = folder == "." or any(matches_glob(folder, g) for g in member_globs)
+        if package.get("id") in members:
+            if not declared:
+                problems.append(f"{name}: {folder}/ is a workspace member only because it is a "
+                                f"path dependency inside the repo; it matches none of {member_globs}")
+        elif (os.path.commonpath([manifest, nowayos_crates]) != nowayos_crates
+              and os.path.dirname(manifest) not in sibling_members
+              and os.path.dirname(manifest) not in nowayos_pds_members):
+            problems.append(f"{name}: {manifest} is neither a member of this workspace nor a "
+                            f"NoWayOS crate in nowayos/crates or nowayos/pds, nor a member of "
+                            f"another workspace checked with it")
+        if package.get("publish") != []:
+            problems.append(f"{name}: publish = false is missing")
+        licence = package.get("license")
+        if licence is not None or package.get("license_file") is not None:
+            ids = licence_ids(licence) if licence is not None else None
+            allowed = LICENSED_LOCAL_CRATES.get(package.get("name"))
+            house_licence = (package.get("license_file") is None and ids
+                             and all(i in house for i in ids))
+            allowance = (allowed is not None and package.get("license_file") is None
+                         and licence == allowed[1]
+                         and os.path.dirname(manifest) == os.path.realpath(os.path.join(nowayos_root, allowed[0])))
+            if not (house_licence or allowance):
+                problems.append(f"{name}: has a licence field outside the house list "
+                                f"({', '.join(house)}), and is not a reviewed allowance ("
+                                f"{', '.join(f'{crate}, {lic}, in {where}' for crate, (where, lic) in LICENSED_LOCAL_CRATES.items())}); "
+                                f"third-party code comes from crates.io, not as a local crate")
+    return problems
+
+
+def cargo_metadata(workspace):
+    result = subprocess.run(
+        ["cargo", "metadata", "--format-version", "1", "--locked", "--all-features"],
+        cwd=workspace, capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        raise SetupError(f"cargo metadata failed in {workspace}: {result.stderr.strip()}")
+    return json.loads(result.stdout)
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Check Cargo workspaces against the baseline.")
+    parser.add_argument("workspaces", nargs="+", metavar="WORKSPACE")
+    parser.add_argument("--baseline", default=os.path.join(HERE, "baseline.toml"))
+    parser.add_argument("--root", default=os.path.dirname(os.path.dirname(HERE)),
+                        help="the NoWayOS workspace root (default: nowayos's parent)")
+    parser.add_argument("--no-metadata", action="store_true",
+                        help="skip the unpublished-crate check, which runs cargo metadata")
+    args = parser.parse_args()
+
+    problems, labels, crates = [], [], 0
+    try:
+        baseline = load_toml(args.baseline)
+        declared = {os.path.abspath(w): declared_member_dirs(os.path.abspath(w)) for w in args.workspaces}
+        for workspace in args.workspaces:
+            workspace = os.path.abspath(workspace)
+            siblings = set().union(*(dirs for other, dirs in declared.items() if other != workspace))
+            label = os.path.relpath(workspace, os.path.abspath(args.root))
+            labels.append(label)
+            found, count = check_cargo(label, workspace, baseline)
+            problems += found
+            crates += count
+            found, _ = check_deny(label, workspace, baseline)
+            problems += found
+            problems += lock_problems(label, workspace, baseline_bans(baseline["deny"]))
+            if not args.no_metadata:
+                for problem in local_crate_problems(cargo_metadata(workspace), args.root, siblings,
+                                                    baseline["deny"]["licenses"]["allow"]):
+                    problems.append(f"{label}: local-crate guard: {problem}")
+    except SetupError as err:
+        print(f"check-baseline: {err}", file=sys.stderr)
+        return EXIT_ERROR
+
+    if problems:
+        for problem in problems:
+            print(f"check-baseline: FAIL - {problem}", file=sys.stderr)
+        print(f"check-baseline: {len(problems)} setting(s) differ from {args.baseline}",
+              file=sys.stderr)
+        return EXIT_FAIL
+    verb = "meets" if len(labels) == 1 else "meet"
+    print(f"check-baseline: PASS - {', '.join(labels)} {verb} the baseline "
+          f"({crates} crate(s); {os.path.relpath(args.baseline, os.path.abspath(args.root))})")
+    return EXIT_PASS
+
+
+if __name__ == "__main__":
+    sys.exit(main())

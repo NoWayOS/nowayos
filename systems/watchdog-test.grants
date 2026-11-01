@@ -1,0 +1,56 @@
+# Everything systems/watchdog-test.system grants, one fact per line.
+# tools/check-system fails the build if the system description grants anything
+# not listed here, or lists anything it does not grant, and checks the grants
+# again in the kernel objects the Microkit tool generates (format: see
+# tools/check-system). A change here is a security change: call it out in the
+# pull request.
+
+# The kind of system, and each PD's role (tools/grant-rules.toml): the
+# watchdog may hold no call, child, map or DMA; stand_in and the probes are
+# test instruments (nowayos-watchdog-stand-in.elf, nowayos-heartbeat-probe.elf).
+system test
+role watchdog_supervisor supervisor
+role watchdog watchdog
+role timer driver
+role stand_in test
+role upper test
+role looper test
+role lower test
+
+# The supervisor above every PD, the watchdog above every PD it watches but
+# the supervisor; the timer and stand_in above the
+# probes, so looper's loop cannot stop the ticks. Full budgets: looper, once
+# it loops, starves lower.
+pd watchdog_supervisor priority=254 budget=1000 period=1000
+pd watchdog priority=250 budget=1000 period=1000
+pd timer priority=240 budget=1000 period=1000
+pd stand_in priority=230 budget=1000 period=1000
+pd upper priority=200 budget=1000 period=1000
+pd looper priority=150 budget=1000 period=1000
+pd lower priority=100 budget=1000 period=1000
+
+# The supervisor: every other PD its child, and the SMC capability for PSCI
+# SYSTEM_RESET (unbadged in Microkit 2.3.1: it could make any firmware call).
+child watchdog_supervisor watchdog
+child watchdog_supervisor timer
+child watchdog_supervisor stand_in
+child watchdog_supervisor upper
+child watchdog_supervisor looper
+child watchdog_supervisor lower
+smc watchdog_supervisor
+
+# The heartbeats: notification-only, both ways, the supervisor's its one
+# channel.
+channel watchdog watchdog_supervisor
+channel upper watchdog
+channel looper watchdog
+channel lower watchdog
+
+# The hardware watchdog's stand-in: ticks to the watchdog, servicing back;
+# its ticks timed by the timer, which it calls.
+channel stand_in watchdog
+channel stand_in timer notify=timer
+call stand_in timer
+
+# The timer: QEMU's CPU timer and its interrupt.
+irq timer phys_timer

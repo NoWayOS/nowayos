@@ -1,0 +1,30 @@
+# Cargo configuration for Microkit protection-domain (PD) builds.
+#
+# PDs are built for the custom target `aarch64-sel4` (a JSON target spec from
+# rust-sel4 v5.0.0, kept in pds/support/targets/) with the core library rebuilt
+# from source (build-std). Both need the nightly in pds/rust-toolchain.toml.
+#
+# Run cargo from the pds/ directory (the make targets in tools/make/system.mk
+# do), so that this file and pds/rust-toolchain.toml are picked up.
+
+[env]
+RUST_TARGET_PATH = { value = "support/targets", relative = true }
+
+[build]
+target = "aarch64-sel4"
+
+# rust-sel4 v5.0.0 builds its custom targets with these two unstable-options
+# settings; kept to match upstream. (nightly-2026-04-04 builds the PDs without
+# them too - checked 2026-09-30 - but upstream is the reference when bumping.)
+#
+# getrandom 0.3 and 0.4 in every PD call the one back end nowayos-entropy
+# defines, never another; getrandom 0.2 does
+# through its `custom` feature. A PD that brings getrandom in without linking
+# nowayos-entropy does not link.
+[target.aarch64-sel4]
+rustflags = ["-Zunstable-options", "--cfg", 'getrandom_backend="custom"']
+
+[unstable]
+unstable-options = true
+build-std = ["core", "alloc", "compiler_builtins"]
+build-std-features = ["compiler-builtins-mem"]

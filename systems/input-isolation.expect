@@ -1,0 +1,38 @@
+# Lines tools/qemu-test must see, in this order, as whole serial lines.
+# Negative tests at the UI's side of the input broker. Each probe holds
+# the memory grants of the UI's stand-in in input-broker-test.system and makes
+# one access they do not allow; each must fault, be caught by the parent and
+# reported, and broker_side must answer after each one with its private page
+# intact.
+#
+# The order follows from the priorities in input-isolation.system (one core).
+# Fault lines name what was accessed and why it failed, not code addresses or
+# translation levels, so they do not change from build to build; the "fault
+# detail" lines that follow them carry those and are not checked.
+NOWAYOS: isolation-parent: starting; children ui_writes_driver_ring (0) and ui_writes_broker_ring (1)
+NOWAYOS: isolation-bystander: starting; private page at 0x41000000 holds 0x5afec0de
+NOWAYOS: isolation-probe: ui_writes_driver_ring writing 0x41000000 (where the input broker maps a driver's ring and broker_side keeps its private page), which is not mapped in this PD
+NOWAYOS: isolation-parent: ui_writes_driver_ring stopped: data write at 0x41000000: translation fault (nothing mapped there)
+NOWAYOS: isolation-bystander: still running (check 1); private page intact
+NOWAYOS: isolation-parent: bystander answered after fault 1
+NOWAYOS: isolation-probe: ui_writes_broker_ring read 0x00000000 from its read-only ring from the input broker at 0x40001000
+NOWAYOS: isolation-probe: ui_writes_broker_ring writing to its read-only ring from the input broker at 0x40001000
+NOWAYOS: isolation-parent: ui_writes_broker_ring stopped: data write at 0x40001000: permission fault (the mapping does not allow it)
+NOWAYOS: isolation-bystander: still running (check 2); private page intact
+NOWAYOS: isolation-parent: bystander answered after fault 2
+NOWAYOS: input-isolation: 2 of 2 forbidden accesses faulted and were contained; bystander still running
+
+# Output that fails the test at once if it appears anywhere (substring match):
+# a forbidden access that succeeded, a fault the monitor had to handle (a PD
+# other than a probe faulted), a kernel error message (such as a fault reply
+# left pending), a panic, or anything unexpected.
+!ISOLATION FAILURE
+!MON|ERROR
+!seL4(CPU
+!panicked
+!CHANGED
+!cannot
+!unexpected
+!NOT stopped
+!no probe is defined
+!no test is defined

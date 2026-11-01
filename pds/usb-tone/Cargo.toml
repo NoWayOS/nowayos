@@ -1,0 +1,21 @@
+[package]
+name = "nowayos-usb-tone"
+description = "A test instrument: the USB host PD, streaming every USB audio interface it finds - a tone to a speaker, a microphone's packets counted - and reporting each stream's intervals served and missed. Never in a product's image"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "nowayos-usb-tone"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+nowayos-usb-host.workspace = true
+sel4-microkit.workspace = true
+
+[lints]
+workspace = true

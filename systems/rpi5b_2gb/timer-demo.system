@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    timer-demo for the Raspberry Pi 5: ../timer-demo.system, with
+    the timer PD woken by BCM2712's system timer instead of the CPU's EL1
+    physical timer, which Microkit 2.3.1 does not export to user level on
+    this board. make image BOARD=rpi5b_2gb SYSTEM=timer-demo
+    builds this file (and checks it against timer-demo.grants beside it);
+    every other board builds ../timer-demo.system. The clients, channels,
+    priorities and the expect file are the same: tools/test_tools.py checks
+    that this file differs from ../timer-demo.system only in the timer PD's
+    hardware timer.
+
+    The timer PD maps the system timer's register page uncached, bound as
+    device 0, and holds channel 1's interrupt (the second of the device's
+    four, INTID 97): finding the device bound, it arms channel 1 for each
+    deadline, and still answers the time from the CPU's counter
+    (pds/timer). The page also holds the VideoCore firmware's channels 0
+    and 2; nowayos-hw's view of it reaches channels 1 and 3 only.
+
+    Capabilities: the timer PD holds the system timer's page and channel
+    1's interrupt, and nothing else. Each client holds only its end of its
+    channel, as in ../timer-demo.system.
+-->
+<system>
+    <memory_region name="system_timer_regs" size="@system_timer" phys_addr="@system_timer" />
+
+    <protection_domain name="timer" priority="200" stack_size="0x10000">
+        <program_image path="nowayos-timer.elf" />
+        <map mr="system_timer_regs" vaddr="0x200_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_device_0_vaddr" setvar_size="nowayos_device_0_size" />
+        <irq irq="@system_timer[1]" id="0" trigger="@system_timer" />
+    </protection_domain>
+
+    <protection_domain name="client_alpha" priority="100" stack_size="0x10000">
+        <program_image path="nowayos-timer-client.elf" />
+    </protection_domain>
+
+    <protection_domain name="client_beta" priority="90" stack_size="0x10000">
+        <program_image path="nowayos-timer-client.elf" />
+    </protection_domain>
+
+    <!-- Each client calls the timer; the timer notifies it of expiries. -->
+    <channel>
+        <end pd="client_alpha" id="0" pp="true" notify="false" />
+        <end pd="timer" id="1" />
+    </channel>
+    <channel>
+        <end pd="client_beta" id="0" pp="true" notify="false" />
+        <end pd="timer" id="2" />
+    </channel>
+</system>

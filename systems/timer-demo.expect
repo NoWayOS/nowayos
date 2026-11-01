@@ -1,0 +1,44 @@
+# Lines tools/qemu-test must see, in this order, as whole serial lines.
+# The timer PD answers monotonic time queries,
+# refuses malformed requests and bad timeouts with typed errors, and delivers
+# two clients' timeouts in deadline order, none early. The timer PD starts
+# first, then client_alpha, then client_beta: their priorities. The same
+# lines on the Pi 5 (rpi5b_2gb/timer-demo.system), whose timer PD is
+# woken by the system timer instead: make check-serial checks its log
+# against this file. Which hardware timer, and the counter's frequency, are
+# printed but not checked, as they differ by board. The interleaved
+# deadlines are 200 ms apart, so the order holds while client_beta sets its
+# timeouts within 200 ms of client_alpha. Between the two, about 40 ms of
+# serial output at the Pi's 115200 baud; the 20 ms gaps before left no room
+# for it.
+NOWAYOS: timer: starting
+NOWAYOS: timer-client client_alpha: starting
+NOWAYOS: timer-client client_alpha: 5 readings of the time, in nanoseconds, never decreasing
+NOWAYOS: timer-client client_alpha: request 99 refused: unknown request 99
+NOWAYOS: timer-client client_alpha: a time request with a word too many refused: request 1 sent 1 word(s), the wrong number
+NOWAYOS: timer-client client_alpha: timeouts set: 1 (700 ms), 2 (300 ms); 3 (900 ms) cancelled
+NOWAYOS: timer-client client_alpha: a zero timeout refused: a timeout of zero
+NOWAYOS: timer-client client_alpha: a timeout too long for the counter refused: a timeout of 18446744073709551615 ns is too long
+NOWAYOS: timer-client client_alpha: a second timeout 1 refused: timeout 1 is already set
+NOWAYOS: timer-client client_beta: starting
+NOWAYOS: timer-client client_beta: a fifth timeout refused: too many timeouts: a client may have 4
+NOWAYOS: timer-client client_beta: timeouts set: 1 (500 ms), 2 (1100 ms), 3 (100 ms)
+NOWAYOS: timer-client client_beta: timeout 3 (100 ms) fired, not early
+NOWAYOS: timer-client client_alpha: timeout 2 (300 ms) fired, not early
+NOWAYOS: timer-client client_beta: timeout 1 (500 ms) fired, not early
+NOWAYOS: timer-client client_alpha: timeout 1 (700 ms) fired, not early
+NOWAYOS: timer-client client_beta: timeout 2 (1100 ms) fired, not early
+
+# Output that fails the test at once if it appears anywhere (substring match),
+# including in the second after the last line above: a fault reported by the
+# Microkit monitor, a kernel error message, a panic, a client giving up, the
+# timer PD failing to read the counter's frequency, use or arm its hardware
+# timer, see the system timer count, or acknowledge an interrupt, or a
+# cancelled timeout firing (client_alpha's 3 at 900 ms, client_beta's 4).
+!MON|ERROR
+!seL4(CPU
+!panicked
+!gave up
+!timer: could not
+!client_alpha: timeout 3
+!client_beta: timeout 4

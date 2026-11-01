@@ -1,0 +1,4 @@
+# Line rates make qemu-test-all boots uart-input-test at again: the
+# Pi 5's, where the kernel's debug output - these lines - waits for the UART, and
+# the keys' bytes arrive while the UI's stand-in prints.
+115200

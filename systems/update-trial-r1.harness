@@ -1,0 +1,3 @@
+# Booted by tools/update-trial, run after run, never alone: the make
+# target qemu-test-all runs for this system.
+update-trial-test

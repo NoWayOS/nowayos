@@ -1,0 +1,72 @@
+# Everything systems/input-broker-test.system grants, one fact per line.
+# tools/check-system fails the build if the system description grants anything
+# not listed here, or lists anything it does not grant, and checks the map
+# rights again in the kernel objects the Microkit tool generates (format: see
+# tools/check-system). A change here is a security change: call it out in the
+# pull request.
+
+# The kind of system, and each PD's role (tools/grant-rules.toml). The broker's
+# role forbids it any device memory or interrupt. ui - input_print, a test
+# instrument - stands in the UI's place and input_flood in a driver's, so each
+# has that PD's role and its rules.
+system test
+role virtio_input input
+role input_broker broker
+role ui ui
+role input_flood input
+
+# Priorities: events flow downhill. The driver is highest, so the broker never
+# delays a device's interrupt. The broker is above the UI, so it drains and
+# counts a flood however busy the UI is; it runs only when a source notifies,
+# and each run is bounded - at most four records from each of its three rings,
+# with no blocking and no queue - and what it passes on is bounded by each
+# source's rate (64 events at once, then 250 a second). input_flood, a test
+# instrument, is lowest, so each batch it sends is drained and printed before
+# the next.
+# Budgets: full. Each run of the broker is bounded as above, so it needs no
+# budget of its own to stay brief; a budget below its period would let the
+# UI's output interleave with the broker's, and only a measured frame budget
+# for the UI can set one.
+pd virtio_input priority=200 budget=1000 period=1000
+pd input_broker priority=150 budget=1000 period=1000
+pd ui priority=100 budget=1000 period=1000
+pd input_flood priority=50 budget=1000 period=1000
+
+# Configuration: the UI's screen (800x480), read-only in the PDs that need it.
+map virtio_input screen r
+map input_broker screen r
+
+# The driver: as in virtio-input-test.grants.
+device virtio_input virtio_mmio_24_31 rw
+irq virtio_input virtio_mmio_24_31 78
+irq virtio_input virtio_mmio_24_31 79
+map virtio_input tablet_events rw
+paddr virtio_input tablet_events
+map virtio_input keyboard_events rw
+paddr virtio_input keyboard_events
+
+# The driver's two rings to the broker, one per device: messages written by
+# the driver only, the broker's index written by the broker only.
+map virtio_input pointer_messages rw
+map virtio_input pointer_control r
+map virtio_input keyboard_messages rw
+map virtio_input keyboard_control r
+map input_broker pointer_messages r
+map input_broker pointer_control rw
+map input_broker keyboard_messages r
+map input_broker keyboard_control rw
+channel input_broker virtio_input notify=virtio_input
+
+# The flood's ring to the broker.
+map input_flood flood_messages rw
+map input_flood flood_control r
+map input_broker flood_messages r
+map input_broker flood_control rw
+channel input_broker input_flood notify=input_flood
+
+# The broker's ring to the UI, the UI's input ring: the one stream of events.
+map input_broker ui_messages rw
+map input_broker ui_control r
+map ui ui_control rw
+map ui ui_messages r
+channel input_broker ui notify=input_broker

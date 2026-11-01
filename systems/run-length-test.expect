@@ -1,0 +1,18 @@
+# Lines tools/pi-run must see, in this order, as whole serial lines (the Pi
+# 5 only: rpi5b_2gb/run-length-test.system). The watchdog PD,
+# watching no PD, arms the PM watchdog at each of the ticker's ticks until
+# the run length, 60 s; then the ticker stops, and the PM watchdog resets
+# the board (pi-run waits for it, and parks the board at U-Boot's prompt).
+NOWAYOS: watchdog: the PM watchdog, armed for 6 s at each servicing
+NOWAYOS: watchdog: watching no PD: the PM watchdog is serviced on every tick, for 6 s, for as long as the ticks come
+NOWAYOS: watchdog-stand-in: ticker: a tick to the watchdog every 2000 ms for the run length, 60 s
+NOWAYOS: watchdog: first tick: hardware watchdog serviced
+NOWAYOS: watchdog-stand-in: ticker: the run length is reached: no more ticks, so the watchdog services no more and the board resets
+
+# Output that fails the run at once if it appears anywhere (substring match).
+!MON|ERROR
+!seL4(CPU
+!gave up
+!could not service
+!not 1 to
+!panicked

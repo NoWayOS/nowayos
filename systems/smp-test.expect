@@ -1,0 +1,23 @@
+# Lines NoWayOS's tools/qemu-test must see, in this order: each core
+# lists its threads in turn (the kernel's own lists, between these lines),
+# then the heartbeat on core 0 keeps its time while the three spinners,
+# above it on cores 1 to 3, spin for ever.
+NOWAYOS: budget-probe: smp_heartbeat: the kernel's threads on this core:
+NOWAYOS: budget-probe: spinner_1: the kernel's threads on this core:
+NOWAYOS: budget-probe: spinner_2: the kernel's threads on this core:
+NOWAYOS: budget-probe: spinner_3: the kernel's threads on this core:
+NOWAYOS: budget-probe: smp_heartbeat: beating every 100 ms
+NOWAYOS: budget-probe: smp_heartbeat: beat 3: on time
+NOWAYOS: budget-probe: spinner_1: spinning from now on
+NOWAYOS: budget-probe: spinner_2: spinning from now on
+NOWAYOS: budget-probe: spinner_3: spinning from now on
+NOWAYOS: budget-probe: smp_heartbeat: beat 4: on time
+NOWAYOS: budget-probe: smp_heartbeat: beat 10: on time
+NOWAYOS: budget-probe: smp_heartbeat: beat 20: on time
+NOWAYOS: budget-probe: smp_heartbeat: 20 beats, every one on time
+
+!MON|ERROR
+!seL4(CPU
+!panicked
+!gave up
+!late by

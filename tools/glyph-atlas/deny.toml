@@ -1,0 +1,71 @@
+# cargo-deny configuration for the glyph-atlas tool's workspace. Run:
+# make deny (NoWayOS's other workspaces have their own deny.toml).
+#
+# House licence list: MIT, Apache-2.0,
+# BSD-2-Clause, BSD-3-Clause, ISC. Anything else the dependency tree needs
+# gets a per-crate exception below and needs the project owner's written
+# sign-off before it is relied on.
+
+[graph]
+# Every platform: stricter than checking only the platforms we build for.
+targets = []
+all-features = false
+no-default-features = false
+
+[advisories]
+# Every vulnerability, unsound and unmaintained advisory is an error, and so
+# is a yanked crate version, unless listed in `ignore` with the reason it
+# does not apply. The NoWayOS baseline: tools/baseline.toml.
+unmaintained = "all"
+unsound = "all"
+yanked = "deny"
+ignore = []
+
+[licenses]
+allow = ["MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "ISC"]
+confidence-threshold = 0.93
+include-dev = true
+unused-allowed-license = "allow"
+exceptions = [
+    # outside house list - signed off 2026-10-01 for every repo: unicode-ident, reached through the
+    # procedural macros of serde and bytemuck, at build time only.
+    { crate = "unicode-ident", allow = ["Unicode-3.0"] },
+]
+
+[licenses.private]
+# Our own crates declare their licence (MIT OR Apache-2.0, nowayos-glyphs
+# OFL-1.1, nowayos-icons ISC) and are checked like any other crate.
+ignore = false
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+allow-wildcard-paths = true
+# As in every workspace: the trusted path's banned crates, the NoWayOS
+# baseline's list (tools/baseline.toml), which make deny requires.
+deny = [
+    { crate = "wry", reason = "trusted-path non-negotiable: no WebView" },
+    { crate = "webkit2gtk", reason = "trusted-path non-negotiable: no browser engine" },
+    { crate = "webkit2gtk-sys", reason = "trusted-path non-negotiable: no browser engine" },
+    { crate = "webview2-com", reason = "trusted-path non-negotiable: no WebView" },
+    { crate = "servo", reason = "trusted-path non-negotiable: no browser engine" },
+    { crate = "tao", reason = "trusted-path non-negotiable: no window system" },
+    { crate = "winit", reason = "trusted-path non-negotiable: no window system" },
+    { crate = "x11", reason = "trusted-path non-negotiable: no window system" },
+    { crate = "x11-dl", reason = "trusted-path non-negotiable: no window system" },
+    { crate = "x11rb", reason = "trusted-path non-negotiable: no window system" },
+    { crate = "wayland-client", reason = "trusted-path non-negotiable: no window system" },
+    { crate = "wayland-sys", reason = "trusted-path non-negotiable: no window system" },
+    { crate = "gtk", reason = "trusted-path non-negotiable: no C GUI runtime" },
+    { crate = "gtk4", reason = "trusted-path non-negotiable: no C GUI runtime" },
+    { crate = "gtk-sys", reason = "trusted-path non-negotiable: no C GUI runtime" },
+    { crate = "sdl2", reason = "trusted-path non-negotiable: no C GUI runtime" },
+    { crate = "sdl2-sys", reason = "trusted-path non-negotiable: no C GUI runtime" },
+    { crate = "minifb", reason = "trusted-path non-negotiable: no window system" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+# crates.io only: the tool needs no git source.

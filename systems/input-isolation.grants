@@ -1,0 +1,39 @@
+# Everything systems/input-isolation.system grants, one fact per line.
+# tools/check-system fails the build if the system description grants anything
+# not listed here, or lists anything it does not grant, and checks the map
+# rights again in the kernel objects the Microkit tool generates (format: see
+# tools/check-system). A change here is a security change: call it out in the
+# pull request.
+
+# The kind of system, and each PD's role (tools/grant-rules.toml). Each probe
+# has the role of the PD whose maps it holds - ui, the UI's stand-in in
+# input-broker-test - so the UI's rules apply to it; the parent and
+# broker_side are test instruments.
+system test
+role input_isolation_parent test
+role broker_side test
+role ui_writes_driver_ring ui
+role ui_writes_broker_ring ui
+
+pd input_isolation_parent priority=100 budget=1000 period=1000
+pd broker_side priority=50 budget=1000 period=1000
+pd ui_writes_driver_ring priority=30 budget=1000 period=1000
+pd ui_writes_broker_ring priority=20 budget=1000 period=1000
+
+# The parent receives every probe's faults and stops the probe.
+child input_isolation_parent ui_writes_driver_ring
+child input_isolation_parent ui_writes_broker_ring
+
+# ui's maps in input-broker-test.grants.
+map ui_writes_driver_ring ui_messages r
+map ui_writes_driver_ring ui_control rw
+
+# ui's maps again.
+map ui_writes_broker_ring ui_messages r
+map ui_writes_broker_ring ui_control rw
+
+# broker_side's private page, which no probe may reach.
+map broker_side driver_ring rw
+
+# "Are you still running?" and the answer.
+channel input_isolation_parent broker_side

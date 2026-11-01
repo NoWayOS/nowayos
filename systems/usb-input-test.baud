@@ -1,0 +1,5 @@
+# Line rates make qemu-test-all boots usb-input-test at again: the
+# Pi 5's UART, where two PDs printing at once would mix their lines - here
+# the USB host PDs' start-up lines and usb0's enumeration, kept apart by
+# their first tick coming 500 ms after start-up.
+115200

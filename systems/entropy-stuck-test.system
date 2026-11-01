@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    In QEMU: a stuck random source
+    stops all seeding. entropy-stuck-test.qemu feeds virtio-rng from
+    /dev/zero, so the entropy PD's repetition count test fails on its first
+    bytes: it hands out no seed, reports which test failed (never the bytes)
+    and faults on purpose. entropy_supervisor, the parent of every other PD,
+    stops it, reports it and resets the board; the system starts again,
+    and fails the same way.
+
+        entropy_supervisor  NoWayOS's supervisor (254): its children's thread
+                          capabilities and the SMC capability (smc="true";
+                          unbadged in Microkit 2.3.1, so a test system only)
+        entropy           the entropy PD (200), as in entropy-test
+        seed_consumer     its consumer (100), as in entropy-test: never
+                          seeded
+
+    The stored counts, and the entropy role among the sensitive classes,
+    are still to come: here the device restarts each time. Every
+    grant is listed in entropy-stuck-test.grants (checked by
+    tools/check-system).
+-->
+<system>
+    <memory_region name="rng_regs" size="@rng" phys_addr="@rng" />
+    <memory_region name="rng_requests" size="0x1000" />
+    <memory_region name="seed_ring" size="0x1000" />
+    <memory_region name="seed_ring_control" size="0x1000" />
+
+    <protection_domain name="entropy_supervisor" priority="254" stack_size="0x10000" smc="true">
+        <program_image path="nowayos-supervisor.elf" />
+
+        <protection_domain name="entropy" id="0" priority="200" stack_size="0x10000">
+            <program_image path="nowayos-entropy-source.elf" />
+            <map mr="rng_regs" vaddr="0x200_0000" perms="rw" cached="false"
+                 setvar_vaddr="nowayos_device_0_vaddr" setvar_size="nowayos_device_0_size" />
+            <map mr="rng_requests" vaddr="0x300_0000" perms="rw" cached="false"
+                 setvar_vaddr="nowayos_dma_0_vaddr" setvar_size="nowayos_dma_0_size" />
+            <setvar symbol="nowayos_dma_0_paddr" region_paddr="rng_requests" />
+            <map mr="seed_ring" vaddr="0x4000_0000" perms="rw"
+                 setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+            <map mr="seed_ring_control" vaddr="0x4000_1000" perms="r"
+                 setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+            <irq irq="@rng[0]" id="8" trigger="@rng" />
+        </protection_domain>
+
+        <protection_domain name="seed_consumer" id="1" priority="100" stack_size="0x10000">
+            <program_image path="nowayos-seed-consumer.elf" />
+            <map mr="seed_ring_control" vaddr="0x4000_0000" perms="rw"
+                 setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+            <map mr="seed_ring" vaddr="0x4000_1000" perms="r"
+                 setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+        </protection_domain>
+    </protection_domain>
+
+    <channel>
+        <end pd="entropy" id="0" />
+        <end pd="seed_consumer" id="0" />
+    </channel>
+</system>

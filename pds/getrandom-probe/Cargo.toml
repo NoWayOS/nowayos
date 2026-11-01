@@ -1,0 +1,29 @@
+[package]
+name = "nowayos-getrandom-probe"
+description = "Test instrument: every way into getrandom in a PD - 0.2, 0.3, 0.4, rand_core 0.9's OsRng, getrandom 0.4's SysRng - refused before nowayos-entropy is seeded, and drawing from its one generator after"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "nowayos-getrandom-probe"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+nowayos-entropy.workspace = true
+sel4-microkit.workspace = true
+# Every way into getrandom a PD's crates may take, at the versions
+# checked; each MIT OR Apache-2.0. getrandom 0.2 calls the back end
+# through its `custom` feature; 0.3 and 0.4 through
+# --cfg getrandom_backend="custom" (.cargo/config.toml).
+getrandom02 = { package = "getrandom", version = "=0.2.17", features = ["custom"] }
+getrandom03 = { package = "getrandom", version = "=0.3.4" }
+getrandom04 = { package = "getrandom", version = "=0.4.3", features = ["sys_rng"] }
+rand_core09 = { package = "rand_core", version = "=0.9.5", default-features = false, features = ["os_rng"] }
+
+[lints]
+workspace = true

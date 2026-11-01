@@ -1,0 +1,10 @@
+# Lines tools/qemu-test must see, in this order, as whole serial lines.
+NOWAYOS: rust pd starting
+NOWAYOS: hello from rust
+
+# Output that fails the test at once if it appears anywhere (substring
+# match), including in the settle period after the last line above: a fault
+# reported by the Microkit monitor, a kernel error message, or a panic.
+!MON|ERROR
+!seL4(CPU
+!panicked

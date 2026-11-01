@@ -1,0 +1,17 @@
+[package]
+name = "nowayos-input"
+description = "Canonical, bounded input events (keys, pointer, touch) with validation, normalisation and rate limiting"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+nowayos-ipc.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true

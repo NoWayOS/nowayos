@@ -1,0 +1,30 @@
+# Everything systems/smp-test.system grants, one fact per line.
+# tools/check-system fails the build if the system description grants
+# anything not listed here, or lists anything it does not grant (format: see
+# tools/check-system). A change here is a security change: call it out in the
+# pull request.
+
+# The kind of system, and each PD's role (tools/grant-rules.toml).
+system test
+role timer driver
+role smp_heartbeat test
+role spinner_1 test
+role spinner_2 test
+role spinner_3 test
+
+# The timer and the heartbeat on core 0; each spinner on a core of its own,
+# above the heartbeat, with a full budget.
+pd timer priority=200 budget=1000 period=1000
+pd smp_heartbeat priority=100 budget=1000 period=1000
+pd spinner_1 priority=150 budget=1000 period=1000 cpu=1
+pd spinner_2 priority=150 budget=1000 period=1000 cpu=2
+pd spinner_3 priority=150 budget=1000 period=1000 cpu=3
+
+irq timer phys_timer
+
+channel smp_heartbeat timer notify=timer
+call smp_heartbeat timer
+channel smp_heartbeat spinner_1 notify=smp_heartbeat
+channel spinner_1 spinner_2 notify=spinner_1
+channel spinner_2 spinner_3 notify=spinner_2
+channel smp_heartbeat spinner_3 notify=spinner_3

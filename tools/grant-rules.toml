@@ -1,0 +1,716 @@
+# Grants that must never exist, whatever a system description says.
+# tools/check-system
+# applies them to every system: a .grants file names its system's kind and
+# each PD's role, and a PD may not hold a grant a rule here forbids its role.
+#
+# A rule says which role it binds, which kind of grant it forbids - device
+# (device memory), irq, child, channel, call, paddr, map, smc (the SMC
+# capability, a PD's smc="true") or pd (the PD itself: the role may not run
+# at all, where the rule binds) - optionally only towards a peer of a given
+# role (peer_role), or towards any peer but those of the roles it names
+# (unless_peer_role: one role, or a list of them), or,
+# for device memory, only one device (device) and only with those rights
+# (rights: r or rw), and optionally only in some kinds of system (systems),
+# and why. An `only` rule
+# names the one role that may hold a kind of grant at all - or, with
+# `device`, the one role that may be granted that device. A `one_reader`
+# rule says what a PD of its role writes for one reader: every region it
+# maps rw, and gives no device (learns no physical address of), may be
+# mapped by at most one other PD, read-only (the entropy PD's seed rings,
+# below). Three kinds of
+# rule bind the shape of a whole system rather than one grant (Supervision,
+# below): a `parent_of_all` rule, that exactly one PD has its role and is
+# every other PD's parent; an `above_all` rule, that a PD of its role runs at
+# a strictly higher priority than every other PD, but those of its
+# except_role; and a `full_budget` rule, that a PD of its role has its budget
+# equal to its period and is not passive. An `only_writers` rule says who may
+# write what a PD of its role reads: every other PD that can write a memory
+# region that PD maps - one that maps it rw, or learns its physical address,
+# so a device it drives can write it - must have one of the rule's `writers`
+# roles, or one of its `test_writers` roles in a test system (the clock PD's
+# samples, below). A `reads_prefill` rule says what configuration a PD of its
+# role reads: every such PD binds the rule's `symbol`, a read-only region's
+# nowayos_ro_region_N_vaddr, to exactly one region, mapped read-only and
+# prefilled from the rule's `prefill` file (the clock PD's floor, below).
+# Every rule has a failing fixture in tools/test_tools.py, generated from this
+# file. Loosening a rule is a security change: call it out in the pull
+# request. The file cannot say "only these peers": a rule forbids, so a grant
+# no rule names is the reviewer's call.
+
+# The roles a PD can have. A PD with no role, or another one, is refused.
+#   ui        draws the screen and turns canonical input into actions
+#   input     turns device input into canonical events
+#   broker    merges, checks and rate-limits the input PDs' canonical events
+#             for the UI, holding no device
+#   display   owns a display controller and scans out frames
+#   driver    owns another device - a UART, a timer - for other PDs
+#   network   a network stack or protocol PD (its NIC driver is a driver)
+#   security  holds keys and credentials; gives other PDs outcomes
+#   storage   persistent state
+#   update    verifies and applies updates: the only PD that writes a boot
+#             slot or the update state
+#   app       application logic, holding no device
+#   supervisor  the parent of every other PD: stops and reports a faulted PD,
+#             then resets the board
+#   watchdog  keeps the hardware watchdog serviced while every PD answers its
+#             heartbeat
+#   clock     holds wall-clock time as an interval from the image's build
+#             time, moved only by samples on the rings its system grants
+#   entropy   owns the device's random source and seeds the PDs that need
+#             randomness, each on a ring of its own
+#   session   a remote-display station's session after sign-in: the
+#             protocol's connection sequence, messages and the side channels
+#             its policy allows
+#   decoder   a remote-display station's decoder: the image codecs and pointer
+#             shapes in the session PD's bounded records, into its own
+#             framebuffer
+#   cooling   reads the SoC's temperature and runs its cooler: a safety
+#             function, above every PD that can keep the CPU busy
+#             (cooling-above-busy-pds)
+#   test      a test instrument, in a test system only
+#             (test-role-only-in-test-systems)
+roles = ["ui", "input", "broker", "display", "driver", "network", "security", "storage", "update", "app",
+         "supervisor", "watchdog", "clock", "entropy", "session", "decoder", "cooling", "test"]
+
+# The kinds of system: a test system may run test instruments; demo and
+# product systems may not.
+systems = ["test", "demo", "product"]
+
+[[forbid]]
+id = "ui-no-device-memory"
+role = "ui"
+grant = "device"
+reason = "the UI PD holds no device capabilities beyond its draw surface: device access belongs to driver PDs, so a compromised UI cannot reach hardware"
+
+[[forbid]]
+id = "ui-no-interrupt"
+role = "ui"
+grant = "irq"
+reason = "interrupts belong to the driver PD of their device; the UI PD learns of input as canonical events"
+
+[[forbid]]
+id = "ui-no-children"
+role = "ui"
+grant = "child"
+reason = "a parent receives its children's faults and can stop and restart them; the UI PD, which handles untrusted input, must control no other PD"
+
+[[forbid]]
+id = "ui-no-channel-to-security"
+role = "ui"
+grant = "channel"
+peer_role = "security"
+reason = "the security PD has no channel to the UI PD: other PDs receive outcomes, not secrets (Architecture -> Where Identity Lives)"
+
+[[forbid]]
+id = "ui-no-physical-address"
+role = "ui"
+grant = "paddr"
+reason = "a PD that knows a region's physical address can point a device's DMA at it: the UI PD, which handles untrusted input, hands nothing to a device, so it learns no physical address"
+
+[[forbid]]
+id = "broker-no-device-memory"
+role = "broker"
+grant = "device"
+reason = "the input broker stands between untrusted input devices and the UI and touches only canonical events: a broker holding device memory could be driven by a device, or drive one, past the drivers' checks"
+
+[[forbid]]
+id = "broker-no-interrupt"
+role = "broker"
+grant = "irq"
+reason = "interrupts belong to the driver PD of their device; the broker learns of input only through the drivers' rings"
+
+[[forbid]]
+id = "broker-no-physical-address"
+role = "broker"
+grant = "paddr"
+reason = "a PD that knows a region's physical address can point a device's DMA at it: the input broker touches only canonical events and hands nothing to a device, so it learns no physical address"
+
+[[only]]
+id = "smc-only-supervisor"
+role = "supervisor"
+grant = "smc"
+reason = "the SMC capability reaches the firmware: Microkit 2.3.1 gives it unbadged, so it can reset or power off the board, or start an idle core outside seL4's control; only the supervisor, which resets the board after a fault, may hold it"
+
+# The framebuffer the firmware set up, which the display hardware scans out
+# to the screen (firmware_fb in platforms/rpi5b_2gb.toml).
+[[only]]
+id = "firmware-framebuffer-only-display"
+role = "display"
+grant = "device"
+device = "firmware_fb"
+reason = "what is written to the firmware's framebuffer is shown on the screen, and what is shown can be read back from it: only the display PD, which shows the frames the UI presents, may map it - never the UI, which holds no device, nor a PD whose data must never reach the screen"
+# Rule 7's one exception: the firmware's framebuffer mapped
+# cached, so a frame is written at memory speed and cleaned to memory (DC
+# CVAC) before it is acknowledged. Only the display PD that shows it.
+[[only]]
+id = "cached-framebuffer-only-display"
+role = "display"
+grant = "cached"
+device = "firmware_fb"
+reason = "a cached map of the framebuffer the display hardware scans out shows only what has been cleaned to memory: only the display PD, which cleans every changed line of each frame before it acknowledges the frame, may hold one"
+
+# The PM block's page on the Pi 5 (pm_watchdog in
+# platforms/rpi5b_2gb.toml): the watchdog, and the SoC's power domain and
+# reset controls.
+[[only]]
+id = "pm-watchdog-only-watchdog"
+role = "watchdog"
+grant = "device"
+device = "pm_watchdog"
+reason = "whoever holds the PM page can arm the hardware watchdog - and so reset the board at will - and switch the SoC's power domains: only the watchdog PD, which resets the board when a heartbeat stops, may map it, and its view in nowayos-hw touches the watchdog's registers alone"
+[[forbid]]
+id = "smc-unbadged-not-in-product"
+role = "supervisor"
+grant = "smc"
+systems = ["product"]
+reason = "a product's SMC capability must be badged to PSCI SYSTEM_RESET alone (0x8400_0009), which neither Microkit 2.3.1's tool nor its capDL initialiser can express yet: until they can, no product system may hold one"
+
+[[forbid]]
+id = "supervisor-no-device-memory"
+role = "supervisor"
+grant = "device"
+reason = "the supervisor acts only on its children's faults: it drives no device"
+
+[[forbid]]
+id = "supervisor-no-interrupt"
+role = "supervisor"
+grant = "irq"
+reason = "the supervisor acts only on its children's faults: interrupts belong to driver PDs"
+
+[[forbid]]
+id = "supervisor-no-call"
+role = "supervisor"
+grant = "call"
+reason = "the supervisor has the highest priority and calls no PD: it must never wait on one"
+
+[[forbid]]
+id = "supervisor-no-dma"
+role = "supervisor"
+grant = "paddr"
+reason = "the supervisor holds no memory a device reads or writes"
+
+[[forbid]]
+id = "supervisor-no-memory"
+role = "supervisor"
+grant = "map"
+systems = ["demo", "product"]
+reason = "the supervisor shares no memory with another PD: its inputs are its children's faults and one heartbeat; a test system may give it a ring to a test console, to report where the release kernel prints nothing"
+
+[[forbid]]
+id = "supervisor-only-the-heartbeat-channel"
+role = "supervisor"
+grant = "channel"
+unless_peer_role = "watchdog"
+systems = ["demo", "product"]
+reason = "the supervisor's one channel is its notification-only heartbeat to the watchdog PD; a test system may give it one to a test console"
+
+# Supervision: in a product
+# every PD but the supervisor is the supervisor's child, so every fault
+# reaches it; in a demo or product system the supervisor runs above every
+# other PD with a full budget of its own, and the watchdog above
+# every PD but the supervisor. A test system arranges its PDs as its test
+# needs. No product system exists yet, so the
+# one-supervisor rule binds through its fixtures until one does.
+#
+# Intended: with smc-unbadged-not-in-product above, no product system can yet
+# have the supervisor the fault policy describes - one holding the SMC
+# capability it resets the board with - until that capability can be badged
+# to PSCI SYSTEM_RESET alone. This rule does not ask for
+# the capability itself, so a product whose one supervisor lacks it passes
+# here, but that supervisor cannot reset the board.
+[[parent_of_all]]
+id = "one-supervisor-the-parent-of-every-pd"
+role = "supervisor"
+systems = ["product"]
+reason = "every fault must reach the one supervisor, which stops and reports the PD and resets the board: a PD outside it sends its faults elsewhere - to another parent, or to the Microkit monitor, which in a release build stops it and says nothing - leaving the device running half-broken; and a second supervisor would be a second PD able to stop, read and rewrite every PD it parents"
+
+[[above_all]]
+id = "supervisor-highest-priority"
+role = "supervisor"
+systems = ["demo", "product"]
+reason = "the supervisor acts on a fault at once, and its start-up runs before any child's: a PD at its priority or above could run first, or keep it from acting while that PD runs"
+
+[[full_budget]]
+id = "supervisor-full-budget"
+role = "supervisor"
+systems = ["demo", "product"]
+reason = "the supervisor's start-up - reading the counts and, in the fail-safe state, stopping every child it does not keep - runs before any child's only if it never runs out of budget: the images are MCS and single-core, so a budget below its period lets lower-priority children run first, and a passive PD has no budget of its own once its start-up is over"
+
+[[above_all]]
+id = "watchdog-above-every-pd-it-watches"
+role = "watchdog"
+except_role = "supervisor"
+systems = ["demo", "product"]
+reason = "the watchdog watches every other PD, the supervisor included, and runs above all of them but the supervisor, so that no PD that loops can starve it: a starved watchdog stops servicing the hardware watchdog, which then resets the board with nothing recorded"
+
+[[above_all]]
+id = "cooling-above-busy-pds"
+role = "cooling"
+except_role = ["supervisor", "watchdog", "display", "driver", "input", "broker", "network", "clock", "entropy", "test"]
+reason = "the fan runs only when no PD above it wants the CPU: below a PD that can keep the CPU busy - the UI, an application, a session, a decoder - it can go unrun for minutes and leave the cooler where it was while the SoC heats (under load the fan PD at the lowest priority lost its readings). It stays below the display and the drivers whose timing matters - their waits are short and bounded - and below test instruments, which a test system keeps light"
+
+# The watchdog PD: it services the board's
+# hardware watchdog only while every other PD answers its heartbeat in time.
+# The fault policy gives it the hardware watchdog's registers and one
+# notification-only channel to each PD it watches, and no SMC capability
+# (smc-only-supervisor), children, maps or calls. Not a rule here: that no PD
+# calls it over a heartbeat channel (a `call PD WATCHDOG` line in a grants
+# file), which the reviewer refuses.
+
+[[forbid]]
+id = "watchdog-no-children"
+role = "watchdog"
+grant = "child"
+reason = "a parent receives its children's faults and can stop, read and rewrite them: the watchdog only judges heartbeats, and in a product every PD's parent is the supervisor"
+
+[[forbid]]
+id = "watchdog-no-call"
+role = "watchdog"
+grant = "call"
+reason = "a caller waits for its callee: the watchdog never waits on another PD, so no PD can hold it while heartbeats go unjudged; it only notifies and is notified"
+
+[[forbid]]
+id = "watchdog-no-dma"
+role = "watchdog"
+grant = "paddr"
+reason = "a PD that knows a region's physical address can point a device's DMA at it: the watchdog drives only the hardware watchdog, through its registers, and hands no memory to a device"
+
+[[forbid]]
+id = "watchdog-no-memory"
+role = "watchdog"
+grant = "map"
+systems = ["demo", "product"]
+reason = "the watchdog shares no memory with another PD: its inputs are notifications, so no PD it watches can change what it reads; a test system may give it a ring to a test console. A later change is to loosen this, in a reviewed change of its own, for where the watchdog records which PDs missed their heartbeats, for the next boot to read"
+
+# The update PD: the only PD that
+# writes a boot slot or the update state. Its never-rules: no device memory or interrupt of any device (it reaches storage
+# through the storage PD), no DMA region's physical address, and no channel
+# to a UI, input or display PD. The input broker, which that table does not
+# name, is held to the same, flagged for review. No SMC capability either:
+# only the supervisor may hold one (smc-only-supervisor), and resets go
+# through it. Not rules here: that it holds no key that signs, which no kind
+# of grant names; and that its channel to the storage PD reaches only the two
+# slots and the update state, which the storage PD enforces. It may also
+# ask the supervisor for a restart, a channel that
+# supervisor-only-the-heartbeat-channel refuses in demo and product systems:
+# that request comes in a change of its own, as a reviewed loosening.
+
+[[forbid]]
+id = "update-no-device-memory"
+role = "update"
+grant = "device"
+reason = "the update PD writes what the device boots next, so a compromised one could take the device at its next boot: it drives no device of its own, and reaches storage only through the storage PD's narrow requests"
+
+[[forbid]]
+id = "update-no-interrupt"
+role = "update"
+grant = "irq"
+reason = "interrupts belong to the driver PD of their device; the update PD drives no device"
+
+[[forbid]]
+id = "update-no-physical-address"
+role = "update"
+grant = "paddr"
+reason = "a PD that knows a region's physical address can point a device's DMA at it: the update PD hands nothing to a device, so it learns no physical address"
+
+[[forbid]]
+id = "update-no-channel-to-ui"
+role = "update"
+grant = "channel"
+peer_role = "ui"
+reason = "the UI holds what a person types and sees, and the update PD writes storage: with no channel between them nothing a person enters can reach storage through it, and nothing on the screen can start, approve or choose an update: of the PDs a person reaches, only the App PD has a channel to the update PD, and through it may only delay an update or report that it is ready"
+
+[[forbid]]
+id = "update-no-channel-to-input"
+role = "update"
+grant = "channel"
+peer_role = "input"
+reason = "an input PD parses untrusted devices and carries every key a person presses and every touch: with no channel to the update PD, no device or key press reaches the PD that writes what the device boots next, and nothing typed reaches storage through it"
+
+[[forbid]]
+id = "update-no-channel-to-broker"
+role = "update"
+grant = "channel"
+peer_role = "broker"
+reason = "the input broker carries every key a person presses and every touch on their way to the UI, as an input PD does, so it is held to the input PDs' rule. The update design names the UI, input and display PDs and not the broker: this rule adds it, flagged for review"
+
+[[forbid]]
+id = "update-no-channel-to-display"
+role = "update"
+grant = "channel"
+peer_role = "display"
+reason = "the display PD reads every frame the UI draws, a person's answers included, and the update PD writes storage: with no channel between them no frame can reach storage through it, and the update PD can put nothing on the screen past the UI"
+
+# The network path:
+# the stack and TLS PDs parse hostile frames and records, so they hold
+# nothing of the NIC's - its driver (role driver) alone does - and the UI
+# never reaches the network but through the App PD.
+
+[[forbid]]
+id = "network-no-device-memory"
+role = "network"
+grant = "device"
+reason = "a network stack or protocol PD parses hostile frames and records: the NIC's registers belong to its driver PD (role driver), so a compromised stack cannot program the card"
+
+[[forbid]]
+id = "network-no-interrupt"
+role = "network"
+grant = "irq"
+reason = "interrupts belong to the driver PD of their device; a network stack or protocol PD learns of frames through the driver's queues"
+
+[[forbid]]
+id = "network-no-physical-address"
+role = "network"
+grant = "paddr"
+reason = "a PD that knows a region's physical address can point a device's DMA at it: only the NIC driver learns the packet buffers' physical addresses, and it checks every one it hands the card"
+
+[[forbid]]
+id = "network-no-channel-to-ui"
+role = "network"
+grant = "channel"
+peer_role = "ui"
+reason = "the UI never owns the network path: it reaches the network only through the App PD's narrow typed requests (Architecture -> The Network Path)"
+
+# A remote-display station: every hostile input is parsed
+# in a PD that holds nothing worth stealing. The session PD parses the remote
+# host's protocol after sign-in and the decoder PD the images it is sent:
+# neither holds a device, an interrupt, a physical address or a child; the
+# decoder reaches only the session PD, the display PD and, by notification
+# only, the watchdog. And no PD that faces the network or holds a credential -
+# the network stack, TLS, a credential PD, the session PD - has a channel to
+# the display PD: pixels reach the screen only from the decoder and the UI. A
+# test system may join those PDs into one, for a spike: never a station.
+
+[[forbid]]
+id = "session-no-device-memory"
+role = "session"
+grant = "device"
+reason = "the session PD parses everything a remote host sends after sign-in: it holds no device, so a host that compromises it reaches no hardware"
+
+[[forbid]]
+id = "session-no-interrupt"
+role = "session"
+grant = "irq"
+reason = "interrupts belong to the driver PD of their device; the session PD holds no device"
+
+[[forbid]]
+id = "session-no-physical-address"
+role = "session"
+grant = "paddr"
+reason = "a PD that knows a region's physical address can point a device's DMA at it: the session PD, which parses a host's PDUs, learns none"
+
+[[forbid]]
+id = "session-no-children"
+role = "session"
+grant = "child"
+reason = "a parent can stop, read and rewrite its children: the session PD, which a host may compromise, is the parent of none (the supervisor is every PD's parent)"
+
+[[forbid]]
+id = "decoder-no-device-memory"
+role = "decoder"
+grant = "device"
+reason = "the decoder PD runs the image codecs on what a host sends: it holds no device, only its own framebuffer, so a codec bug a host exploits reaches no hardware"
+
+[[forbid]]
+id = "decoder-no-interrupt"
+role = "decoder"
+grant = "irq"
+reason = "interrupts belong to the driver PD of their device; the decoder PD holds no device"
+
+[[forbid]]
+id = "decoder-no-physical-address"
+role = "decoder"
+grant = "paddr"
+reason = "a PD that knows a region's physical address can point a device's DMA at it: the decoder PD, which parses a host's images, learns none"
+
+[[forbid]]
+id = "decoder-no-children"
+role = "decoder"
+grant = "child"
+reason = "a parent can stop, read and rewrite its children: the decoder PD, which a host may compromise, is the parent of none"
+
+[[forbid]]
+id = "decoder-channels-only-to-session-display-watchdog"
+role = "decoder"
+grant = "channel"
+unless_peer_role = ["session", "display", "watchdog"]
+reason = "the decoder PD takes the session PD's bounded records and gives the display PD its frames, and answers the watchdog's heartbeat: a channel to any other PD - the network, a credential, input - would let a host that compromises a codec reach beyond the screen"
+
+[[forbid]]
+id = "decoder-calls-only-to-session-display"
+role = "decoder"
+grant = "call"
+unless_peer_role = ["session", "display"]
+reason = "the decoder PD may call the session and display PDs it works with; its channel to the watchdog carries notifications only, as every watched PD's does"
+
+[[forbid]]
+id = "session-no-channel-to-display"
+role = "session"
+grant = "channel"
+peer_role = "display"
+systems = ["demo", "product"]
+reason = "graphics cross from the session PD to the decoder in bounded records, and only the decoder writes the remote screen's pixels: a session PD a host compromises cannot draw on the screen - a forged sign-in, say - past them"
+
+[[forbid]]
+id = "security-no-channel-to-display"
+role = "security"
+grant = "channel"
+peer_role = "display"
+systems = ["demo", "product"]
+reason = "a PD that holds keys or credentials - a remote-display station's credential PD holds the password during sign-in - has no channel to the display PD, so what it holds cannot reach the screen and it cannot draw there"
+
+[[forbid]]
+id = "network-no-channel-to-display"
+role = "network"
+grant = "channel"
+peer_role = "display"
+systems = ["demo", "product"]
+reason = "the network stack and TLS PDs parse hostile frames and records: with no channel to the display PD, one a host compromises cannot draw on the screen - a forged sign-in, say"
+
+# The App PD: application
+# logic and the session, every answer a person gives included. It has
+# no device and no network capability: it reaches hardware only through
+# driver PDs, and the network only through the network PDs' narrow typed
+# requests. The rules below hold the part a role rule can: no device memory,
+# no interrupt, no physical address. Not rules here: a map of memory a device
+# reads or writes - a driver's DMA memory, such as the NIC's descriptor
+# rings, or the packet buffers - which no kind of grant here can name yet, so
+# only review refuses it; no channel to a driver PD (the timer is a driver,
+# and the App needs time), which the network design asks only of the NIC's driver, from
+# the driver's side; and no key, which lives in the security PD and reaches the App only as outcomes. The SMC capability is already
+# the supervisor's alone (smc-only-supervisor).
+
+[[forbid]]
+id = "app-no-device-memory"
+role = "app"
+grant = "device"
+reason = "the App PD holds application logic and a person's answers, and no device: device access belongs to driver PDs, so a compromised App reaches no device's registers, the network card's included"
+
+[[forbid]]
+id = "app-no-interrupt"
+role = "app"
+grant = "irq"
+reason = "interrupts belong to the driver PD of their device; the App PD learns what happens only from other PDs' typed records"
+
+[[forbid]]
+id = "app-no-physical-address"
+role = "app"
+grant = "paddr"
+reason = "a PD that knows a region's physical address can point a device's DMA at it: the App PD hands nothing to a device, so it learns no physical address, the network's packet buffers included (no network capability)"
+
+# The clock PD: it owns wall-clock
+# time, taking monotonic time from the timer PD and samples from its sources.
+# It has no device memory, interrupt, physical address or SMC
+# capability; the last is already the supervisor's alone
+# (smc-only-supervisor). Its samples come only from a network PD, or from a
+# test PD in a test system. The grants cannot tell a ring of samples
+# from any other memory, so the rule is on memory: no other PD can write a
+# region the clock maps, read-only or read-write, unless it is one of those.
+# Not rules here: that the network PD writing it is the one that
+# authenticates the time's source - the TLS PD, or later a Roughtime client
+# - and never the network stack PD, which has the same role and parses
+# hostile frames, is the reviewer's call; and the clock's parent, which can
+# stop, restart or rewrite it, is bound only in a product system, where
+# one-supervisor-the-parent-of-every-pd makes the supervisor every PD's
+# parent - in a test or demo system any PD may parent it. A sample offered
+# by call is refused by the clock PD itself; that a PD calling the
+# clock only asks the time is the clock's to enforce, not a grant's.
+
+[[forbid]]
+id = "clock-no-device-memory"
+role = "clock"
+grant = "device"
+reason = "the clock PD takes time only from the timer PD and from its sources' authenticated samples: a real-time clock or any other device it could read is one anyone with the device in hand can set or stop, and no check may rest on it"
+
+[[forbid]]
+id = "clock-no-interrupt"
+role = "clock"
+grant = "irq"
+reason = "interrupts belong to the driver PD of their device - the timer's to the timer PD - and the clock PD drives no device"
+
+[[forbid]]
+id = "clock-no-physical-address"
+role = "clock"
+grant = "paddr"
+reason = "a PD that knows a region's physical address can point a device's DMA at it: the clock PD hands nothing to a device, so it learns no physical address"
+
+# The floor: the clock PD reads the image's build time from
+# nowayos-region's read-only region 6 (nowayos_region::build_time), and never
+# puts wall-clock time below it. Only this rule ties that region to the build
+# time when the image is built: left unfilled it is all zeros - 1970, which
+# nowayos-region refuses at run time - and filled from other
+# configuration it holds a number that is not the build time.
+
+[[reads_prefill]]
+id = "clock-floor-from-build-time"
+role = "clock"
+symbol = "nowayos_ro_region_6_vaddr"
+prefill = "build-time.bin"
+reason = "the clock PD never puts wall-clock time below the floor it reads from read-only region 6: were that region not the image's build time - left unfilled (1970) or filled from other configuration - the clock would at best fail closed, and at worst believe samples from long before the build, such as one that makes an expired certificate valid again"
+
+[[only_writers]]
+id = "clock-samples-only-from-network"
+role = "clock"
+writers = ["network"]
+test_writers = ["test"]
+reason = "the clock PD believes any sample not earlier than the image's build time, so a PD that can write what it reads can move the device's clock - making an expired certificate valid again, or a valid one expired: only a network PD may send it samples, never one that handles input, the screen or the application. That it is the PD that authenticates the time's source - the TLS PD, or later a Roughtime client - and never the network stack PD, which has the same role, is the reviewer's call; so, outside a product system - where one-supervisor-the-parent-of-every-pd makes the supervisor every PD's parent - is which PD parents the clock, as a parent can stop, restart or rewrite it"
+
+# Storage: in a product, nothing persisted in the clear holds what a person
+# entered or a credential (the rule of the first storage policy, the kiosk
+# reference's), so no PD that carries entered data, the screen or
+# plaintext requests has a channel to a storage PD. Product systems only: a
+# test or demo system may still wire a storage PD to anything it tests.
+
+[[forbid]]
+id = "ui-no-channel-to-storage"
+role = "ui"
+grant = "channel"
+peer_role = "storage"
+systems = ["product"]
+reason = "the UI PD holds what a person types and sees, and keeps its own copies for the session: with no path to storage, nothing it holds can be written where someone who takes the device's storage could read it"
+
+[[forbid]]
+id = "input-no-channel-to-storage"
+role = "input"
+grant = "channel"
+peer_role = "storage"
+systems = ["product"]
+reason = "an input PD carries every key a person presses and every touch: none of it is ever written to storage"
+
+[[forbid]]
+id = "broker-no-channel-to-storage"
+role = "broker"
+grant = "channel"
+peer_role = "storage"
+systems = ["product"]
+reason = "the input broker carries every key a person presses and every touch on their way to the UI: none of it is ever written to storage"
+
+[[forbid]]
+id = "display-no-channel-to-storage"
+role = "display"
+grant = "channel"
+peer_role = "storage"
+systems = ["product"]
+reason = "the display PD reads every frame the UI draws, a person's answers included: no frame is ever written to storage"
+
+[[forbid]]
+id = "network-no-channel-to-storage"
+role = "network"
+grant = "channel"
+peer_role = "storage"
+systems = ["product"]
+reason = "a network stack or protocol PD parses hostile input and, in the TLS PD, holds requests in plaintext and each connection's session keys: none of it is ever written to storage, and hostile input never reaches the storage PD directly"
+
+# The App PD keeps nothing either: it holds every answer, and
+# it needs nothing stored, not even its epoch. For now this
+# binds every product. Products that need local processing are expected, so
+# kiosks will get usage classes, designed in a change of their own: a class
+# that may use storage, and a higher class that never does. This one rule is
+# then scoped to the higher class, as `systems` scopes a rule by kind of
+# system today: one key added to it, and no other rule here changes.
+[[forbid]]
+id = "app-no-channel-to-storage"
+role = "app"
+grant = "channel"
+peer_role = "storage"
+systems = ["product"]
+reason = "the App PD holds every answer a person gives and needs nothing stored, not even its epoch: with no path to storage, no answer can be written where someone who takes the device's storage could read it. It binds every product for now: products that need local processing will get usage classes, one that may use storage and a higher one that never does, and this rule will then bind the higher class"
+
+# Test instruments: a PD with the role test holds whatever its
+# test needs, and no rule here binds that role, so it runs in test systems
+# only - as the program images below do, whatever their PD's role.
+
+[[forbid]]
+id = "test-role-only-in-test-systems"
+role = "test"
+grant = "pd"
+systems = ["demo", "product"]
+reason = "a test PD holds whatever its test needs and no rule here binds its role, so in a demo or product system it would escape every role rule: a test instrument runs in test systems only"
+
+# Program images that are test instruments: they make deliberately forbidden
+# accesses, drive test-only devices or misbehave on purpose, and never reach a
+# demo or product system - the clock's test instrument among them, which sends
+# bad samples on purpose, and the signature check's, which checks a
+# fixed test signature and changed copies of it, and the network
+# stack's, which hands out a fixed test seed and stands in for a NIC driver
+# that passes back bad frames on purpose. NoWayOS's own
+# supervisor program is one: it names only NoWayOS's test PDs, one
+# list of them invalid on purpose, and runs with no children named under any
+# other name - a product runs the supervisor library from a program of its
+# own. So is NoWayOS's own watchdog program, for the same reason, and the
+# stand-in for the hardware watchdog QEMU lacks and the heartbeat probes,
+# one of which loops on purpose. And the TLS test instruments, whose
+# server signs with a key made from a fixed test seed. And the USB
+# host PD's test program, which plays a tone to any USB speaker and
+# streams any USB microphone it finds; the audio client that plays a
+# tone and plays back what a microphone recorded; and the camera
+# program and that program's client, which stream any USB
+# camera's frames.
+[test_only]
+images = ["nowayos-isolation-probe.elf", "nowayos-dma-demo.elf", "nowayos-input-flood.elf", "nowayos-net-client.elf", "nowayos-restart-probe.elf", "nowayos-serial-test.elf", "nowayos-supervisor.elf", "nowayos-clock-test.elf", "nowayos-signature-check.elf", "nowayos-net-stack-test.elf", "nowayos-watchdog.elf", "nowayos-watchdog-stand-in.elf", "nowayos-heartbeat-probe.elf", "nowayos-update-bundles.elf", "nowayos-update-storage.elf", "nowayos-budget-probe.elf", "nowayos-getrandom-probe.elf", "nowayos-tls-test.elf", "nowayos-tls-test-small-arena.elf", "nowayos-socket-test.elf", "nowayos-seed-consumer.elf", "nowayos-usb-tone.elf", "nowayos-audio-loop.elf", "nowayos-usb-camera.elf", "nowayos-camera-test.elf"]
+reason = "a test instrument: it makes deliberately forbidden accesses, drives a test-only device or misbehaves on purpose, so it never reaches a demo or product system"
+
+# The random source: the device the board file
+# names rng - virtio-rng's page in QEMU - and the entropy PD that owns it.
+[[only]]
+id = "rng-only-entropy"
+role = "entropy"
+grant = "device"
+device = "rng"
+reason = "whoever reads the random source sees the bytes every seed is made from, and whoever drives it can starve or bias them: only the entropy PD, which health-tests every byte and hands each consumer its seeds one way, may map it"
+
+# A seed ring's messages: written by the entropy PD for one consumer, which
+# alone reads them.
+[[one_reader]]
+id = "seed-ring-one-reader"
+role = "entropy"
+reason = "a seed is the key to its consumer's generator: only that consumer may read it, and none may write it, so no other PD can learn or choose the keys its generator makes"
+
+[[forbid]]
+id = "entropy-no-channel-to-ui"
+role = "entropy"
+grant = "channel"
+peer_role = "ui"
+reason = "the entropy PD seeds the PDs that make keys and handshakes; the UI PD handles untrusted input and holds no secret, so it gets no channel to the source of every seed"
+
+[[forbid]]
+id = "entropy-no-call"
+role = "entropy"
+grant = "call"
+reason = "a caller waits for its callee: the entropy PD never waits on another PD, so none can stall the seeding of every other; it only notifies and is notified"
+
+# The debug UART's keys, held structurally as well as by name: an
+# input PD that reads keys from the debug UART only reads it - the kernel
+# transmits on it - and in a product no input PD holds it at all, whatever
+# its program is called. (A ui or broker PD holds no device anywhere, above.)
+[[forbid]]
+id = "input-reads-the-debug-uart-only"
+role = "input"
+grant = "device"
+device = "debug_uart"
+rights = "rw"
+reason = "an input PD that reads keys from the debug UART takes bytes off its receive FIFO and nothing more: the kernel transmits on it and the boot firmware set it up, so the PD maps its registers read-only and cannot send, reconfigure it or change its interrupts"
+
+[[forbid]]
+id = "debug-uart-no-input-in-product"
+role = "input"
+grant = "device"
+device = "debug_uart"
+systems = ["product"]
+reason = "keys from the debug UART are a development route: in a product, whoever reaches the UART's pins or its probe could type into the UI through an input PD that holds it"
+
+# Program images for development only: a route into a system that
+# only a developer's bench has - keys typed on a terminal through the debug
+# UART, which the Debug Probe carries from the developer's Mac - or a script
+# standing in for a person; and a program with a stand-in built into it for a
+# service the system lacks (Showcase's reference kiosk answers its own
+# submissions until the network path exists). They may run in test and demo
+# systems, never in a product system; check-system names every PD that runs one on every image it
+# passes ("check-system: development only - ..."), so the build says which
+# images are not a product's. The images are patterns (fnmatch): NoWayOS's
+# programs, and a product's own program that runs the same PD from NoWayOS's
+# library, which keeps the name's ending (`*-uart-input.elf`) so that the
+# rule binds it too; a program with a stand-in in it ends `-stand-in`.
+[development_only]
+images = ["*-uart-input.elf", "*-input-script.elf", "*-stand-in.elf"]
+reason = "a development route, never a product's: keys typed on a terminal attached to the debug UART, or input scripted in a person's place - in a product either would let whoever reaches the UART, or whoever wrote the script, type into the UI - or a stand-in answering in place of a service, which in a product would tell a person their answers were accepted when they went nowhere"

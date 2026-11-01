@@ -1,0 +1,19 @@
+# Check every text file out with LF line endings, whatever core.autocrlf says
+# (Git for Windows defaults it to true): the Makefiles, tools and expected
+# QEMU output are used inside the Linux dev container, and tests compare
+# files byte for byte.
+* text=auto eol=lf
+
+# Golden images (PNG) are binary: never convert their bytes.
+*.png binary
+
+# The glyph atlases' font and the coverage the atlas tool makes from it
+# are binary too: the tool checks the font's bytes against its pin,
+# and make atlases-check compares the coverage byte for byte.
+*.ttf binary
+*.coverage binary
+
+# Our own assistant's instructions are not published: the public tree is
+# made with git archive, which leaves these out. AGENTS.md is the public one.
+CLAUDE.md export-ignore
+.claude/** export-ignore

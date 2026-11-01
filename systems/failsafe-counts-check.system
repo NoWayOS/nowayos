@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    The fail-safe state at start-up. There is
+    no store yet, so this test system gives its supervisor the counts in a
+    read-only region prefilled at build time: a test-only stand-in for Phase
+    7's store (tools/board-system), which the grants check refuses outside a
+    test system (check-system rule 12). This one holds a record that fails its
+    check (test-counts-bad-check.bin).
+
+    The six failsafe-* systems differ only in their stand-in, and make
+    tools-test checks that they do: counts at the restart limit, at the
+    sensitive limit, and counts that are missing, cut short, of an unknown
+    version or failing their check - each of the last four counting as the
+    limit reached.
+
+    failsafe_supervisor reads the counts before any child runs and enters
+    the fail-safe state: it stops every child but those its program marks to
+    keep - here kept_child, standing in for the watchdog PD a product keeps,
+    which its program classes as the watchdog - so stopped_child never
+    runs. Nor does unnamed_child, which the program leaves out on purpose:
+    the supervisor stops every one of the 64 slots a child can have but the
+    kept ones, so a child its program does not name is stopped too.
+    kept_child then writes its read-only page: the supervisor stops it,
+    reports it, and resets nothing, since only a cold start brings a device
+    back from the fail-safe state.
+
+    Capabilities: failsafe_supervisor holds its children's thread
+    capabilities, the SMC capability (smc="true"; unbadged in Microkit
+    2.3.1) and its stand-in counts, read-only - in a test system only:
+    the grants check refuses the supervisor any memory in a demo or product
+    system (supervisor-no-memory). kept_child maps one page read-only;
+    stopped_child and unnamed_child hold nothing.
+
+    Every grant above is also listed in this system's .grants file, which
+    tools/check-system compares with this file and with the kernel objects the
+    Microkit tool generates (make image, make qemu-test).
+-->
+<system>
+    <memory_region name="counts" prefill_path="test-counts-bad-check.bin" />
+    <memory_region name="kept_page" size="0x1000" />
+
+    <protection_domain name="failsafe_supervisor" priority="254" stack_size="0x10000" smc="true">
+        <program_image path="nowayos-supervisor.elf" />
+        <map mr="counts" vaddr="0x4000_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_1_vaddr" setvar_size="nowayos_ro_region_1_size" />
+
+        <protection_domain name="kept_child" id="0" priority="100" stack_size="0x10000">
+            <program_image path="nowayos-isolation-probe.elf" />
+            <map mr="kept_page" vaddr="0x4000_0000" perms="r"
+                 setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+        </protection_domain>
+
+        <protection_domain name="stopped_child" id="1" priority="50" stack_size="0x10000">
+            <program_image path="nowayos-isolation-probe.elf" />
+        </protection_domain>
+
+        <protection_domain name="unnamed_child" id="2" priority="40" stack_size="0x10000">
+            <program_image path="nowayos-isolation-probe.elf" />
+        </protection_domain>
+    </protection_domain>
+</system>

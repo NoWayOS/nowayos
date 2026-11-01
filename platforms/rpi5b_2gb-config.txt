@@ -1,0 +1,18 @@
+# config.txt for the Raspberry Pi 5's firmware: it starts U-Boot, which boots
+# the Microkit image (loader.img). `make sdcard` copies this file to the card
+# (our own config.txt). Never add a setting that programs OTP or
+# enables secure boot on a development board: `make sdcard` refuses them.
+
+# Firmware-stage output on the serial console.
+enable_uart=1
+
+# The seL4 Pi 5 guide's two lines: 64-bit mode, and U-Boot as the "kernel".
+arm_64bit=1
+kernel=u-boot.bin
+
+# The cores at their full 2.4 GHz: otherwise the firmware drops them to
+# 1.5 GHz a minute after a reset, as no OS asks it for more. It still slows
+# them at 85 C, and the fan PD cools the board. Never with an over_voltage
+# setting: the two together program OTP (the warranty bit), so `make sdcard`
+# refuses any.
+force_turbo=1

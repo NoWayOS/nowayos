@@ -1,0 +1,38 @@
+# Lines tools/qemu-test must see, in this order, as whole serial lines.
+# In QEMU: usb0, the USB host PD itself, binds its client's audio
+# rings, runs its controller as usb-test's does and enumerates QEMU's USB
+# audio device on root port 5; it streams the speaker for the client, which
+# learns its format and sends a 440 Hz tone. The client has sent 10 s of
+# tone - 80 ms ahead of the speaker, so before usb0's own 10 s line, which
+# is not checked - and the speaker's first 20 s are served with no interval
+# missed. A longer run: make qemu-test SYSTEM=usb-audio-loop-test
+# QEMU_SETTLE=600.
+NOWAYOS: usb0: starting
+NOWAYOS: usb0: controller identified
+NOWAYOS: usb0: halted and reset
+NOWAYOS: usb0: running: a No Op command came back through DMA
+NOWAYOS: usb0: ready
+NOWAYOS: client: starting
+NOWAYOS: client: ready: 1 USB host PDs to hear from
+NOWAYOS: usb0: port 5: device 46f4:0002, class 0/0/0, USB 1.0, full-speed
+NOWAYOS: usb0: port 5: endpoint 0x01 out: interface 1, alternate 1: 48000 Hz, 2 channels of 16 bits, up to 192 bytes every 1000 us, 48 transfers ahead: the client's speaker
+NOWAYOS: client: side 0: a speaker, 48000 Hz, 2 channels
+NOWAYOS: client: side 0: no microphone
+NOWAYOS: client: 10 s sent to the speaker
+NOWAYOS: usb0: port 5: endpoint 0x01 out: 20 s, no interval missed
+
+# Output that fails the test at once if it appears anywhere (substring match):
+# a fault reported by the Microkit monitor, a kernel error message, a panic,
+# a PD giving up, an event refused, a device left alone, a stream not
+# streamed, an interval missed, or the client sending the speaker too
+# little once it has begun.
+!MON|ERROR
+!seL4(CPU
+!panicked
+!gave up
+!refused
+!left alone
+!not streamed
+!missed so far
+!sent too little
+!no audio client

@@ -1,0 +1,29 @@
+# Everything supervisor-bad-list grants, one fact per line. tools/check-system
+# fails the build if the system description grants anything not listed here, or
+# lists anything it does not grant, and checks the map rights again in the
+# kernel objects the Microkit tool generates (format: see tools/check-system).
+# A change here is a security change: call it out in the pull request.
+
+# The kind of system, and each PD's role (tools/grant-rules.toml): only a test
+# system may give the supervisor memory - here, its stand-in counts - and only
+# a test system may prefill a region from test-counts-*.bin (rule 12). The
+# supervisor's program calls kept_app an app; it is a test instrument.
+system test
+role bad_list_supervisor supervisor
+role kept_app test
+role stopped_child test
+
+# The supervisor has the highest priority, so its start-up - reading the
+# counts and stopping every child - runs before any child's. Full budgets.
+pd bad_list_supervisor priority=254 budget=1000 period=1000
+pd kept_app priority=100 budget=1000 period=1000
+pd stopped_child priority=50 budget=1000 period=1000
+
+# The supervisor: its children, and the SMC capability for PSCI SYSTEM_RESET
+# (unbadged in Microkit 2.3.1: it could make any firmware call).
+child bad_list_supervisor kept_app
+child bad_list_supervisor stopped_child
+smc bad_list_supervisor
+
+# The stand-in counts: prefilled at build time, read-only (rule 12).
+map bad_list_supervisor counts r

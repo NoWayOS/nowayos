@@ -1,0 +1,50 @@
+# Lines tools/check-serial must see, in this order, as whole serial lines,
+# for ui-demo on the Raspberry Pi 5 (systems/rpi5b_2gb/ui-demo.system):
+# every line of systems/ui-demo.expect, in its order (tools/test_tools.py
+# checks), and the display PD's lines for the board's framebuffer - where it
+# shows each frame, and the hash of what the window holds once it has: the
+# frame at the monitor's own pixels, 1920x1064 r5g6b5 from row 16,
+# read back. crates/nowayos-demo/tests/frame_hash.rs computes each scan-out
+# hash from the step's approved golden image. With a monitor at 1920 x 1080,
+# the HVS's channel 0 scans it out, and copies wait for it.
+NOWAYOS: display-stub: starting
+NOWAYOS: display-stub: showing each frame on the board's 1920x1080 r5g6b5 framebuffer at its own pixels, from row 16
+NOWAYOS: display-stub: copies keep in step with the scan, on display channel 0
+NOWAYOS: display-stub: announced 1920x1064 Rgb565 at scale 2
+NOWAYOS: input-script: starting; 10 steps to play
+NOWAYOS: ui: starting
+NOWAYOS: ui: the display is 1920x1064 Rgb565 at scale 2
+NOWAYOS: display-stub: frame 0 hash 0xa1d7ff36f18a8b5e
+NOWAYOS: display-stub: frame 0 on the framebuffer, scan-out hash 0xa1d7ff36f18a8b5e
+NOWAYOS: display-stub: frame 1 hash 0xa1d7ff36f18a8b5e
+NOWAYOS: display-stub: frame 1 on the framebuffer, scan-out hash 0xa1d7ff36f18a8b5e
+NOWAYOS: display-stub: frame 2 hash 0xa1d7ff36f18a8b5e
+NOWAYOS: display-stub: frame 2 on the framebuffer, scan-out hash 0xa1d7ff36f18a8b5e
+NOWAYOS: ui: input record rejected: invalid value in field `tag`
+NOWAYOS: display-stub: frame 3 hash 0xa1a6c1e2b51a9df2
+NOWAYOS: display-stub: frame 3 on the framebuffer, scan-out hash 0xa1a6c1e2b51a9df2
+NOWAYOS: display-stub: frame 4 hash 0x1f109f765165f4fd
+NOWAYOS: display-stub: frame 4 on the framebuffer, scan-out hash 0x1f109f765165f4fd
+NOWAYOS: display-stub: frame 5 hash 0x80b7a1054e522dd6
+NOWAYOS: display-stub: frame 5 on the framebuffer, scan-out hash 0x80b7a1054e522dd6
+NOWAYOS: ui: action Help
+NOWAYOS: display-stub: frame 6 hash 0x6da482d0089f7e92
+NOWAYOS: display-stub: frame 6 on the framebuffer, scan-out hash 0x6da482d0089f7e92
+NOWAYOS: ui: action Continue
+NOWAYOS: display-stub: frame 7 hash 0x040c3097a0720af6
+NOWAYOS: display-stub: frame 7 on the framebuffer, scan-out hash 0x040c3097a0720af6
+NOWAYOS: display-stub: frame 8 hash 0x040c3097a0720af6
+NOWAYOS: display-stub: frame 8 on the framebuffer, scan-out hash 0x040c3097a0720af6
+NOWAYOS: ui: action Start again
+NOWAYOS: display-stub: frame 9 hash 0xa1d7ff36f18a8b5e
+NOWAYOS: display-stub: frame 9 on the framebuffer, scan-out hash 0xa1d7ff36f18a8b5e
+NOWAYOS: ui: frame 9 shown
+NOWAYOS: input-script: session done
+
+# Output that fails the test at once if it appears anywhere (substring match).
+!MON|ERROR
+!seL4(CPU
+!panicked
+!gave up
+!refused
+!cannot show frames

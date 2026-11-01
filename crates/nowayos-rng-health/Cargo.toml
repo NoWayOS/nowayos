@@ -1,0 +1,19 @@
+[package]
+name = "nowayos-rng-health"
+description = "A hardware random source's bytes health-tested as NIST SP 800-90B section 4.4 sets out, and conditioned into 256-bit seeds with SHA-256, for the entropy PD"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+# SHA-256, the vetted conditioning function (SP 800-90B 3.1.5.1.1): RustCrypto,
+# MIT OR Apache-2.0, already in the tree through nowayos-signature.
+sha2.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true

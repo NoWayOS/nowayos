@@ -1,0 +1,301 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT OR Apache-2.0
+"""Record an image's seL4 configuration; check the verification position.
+
+Usage:
+    sel4-config record --sdk DIR --board BOARD --config CONFIG --system NAME
+                       --image loader.img --out FILE
+                       [--position FILE] [--containerfile FILE]
+    sel4-config check [--position FILE] [--containerfile FILE]
+
+`record` (run by `make image`) writes FILE beside the image: the image's
+sha256; the system, board and configuration; the Microkit SDK's version and
+the sha256 of its release archive, as pinned in the Containerfile and
+checked when the dev image was built; the kernel's sha256; and every kernel
+option that decides whether the kernel is seL4's verified configuration,
+read from the SDK (board/BOARD/CONFIG/include/kernel/gen_config.json),
+beside the value tools/sel4-verification.toml records for that
+configuration. Its `status:` lines label the kernel: a development build
+(debug), outside seL4's proofs (multi-core, MCS, a platform not on the
+verified list, ...) or a difference. Matching every option is never called
+"verified": the record says what the proofs leave out.
+
+`check` (run by `make ci`, as make sel4-config-check) fails when the
+verification position was checked against another SDK than the
+Containerfile pins - its version or either architecture's archive sha256 -
+so changing the SDK pin fails CI until the position is re-checked and its
+[sdk] updated in the same change. `record` notes the same mismatch in the
+record instead of failing, so a new SDK can be tried before it is reviewed.
+
+Exit status: 0 pass; 1 the position does not match the pinned SDK (check);
+2 usage or input error. Python 3.11 or later (tomllib), standard library
+only.
+"""
+
+import argparse
+import hashlib
+import json
+import os
+import platform
+import re
+import sys
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python before 3.11
+    tomllib = None
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+EXIT_PASS = 0
+EXIT_FAIL = 1
+EXIT_ERROR = 2
+
+DEFAULT_POSITION = os.path.join(HERE, "sel4-verification.toml")
+DEFAULT_CONTAINERFILE = os.path.join(HERE, "container", "Containerfile")
+# Microkit release archive names, per Debian architecture (the Containerfile's).
+SDK_ARCHES = {"arm64": "linux-aarch64", "amd64": "linux-x86-64"}
+MACHINE_ARCH = {"aarch64": "arm64", "arm64": "arm64", "x86_64": "amd64", "amd64": "amd64"}
+
+
+class InputError(Exception):
+    """A file could not be read or does not have the expected shape."""
+
+
+def sha256_file(path):
+    digest = hashlib.sha256()
+    try:
+        with open(path, "rb") as handle:
+            for block in iter(lambda: handle.read(1 << 20), b""):
+                digest.update(block)
+    except OSError as err:
+        raise InputError(f"cannot read {path}: {err}") from err
+    return digest.hexdigest()
+
+
+def containerfile_pins(path):
+    """{'version': ..., 'arm64': sha256, 'amd64': sha256} from the Containerfile's ARGs."""
+    try:
+        with open(path, encoding="utf-8") as handle:
+            text = handle.read()
+    except OSError as err:
+        raise InputError(f"cannot read {path}: {err}") from err
+    pins = {}
+    for key, arg in (("version", "MICROKIT_VERSION"), ("arm64", "MICROKIT_SHA256_ARM64"),
+                     ("amd64", "MICROKIT_SHA256_AMD64")):
+        found = re.findall(rf"^ARG {arg}=(\S+)\s*$", text, re.MULTILINE)
+        if len(found) != 1:
+            raise InputError(f"{path}: expected exactly one 'ARG {arg}=...', found {len(found)}")
+        pins[key] = found[0]
+    return pins
+
+
+def load_position(path):
+    """The verification position, checked for shape."""
+    try:
+        with open(path, "rb") as handle:
+            position = tomllib.load(handle)
+    except (OSError, tomllib.TOMLDecodeError) as err:
+        raise InputError(f"cannot read {path}: {err}") from err
+    sdk = position.get("sdk")
+    if not isinstance(sdk, dict):
+        raise InputError(f"{path}: no [sdk] table")
+    for key in ("version", "sha256-arm64", "sha256-amd64", "sel4", "checked"):
+        if not isinstance(sdk.get(key), str) or not sdk.get(key):
+            raise InputError(f"{path}: [sdk] needs {key} = \"...\"")
+    configuration = position.get("configuration")
+    if not isinstance(configuration, dict) or not configuration:
+        raise InputError(f"{path}: no [configuration] table")
+    for name, value in configuration.items():
+        if not isinstance(value, (bool, str)):
+            raise InputError(f"{path}: [configuration] {name} must be true, false or a string, as in gen_config.json")
+    platforms = position.get("platforms")
+    if not isinstance(platforms, dict) or not isinstance(platforms.get("verified"), list):
+        raise InputError(f"{path}: [platforms] needs verified = [...]")
+    if "PLAT" in configuration:
+        raise InputError(f"{path}: PLAT belongs in [platforms], not [configuration]")
+    labels = position.get("labels", {})
+    if not isinstance(labels, dict):
+        raise InputError(f"{path}: [labels] must be a table")
+    for name, label in labels.items():
+        if name != "PLAT" and name not in configuration:
+            raise InputError(f"{path}: [labels] {name} is not an option in [configuration]")
+        if not isinstance(label, str) or not label:
+            raise InputError(f"{path}: [labels] {name} must be a non-empty string")
+    return position
+
+
+def position_problems(position, pins, position_path, containerfile):
+    """Why the position does not hold for the pinned SDK (empty: it does)."""
+    sdk = position["sdk"]
+    problems = []
+    if sdk["version"] != pins["version"]:
+        problems.append(f"{containerfile} pins Microkit {pins['version']}, but {position_path} was checked for {sdk['version']}")
+    for arch in ("arm64", "amd64"):
+        if sdk[f"sha256-{arch}"] != pins[arch]:
+            problems.append(f"{containerfile} pins the {arch} SDK archive sha256 {pins[arch]}, "
+                            f"but {position_path} was checked against {sdk[f'sha256-{arch}']}")
+    return problems
+
+
+def show(value):
+    """An option value as gen_config.json gives it, in the record."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if value is None:
+        return "(absent)"
+    return str(value) if str(value) != "" else '""'
+
+
+def compare(position, options):
+    """[(name, actual, expected text, differs)] and the status lines."""
+    configuration = position["configuration"]
+    platforms = position["platforms"]
+    labels = position.get("labels", {})
+    rows = []
+    missing = [name for name in configuration if name not in options]
+    if "PLAT" not in options:
+        missing.append("PLAT")
+    if missing:
+        raise InputError(f"the SDK's gen_config.json has no {', '.join(missing)}: re-check the verification position for this SDK")
+    plat = options["PLAT"]
+    rows.append(("PLAT", show(plat), "one of: " + ", ".join(platforms["verified"]),
+                 plat not in platforms["verified"]))
+    for name, expected in configuration.items():
+        actual = options[name]
+        rows.append((name, show(actual), show(expected), actual != expected))
+    # Labels in the position's order: the first is what the kernel is.
+    status = []
+    differing = [row[0] for row in rows if row[3]]
+    for name, label in labels.items():
+        if name in differing and label not in status:
+            status.append(label)
+    unlabelled = [name for name in differing if name not in labels]
+    if unlabelled:
+        status.append("not seL4's AArch64 verified configuration: differs in " + ", ".join(unlabelled))
+    if not status:
+        status.append("every option listed here matches seL4's AArch64 verified configuration as the position records it; "
+                      "that alone is not a verification claim - see the notes below")
+    return rows, status
+
+
+def record(args):
+    position = load_position(args.position)
+    pins = containerfile_pins(args.containerfile)
+    try:
+        with open(os.path.join(args.sdk, "VERSION"), encoding="utf-8") as handle:
+            sdk_version = handle.read().strip()
+    except OSError as err:
+        raise InputError(f"cannot read the SDK's VERSION in {args.sdk}: {err}") from err
+    if sdk_version != pins["version"]:
+        raise InputError(f"the SDK in {args.sdk} is Microkit {sdk_version}, but {args.containerfile} pins "
+                         f"{pins['version']}: rebuild the dev image with 'make container'")
+    arch = MACHINE_ARCH.get(platform.machine())
+    if arch is None:
+        raise InputError(f"no Microkit SDK archive is pinned for this machine ({platform.machine()})")
+    board_dir = os.path.join(args.sdk, "board", args.board, args.config)
+    config_path = os.path.join(board_dir, "include", "kernel", "gen_config.json")
+    try:
+        with open(config_path, encoding="utf-8") as handle:
+            options = json.load(handle)
+    except (OSError, json.JSONDecodeError) as err:
+        raise InputError(f"cannot read {config_path}: {err}") from err
+    if not isinstance(options, dict):
+        raise InputError(f"{config_path}: expected a JSON object")
+    rows, status = compare(position, options)
+    position_name = os.path.relpath(args.position, os.path.dirname(HERE))
+    stale = position_problems(position, pins, position_name, os.path.relpath(args.containerfile, os.path.dirname(HERE)))
+    sdk = position["sdk"]
+    kernel = os.path.join(board_dir, "elf", "sel4.elf")
+    if stale:
+        position_line = (f"NOT RE-CHECKED for this SDK: {position_name} was checked for another SDK pin "
+                         f"(Microkit {sdk['version']}); make ci fails until it is re-checked")
+        status.insert(0, "unknown: the verification position has not been re-checked for this SDK")
+    else:
+        position_line = f"{position_name}, checked {sdk['checked']} for this SDK (seL4 {sdk['sel4']})"
+
+    lines = [
+        f"# The seL4 configuration of {os.path.basename(args.image)}, written by tools/sel4-config.",
+        "# A verification statement about this image must match this record.",
+        f"image: {os.path.basename(args.image)}",
+        f"image-sha256: {sha256_file(args.image)}",
+        f"system: {args.system}",
+        f"board: {args.board}",
+        f"configuration: {args.config}",
+        f"sdk: Microkit {sdk_version}",
+        f"sdk-archive: microkit-sdk-{sdk_version}-{SDK_ARCHES[arch]}.tar.gz",
+        f"sdk-sha256: {pins[arch]} (pinned in tools/container/Containerfile; checked when the dev image was built)",
+        f"kernel: board/{args.board}/{args.config}/elf/sel4.elf in the SDK",
+        f"kernel-sha256: {sha256_file(kernel)}",
+        f"position: {position_line}",
+    ]
+    lines += [f"status: {line}" for line in status]
+    lines.append("")
+    lines.append(f"# Kernel options that decide proof coverage, from board/{args.board}/{args.config}/include/kernel/gen_config.json:")
+    width = max(len(row[0]) for row in rows)
+    value_width = max(len(row[1]) for row in rows)
+    lines.append(f"# {'option'.ljust(width)}  {'this kernel'.ljust(value_width)}  seL4's AArch64 verified configuration")
+    for name, actual, expected, differs in rows:
+        mark = "  DIFFERS" if differs else ""
+        lines.append(f"{name.ljust(width + 2)}  {actual.ljust(value_width)}  {expected}{mark}")
+    lines += [
+        "",
+        "# Even a kernel that matches every option above is covered by seL4's proofs only as far as they go:",
+        "# not its boot code, the System MMU, the debug and printing interfaces, or anything outside the",
+        "# kernel - Microkit's tools, its monitor and the protection domains.",
+    ]
+    text = "\n".join(lines) + "\n"
+    try:
+        with open(args.out, "w", encoding="utf-8") as handle:
+            handle.write(text)
+    except OSError as err:
+        raise InputError(f"cannot write {args.out}: {err}") from err
+    for line in status:
+        print(f"seL4 configuration ({args.board}, {args.config}): {line}")
+    print(f"seL4 configuration recorded in {args.out}")
+    return EXIT_PASS
+
+
+def check(args):
+    position = load_position(args.position)
+    pins = containerfile_pins(args.containerfile)
+    problems = position_problems(position, pins, args.position, args.containerfile)
+    if problems:
+        print("sel4-config: FAIL - the Microkit SDK pin changed since the verification position was checked", file=sys.stderr)
+        for problem in problems:
+            print(f"    {problem}", file=sys.stderr)
+        print(f"    Re-check {args.position} against the new SDK's seL4 release (its configs/ folder and seL4's "
+              "verified-configurations page), then update its [sdk] in the same change.", file=sys.stderr)
+        return EXIT_FAIL
+    sdk = position["sdk"]
+    print(f"sel4-config: PASS - the verification position (checked {sdk['checked']}, seL4 {sdk['sel4']}) is for the "
+          f"pinned Microkit SDK {pins['version']} (arm64 {pins['arm64'][:12]}..., amd64 {pins['amd64'][:12]}...)")
+    return EXIT_PASS
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n", 1)[0])
+    commands = parser.add_subparsers(dest="command", required=True)
+    for name in ("record", "check"):
+        command = commands.add_parser(name)
+        command.add_argument("--position", default=DEFAULT_POSITION, help="the verification position (TOML)")
+        command.add_argument("--containerfile", default=DEFAULT_CONTAINERFILE, help="the dev image's Containerfile")
+        if name == "record":
+            command.add_argument("--sdk", required=True, help="the Microkit SDK directory")
+            command.add_argument("--board", required=True)
+            command.add_argument("--config", required=True)
+            command.add_argument("--system", required=True)
+            command.add_argument("--image", required=True, help="the image the record describes")
+            command.add_argument("--out", required=True, help="the record to write")
+    args = parser.parse_args()
+    if tomllib is None:
+        print("sel4-config: needs Python 3.11 or later (tomllib); run it in the dev container", file=sys.stderr)
+        return EXIT_ERROR
+    try:
+        return record(args) if args.command == "record" else check(args)
+    except InputError as err:
+        print(f"sel4-config: {err}", file=sys.stderr)
+        return EXIT_ERROR
+
+
+if __name__ == "__main__":
+    sys.exit(main())

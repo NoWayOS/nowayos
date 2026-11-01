@@ -1,0 +1,53 @@
+# Input usb-input-test's QEMU receives over QMP (tools/qemu-test,
+# --qmp-script): each step waits for a serial line, then sends. QEMU's USB
+# keyboard, mouse and tablet report what they are given; usb0 polls their reports
+# and sends the events through the input broker to the UI's stand-in, which
+# prints them.
+wait NOWAYOS: usb0: port 7: tablet ready: report ID 0; X at bit 8, 16 bits, 0 to 32767; Y at bit 24, 16 bits, 0 to 32767
+# Type "a" on the keyboard.
+send {"execute": "input-send-event", "arguments": {"events": [{"type": "key", "data": {"down": true, "key": {"type": "qcode", "data": "a"}}}]}}
+wait NOWAYOS: input-print: key down 0x04
+send {"execute": "input-send-event", "arguments": {"events": [{"type": "key", "data": {"down": false, "key": {"type": "qcode", "data": "a"}}}]}}
+wait NOWAYOS: input-print: key up 0x04
+# Move the mouse right 10 and up 5 from the middle of the 800x480 screen.
+send {"execute": "input-send-event", "arguments": {"events": [{"type": "rel", "data": {"axis": "x", "value": 10}}, {"type": "rel", "data": {"axis": "y", "value": -5}}]}}
+wait NOWAYOS: input-print: pointer at (410, 235)
+# Put the tablet's pointer in the middle of its range, then click: QEMU
+# gives the buttons to its newest pointer, the tablet.
+send {"execute": "input-send-event", "arguments": {"events": [{"type": "abs", "data": {"axis": "x", "value": 16384}}, {"type": "abs", "data": {"axis": "y", "value": 16384}}]}}
+wait NOWAYOS: input-print: pointer at (399, 239)
+send {"execute": "input-send-event", "arguments": {"events": [{"type": "btn", "data": {"down": true, "button": "left"}}]}}
+wait NOWAYOS: input-print: button 0 down
+send {"execute": "input-send-event", "arguments": {"events": [{"type": "btn", "data": {"down": false, "button": "left"}}]}}
+wait NOWAYOS: input-print: button 0 up
+# Hold "c" and unplug the keyboard: its key is released when it goes.
+send {"execute": "input-send-event", "arguments": {"events": [{"type": "key", "data": {"down": true, "key": {"type": "qcode", "data": "c"}}}]}}
+wait NOWAYOS: input-print: key down 0x06
+send {"execute": "device_del", "arguments": {"id": "kbd"}}
+wait NOWAYOS: input-print: key up 0x06
+# Plug it back: it is enumerated afresh, and typing resumes.
+send {"execute": "device_add", "arguments": {"driver": "usb-kbd", "id": "kbd", "bus": "xhci0.0", "port": "1"}}
+wait NOWAYOS: usb0: port 5: boot keyboard ready
+send {"execute": "input-send-event", "arguments": {"events": [{"type": "key", "data": {"down": true, "key": {"type": "qcode", "data": "b"}}}]}}
+wait NOWAYOS: input-print: key down 0x05
+send {"execute": "input-send-event", "arguments": {"events": [{"type": "key", "data": {"down": false, "key": {"type": "qcode", "data": "b"}}}]}}
+wait NOWAYOS: input-print: key up 0x05
+# Unplug it and plug it straight back, with no wait between: the change is
+# read as an unplug, and the keyboard, its connection settled, is
+# enumerated again. A second's pause first: the PD reports port changes
+# at most once a second.
+pause 1100
+send {"execute": "device_del", "arguments": {"id": "kbd"}}
+send {"execute": "device_add", "arguments": {"driver": "usb-kbd", "id": "kbd", "bus": "xhci0.0", "port": "1"}}
+wait NOWAYOS: usb0: port 5: boot keyboard ready
+send {"execute": "input-send-event", "arguments": {"events": [{"type": "key", "data": {"down": true, "key": {"type": "qcode", "data": "d"}}}]}}
+wait NOWAYOS: input-print: key down 0x07
+send {"execute": "input-send-event", "arguments": {"events": [{"type": "key", "data": {"down": false, "key": {"type": "qcode", "data": "d"}}}]}}
+# Hold "d": QEMU's USB keyboard reports the press alone, so usb0
+# presses it again once it has been held half a second; its release stops it.
+send {"execute": "input-send-event", "arguments": {"events": [{"type": "key", "data": {"down": true, "key": {"type": "qcode", "data": "d"}}}]}}
+wait NOWAYOS: input-print: key down 0x07
+wait NOWAYOS: input-print: key down 0x07
+wait NOWAYOS: input-print: key down 0x07
+send {"execute": "input-send-event", "arguments": {"events": [{"type": "key", "data": {"down": false, "key": {"type": "qcode", "data": "d"}}}]}}
+wait NOWAYOS: input-print: key up 0x07

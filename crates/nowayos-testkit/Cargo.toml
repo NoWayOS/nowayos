@@ -1,0 +1,18 @@
+[package]
+name = "nowayos-testkit"
+description = "Host-side test harness: an in-memory embedded-graphics framebuffer and golden-image (PNG) snapshots"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+embedded-graphics.workspace = true
+png.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true

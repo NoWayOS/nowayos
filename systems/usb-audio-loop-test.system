@@ -1,0 +1,106 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    USB audio: a client PD's tone, through the USB host PD, played
+    by QEMU's USB speaker.
+
+        timer   the timer PD, as in usb-audio-test
+        usb0    the USB host PD itself, nowayos-usb-host, on xhci0 (QEMU's
+                qemu-xhci) with QEMU's USB audio device on its first root
+                port (usb-audio-loop-test.qemu). Given a client's audio rings
+                and a DMA region of DMA_SIZE_STREAMING, it streams the
+                speaker for its client: of the device's alternate settings,
+                the best it supports, at the rate it takes nearest 48 kHz
+                (SET_CUR where the endpoint has the control); what the client
+                sends, as 16-bit PCM in the speaker's format, goes out packet
+                by packet, 48 ms queued ahead of the controller, and silence
+                when the client has sent none. It tells the client which
+                devices stream, in which formats, every second
+        client  nowayos-audio-loop, a test instrument: the audio client of
+                usb0's rings. With no microphone - QEMU's USB audio device
+                has none - it sends the speaker a 440 Hz tone without end,
+                16 records queued ahead
+
+    QEMU writes what the speaker plays to a WAV file beside the image
+    (build/BOARD/usb-audio-loop-test/speaker.wav): the tone, continuous.
+
+    Capabilities. usb0: what usb-audio-test's usb0 maps - xhci0's register
+    window and PCI configuration page, uncached, read-write; its DMA region,
+    188 KiB, uncached, whose physical address it learns; the board's facts
+    about xhci0, read-only; its channel to the timer - and the client's two
+    rings: the ring from usb0 (a lossy ring: usb0 never waits) - its
+    messages, 36 KiB, read-write in usb0 and read-only in the client, its
+    control page read-write in the client and read-only in usb0 - and the
+    ring to usb0, the other way round, its messages 68 KiB; and a channel
+    to the client, on which usb0 notifies it. client: those rings, its
+    recording region (1 MiB, read-write, its own) and that channel. No
+    device, interrupt or physical address for the client.
+
+    Every grant above is also listed in usb-audio-loop-test.grants, which
+    tools/check-system compares with this file and with the kernel objects
+    the Microkit tool generates (make image, make qemu-test).
+-->
+<system>
+    <protection_domain name="timer" priority="200" stack_size="0x10000">
+        <program_image path="nowayos-timer.elf" />
+        <irq irq="@phys_timer" id="0" trigger="@phys_timer" />
+    </protection_domain>
+
+    <memory_region name="xhci0_regs" size="@xhci0" phys_addr="@xhci0" />
+    <memory_region name="xhci0_config_regs" size="@xhci0_config" phys_addr="@xhci0_config" />
+    <memory_region name="xhci0_facts" prefill_path="device-xhci0.bin" />
+    <memory_region name="usb0_memory" size="0x2f000" />
+
+    <!-- The client's rings: from usb0 (lossy) and to usb0. -->
+    <memory_region name="audio_from_messages" size="0x9000" />
+    <memory_region name="audio_from_control" size="0x1000" />
+    <memory_region name="audio_to_messages" size="0x11000" />
+    <memory_region name="audio_to_control" size="0x1000" />
+    <memory_region name="recording" size="0x100000" />
+
+    <protection_domain name="usb0" priority="100" stack_size="0x10000">
+        <program_image path="nowayos-usb-host.elf" />
+        <map mr="xhci0_regs" vaddr="0x200_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_device_0_vaddr" setvar_size="nowayos_device_0_size" />
+        <map mr="xhci0_config_regs" vaddr="0x210_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_device_1_vaddr" setvar_size="nowayos_device_1_size" />
+        <map mr="usb0_memory" vaddr="0x300_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_dma_0_vaddr" setvar_size="nowayos_dma_0_size" />
+        <setvar symbol="nowayos_dma_0_paddr" region_paddr="usb0_memory" />
+        <map mr="xhci0_facts" vaddr="0x4000_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_5_vaddr" setvar_size="nowayos_ro_region_5_size" />
+        <map mr="audio_from_messages" vaddr="0x4100_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_1_vaddr" setvar_size="nowayos_rw_region_1_size" />
+        <map mr="audio_from_control" vaddr="0x4101_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_1_vaddr" setvar_size="nowayos_ro_region_1_size" />
+        <map mr="audio_to_control" vaddr="0x4102_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_2_vaddr" setvar_size="nowayos_rw_region_2_size" />
+        <map mr="audio_to_messages" vaddr="0x4103_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_2_vaddr" setvar_size="nowayos_ro_region_2_size" />
+    </protection_domain>
+
+    <protection_domain name="client" priority="90" stack_size="0x10000">
+        <program_image path="nowayos-audio-loop.elf" />
+        <map mr="audio_from_control" vaddr="0x4100_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+        <map mr="audio_from_messages" vaddr="0x4101_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+        <map mr="audio_to_messages" vaddr="0x4102_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_1_vaddr" setvar_size="nowayos_rw_region_1_size" />
+        <map mr="audio_to_control" vaddr="0x4104_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_1_vaddr" setvar_size="nowayos_ro_region_1_size" />
+        <map mr="recording" vaddr="0x5000_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_4_vaddr" setvar_size="nowayos_rw_region_4_size" />
+    </protection_domain>
+
+    <!-- usb0 calls the timer, which notifies it of its tick. -->
+    <channel>
+        <end pd="usb0" id="0" pp="true" notify="false" />
+        <end pd="timer" id="1" />
+    </channel>
+
+    <!-- usb0 notifies the client each tick it sent or took a record. -->
+    <channel>
+        <end pd="usb0" id="2" />
+        <end pd="client" id="0" notify="false" />
+    </channel>
+</system>

@@ -1,0 +1,32 @@
+[package]
+name = "nowayos-virtio-console"
+description = "The serial driver PD for QEMU's virtio console: a byte stream to and from one client through nowayos-serial's rings, in the directions the system gives it, with no unsafe code of its own"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+# A library, so that a product system can run the driver from a program of its
+# own (wrapping `init`), and a program, for NoWayOS's own test system.
+[lib]
+path = "src/lib.rs"
+test = false
+doctest = false
+bench = false
+
+[[bin]]
+name = "nowayos-virtio-console"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+nowayos-hw.workspace = true
+nowayos-ipc.workspace = true
+nowayos-region.workspace = true
+nowayos-serial.workspace = true
+sel4-microkit.workspace = true
+
+[lints]
+workspace = true

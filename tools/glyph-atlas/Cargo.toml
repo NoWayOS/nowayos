@@ -1,0 +1,71 @@
+# NoWayOS's glyph atlas tool: turns the signed-off font into the
+# checked-in glyph atlases of crates/nowayos-glyphs. `make atlases` runs it, and `make
+# atlases-check`, in make ci, runs it again and fails on any difference.
+#
+# A host tool in a Cargo workspace of its own, like the fuzz harness: swash,
+# the rasteriser, and the font parsers it reads with are in this Cargo.lock
+# and in no other, so never in a device crate's dependency graph - which
+# `make atlases-check` shows with cargo tree in every other workspace.
+
+[package]
+name = "nowayos-glyph-atlas"
+description = "Build-time glyph atlas generator for nowayos-glyphs (make atlases)"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+rust-version = "1.93"
+publish = false
+
+[[bin]]
+name = "glyph-atlas"
+path = "src/main.rs"
+doc = false
+
+[dependencies]
+# MIT OR Apache-2.0 - glyphs.toml's typed form.
+serde = { version = "1.0.229", features = ["derive"] }
+# MIT OR Apache-2.0 - every input file checked against its pinned sha256.
+sha2 = "0.10.9"
+# Apache-2.0 OR MIT - the rasteriser and shaper, pinned exactly: a
+# new version can change the atlases' pixels. Its tree is on the house list
+# but for unicode-ident's Unicode-3.0, signed off for every repo.
+swash = "=0.2.10"
+# MIT OR Apache-2.0 - reads glyphs.toml and the crate's Cargo.toml.
+toml = { version = "1.1.6", default-features = false, features = ["std", "parse", "serde"] }
+
+[lints]
+workspace = true
+
+[workspace]
+members = ["."]
+
+# The NoWayOS baseline (tools/baseline.toml), as in NoWayOS's other
+# workspaces.
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+unreachable = "deny"
+panic_in_result_fn = "deny"
+allow_attributes_without_reason = "deny"
+indexing_slicing = "deny"
+arithmetic_side_effects = "deny"
+undocumented_unsafe_blocks = "deny"
+
+[profile.dev]
+panic = "abort"
+
+# The rasteriser optimised in every build, the tests' included: they make
+# every atlas, which unoptimised takes many times longer.
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.release]
+overflow-checks = true
+panic = "abort"

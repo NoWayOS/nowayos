@@ -1,0 +1,41 @@
+# Everything systems/restart-test.system grants, one fact per line.
+# tools/check-system fails the build if the system description grants anything
+# not listed here, or lists anything it does not grant, and checks the map
+# rights again in the kernel objects the Microkit tool generates (format: see
+# tools/check-system). A change here is a security change: call it out in the
+# pull request.
+
+# A test system: restarting one PD on its own is for test systems only
+# (tools/check-system rule 13). All three PDs are test
+# instruments (one program image, nowayos-restart-probe).
+system test
+role restarter test
+role worker test
+role client test
+
+# The parent has the highest priority, so it acts on a fault at once; worker
+# runs above client, so it answers each request as client sends it.
+pd restarter priority=254 budget=1000 period=1000
+pd worker priority=100 budget=1000 period=1000
+pd client priority=50 budget=1000 period=1000
+
+# restarter: worker's parent, and with worker's restart image it can restart
+# worker on its own.
+child restarter worker
+restart restarter worker
+map restarter worker_restart r
+
+# worker: its restart image, and its ends of the two rings.
+map worker worker_restart r
+map worker requests_control rw
+map worker requests r
+map worker answers rw
+map worker answers_control r
+
+# client: the other ends.
+map client requests rw
+map client requests_control r
+map client answers_control rw
+map client answers r
+
+channel client worker

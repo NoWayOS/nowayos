@@ -1,0 +1,22 @@
+# Lines tools/qemu-test must see, in this order, as whole serial lines:
+# a signature OpenSSL made is accepted inside a PD, and one bit
+# changed in the message, the signature or the public key, or an r of zero,
+# is refused. Each check's time is printed too ("took N us"), but varies
+# from run to run, so only the bound on the slowest is checked.
+NOWAYOS: signature-check: starting
+NOWAYOS: signature-check: OpenSSL's signature: accepted
+NOWAYOS: signature-check: one bit of the message changed: refused: the signature does not match the key and message
+NOWAYOS: signature-check: one bit of the signature changed: refused: the signature does not match the key and message
+NOWAYOS: signature-check: one bit of the public key changed: refused: the public key is not a point on P-256
+NOWAYOS: signature-check: r of zero: refused: the signature's r is zero
+NOWAYOS: signature-check: every check took under 1 s
+NOWAYOS: signature-check: done
+
+# Output that fails the test at once if it appears anywhere (substring
+# match), including in the settle period after the last line above: a fault
+# reported by the Microkit monitor, a kernel error message, a panic, or a
+# check over its bound.
+!MON|ERROR
+!seL4(CPU
+!panicked
+!over 1 s

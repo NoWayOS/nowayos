@@ -1,0 +1,25 @@
+# Lines tools/qemu-test must see, in this order, as whole serial lines.
+# In QEMU: the entropy PD fills both seed
+# rings; seed_flood, taking seeds as fast as it can for 2 s, is held to its
+# rate (its count, the line before, is not checked: it differs every run),
+# while polite_consumer gets every seed it asks for within its own.
+NOWAYOS: entropy: starting
+NOWAYOS: entropy: virtio-rng on transport 8, claimed to give 8 bits a byte
+NOWAYOS: entropy: start-up tests passed over the first 1024 bytes, which were discarded
+NOWAYOS: entropy: seed ring 0 full: 4 seeds
+NOWAYOS: entropy: seed ring 1 full: 4 seeds
+NOWAYOS: polite-consumer: starting
+NOWAYOS: seed-flood: starting
+NOWAYOS: polite-consumer: got every seed it asked for: 5, one each 200 ms
+NOWAYOS: seed-flood: held to its rate: a ring's worth, then 10 seeds a second
+
+# Output that fails the test at once if it appears anywhere (substring match),
+# including in the second after the last line above: a fault, a panic, a PD
+# giving up, a failed health test or a refused seed.
+!MON|ERROR
+!seL4(CPU
+!panicked
+!gave up
+!health test failed
+!a seed refused
+!too few bytes

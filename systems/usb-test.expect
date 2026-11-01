@@ -1,0 +1,25 @@
+# Lines tools/qemu-test (and make check-serial, on the Pi 5) must see, in
+# this order, as whole serial lines. Each USB host PD
+# identifies its xHCI controller, halts and resets it, runs it from its own
+# DMA region and has a No Op command come back through DMA. What differs by
+# board - the controller's version and ports, the PCI placement on QEMU, what
+# the firmware left running, what is attached - is printed between these
+# lines and not checked.
+NOWAYOS: usb0: starting
+NOWAYOS: usb0: controller identified
+NOWAYOS: usb0: halted and reset
+NOWAYOS: usb0: running: a No Op command came back through DMA
+NOWAYOS: usb0: ready
+NOWAYOS: usb1: starting
+NOWAYOS: usb1: controller identified
+NOWAYOS: usb1: halted and reset
+NOWAYOS: usb1: running: a No Op command came back through DMA
+NOWAYOS: usb1: ready
+
+# Output that fails the test at once if it appears anywhere (substring match):
+# a fault reported by the Microkit monitor, a kernel error message, a panic,
+# or a PD giving up.
+!MON|ERROR
+!seL4(CPU
+!panicked
+!gave up

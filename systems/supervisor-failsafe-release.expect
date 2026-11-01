@@ -1,0 +1,31 @@
+# Lines tools/qemu-test must see, in this order, as whole serial lines - all
+# printed by the console PD through the UART's own registers, so the same in
+# the debug and the release configuration (supervisor-failsafe-release.configs).
+# The supervisor reads its stand-in counts before any child runs; the
+# restart count is at its limit, so it enters the fail-safe state, keeps the
+# console running and stops the child its program does not name.
+NOWAYOS: console: starting
+NOWAYOS: supervisor: starting; children console (0)
+NOWAYOS: supervisor: counts read from the test stand-in, which stores nothing: restart count 4, sensitive count 0
+NOWAYOS: supervisor: this start: a reset whose cause was not written down
+NOWAYOS: supervisor: restart count 5 of 4, sensitive count 0 of 2: enter the fail-safe state
+NOWAYOS: supervisor: an unknown child (1) stopped
+NOWAYOS: supervisor: in the fail-safe state; kept running: console (0)
+
+# Output that fails the test at once if it appears anywhere (substring match):
+# the unnamed child running or faulting, a slot the supervisor cannot stop,
+# the board reset, the reset returning, a fault the monitor had to handle, a
+# kernel error message, or a line the console refused.
+!unnamed_faulter reading
+!an unknown child stopped:
+!cannot stop
+!resetting the board
+!the reset returned
+!NOT stopped
+!MON|ERROR
+!seL4(CPU
+!refused
+!gave up
+!no children are defined
+!cannot supervise
+!cannot keep

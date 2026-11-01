@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    The fail-safe state at start-up in the debug and the release
+    configuration (supervisor-failsafe-release.configs). A release kernel
+    prints nothing, so failsafe_release_supervisor's reports go through
+    console, a test instrument driving the debug UART's own registers, as
+    in supervisor-panic - and its program keeps console running in the
+    fail-safe state, classing it as the display, which a product keeps for
+    its out-of-service image. The supervisor stops every other slot a child can
+    have; a debug kernel is asked first which slots hold a child, and a
+    release kernel answers InvalidCapability for an empty one, so this
+    system shows the release kernel's way too.
+
+    Its stand-in counts are at the restart limit: test-counts-4-0.bin,
+    restart count 4 and sensitive count 0, prefilled at build time and
+    mapped read-only (tools/board-system), which the grants check refuses
+    outside a test system (check-system rule 12). Its other child,
+    unnamed_faulter, which its program leaves out on purpose, reads an
+    address where nothing is mapped in it if it ever runs: the supervisor
+    would report that fault through the console in either configuration.
+    It never runs.
+
+    Capabilities: failsafe_release_supervisor holds its children's thread
+    capabilities, the SMC capability (smc="true"; unbadged in Microkit
+    2.3.1), a ring to the console - its messages read-write, its
+    control read-only - with one channel to it, and its stand-in counts,
+    read-only: in a test system only, as the grants check refuses the
+    supervisor any memory in a demo or product system
+    (supervisor-no-memory). console maps the UART's registers uncached, the
+    board's facts about it read-only (device-debug_uart.bin) and the
+    ring, the other way round; unnamed_faulter holds nothing.
+
+    Every grant above is also listed in supervisor-failsafe-release.grants,
+    which tools/check-system compares with this file and with the kernel
+    objects the Microkit tool generates (make image, make qemu-test).
+-->
+<system>
+    <memory_region name="uart_regs" size="@debug_uart" phys_addr="@debug_uart" />
+    <memory_region name="uart_facts" prefill_path="device-debug_uart.bin" />
+    <memory_region name="console_messages" size="0x1000" />
+    <memory_region name="console_control" size="0x1000" />
+    <memory_region name="counts" prefill_path="test-counts-4-0.bin" />
+
+    <protection_domain name="failsafe_release_supervisor" priority="254" stack_size="0x10000" smc="true">
+        <program_image path="nowayos-supervisor.elf" />
+        <map mr="console_messages" vaddr="0x4000_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+        <map mr="console_control" vaddr="0x4000_1000" perms="r"
+             setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+        <map mr="counts" vaddr="0x4000_2000" perms="r"
+             setvar_vaddr="nowayos_ro_region_1_vaddr" setvar_size="nowayos_ro_region_1_size" />
+
+        <protection_domain name="console" id="0" priority="200" stack_size="0x10000">
+            <program_image path="nowayos-console.elf" />
+            <map mr="uart_regs" vaddr="0x200_0000" perms="rw" cached="false"
+                 setvar_vaddr="nowayos_device_0_vaddr" setvar_size="nowayos_device_0_size" />
+            <map mr="console_control" vaddr="0x4000_0000" perms="rw"
+                 setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+            <map mr="console_messages" vaddr="0x4000_1000" perms="r"
+                 setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+            <map mr="uart_facts" vaddr="0x4000_2000" perms="r"
+                 setvar_vaddr="nowayos_ro_region_5_vaddr" setvar_size="nowayos_ro_region_5_size" />
+        </protection_domain>
+
+        <protection_domain name="unnamed_faulter" id="1" priority="100" stack_size="0x10000">
+            <program_image path="nowayos-isolation-probe.elf" />
+        </protection_domain>
+    </protection_domain>
+
+    <!-- The reports, and "printed" back. -->
+    <channel>
+        <end pd="failsafe_release_supervisor" id="0" />
+        <end pd="console" id="0" />
+    </channel>
+</system>

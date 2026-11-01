@@ -1,0 +1,25 @@
+# Lines tools/qemu-test must see, in this order, as whole serial lines - all
+# printed by the console PD through the UART's own registers, so the same in
+# the debug and the release configuration (supervisor-panic.configs).
+# A child panics; the supervisor reads the fault's label before
+# parsing it, reports it undecoded, survives, and resets the board; the
+# system boots again. The "fault detail" line names the label, which differs
+# between the two kernels, and is not checked.
+NOWAYOS: console: starting
+NOWAYOS: supervisor: starting; children console (0) and panicker (1)
+NOWAYOS: supervisor: panicker stopped: a fault the supervisor does not decode
+NOWAYOS: supervisor: resetting the board
+NOWAYOS: console: starting
+NOWAYOS: supervisor: starting; children console (0) and panicker (1)
+NOWAYOS: supervisor: panicker stopped: a fault the supervisor does not decode
+
+# Output that fails the test at once if it appears anywhere (substring match):
+# the reset returning, a fault the monitor had to handle (the supervisor or
+# the console faulted), a kernel error message, or a line the console refused.
+!the reset returned
+!NOT stopped
+!MON|ERROR
+!seL4(CPU
+!refused
+!no children are defined
+!gave up

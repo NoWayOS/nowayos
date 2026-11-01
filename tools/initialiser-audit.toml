@@ -1,0 +1,340 @@
+# The audit of the Microkit SDK's capDL initialiser: every crate compiled into initialiser.elf, the initial task the
+# Microkit tool packs into every loader.img. tools/image-components.toml's
+# [sdk.initialiser] names this file, and tools/image-sbom lists each crate
+# below inside the initialiser in every image's SBOM, with its licence and
+# where its sign-off stands.
+#
+# What the initialiser is: Microkit's own `initialiser` crate, a wrapper of
+# rust-sel4's `sel4-capdl-initializer`, which Microkit's build_sdk.py builds
+# for every board and configuration with
+#     RUSTC_BOOTSTRAP=1 SEL4_PREFIX=<that build's seL4> cargo build \
+#         --target aarch64-unknown-none --locked --release -p initialiser
+# against the workspace Cargo.lock of the release's tag, with the Rust its
+# flake pins (1.94.0). The standard library is Rust's prebuilt one for the
+# target (no build-std).
+#
+# How the list was made (2026-10-04, in scratch containers from the dev
+# image): cargo's unit graph for that command in Microkit 2.3.1's source at
+# its tag (Cargo.lock sha256
+# 3fba64e70688e6766f697499d3aad74474a8b99d3bef32f751c075e97e38b3e2): the 38
+# packages compiled for aarch64-unknown-none, plus core, alloc and
+# compiler_builtins. Licences come from each crate's manifest; every source
+# file of the rust-sel4 crates was read for its SPDX tag. The binaries agree:
+# each initialiser.elf of the pinned SDK's qemu_virt_aarch64 and rpi5b_2gb
+# boards, debug and release, names rustc 1.94.0 (4a4ef493e 2026-03-02) in its
+# .comment section; its panic locations name rust-sel4's checkout at dbe6445,
+# log 0.4.33, miniz_oxide 0.9.1 and rkyv 0.8.17; and its symbols name only
+# crates listed here. It was not rebuilt bit for bit. The linux-x86-64
+# archive, the other one pinned, holds the same initialiser: its 159
+# initialiser.elf files are byte for byte the linux-aarch64 archive's. What
+# only built it - build scripts, proc macros and their dependencies, 48
+# crates - none of it is in the binary.
+#
+# The audit holds only for the SDK and target [audit] names. When the
+# Containerfile pins another SDK, image-sbom marks the initialiser
+# 'composition unaudited' again, until the audit is re-run for the new SDK
+# and this file updated in the same change (tools/container/README.md,
+# "Changing a pin").
+#
+# A crate whose licence needs more than the house list (MIT, Apache-2.0,
+# BSD-2-Clause, BSD-3-Clause, ISC) says where its sign-off stands:
+# `signed-off = "YYYY-MM-DD"`, the day the maintainer signed it off, or `pending = "..."`, what it
+# awaits. image-sbom refuses such a crate with neither, and refuses an
+# [sdk.initialiser] composition that claims more than this file shows: it is
+# "audited, sign-off pending" while any crate is pending, "audited" only once
+# none is.
+
+[audit]
+date = "2026-10-04"
+# The SDK audited: the Containerfile's MICROKIT_VERSION and both archives' sha256.
+sdk = "2.3.1"
+sdk-sha256-arm64 = "979553f288e8e2c099dae8fbec86cbe2cfda2ca006ee36de8234649d6d23bbee"
+sdk-sha256-amd64 = "b1b285b8785db7557eba6d0665dd4fbf2f265ea5c0b39d6f91ae3dcc43d2c424"
+# What the initialiser is built for: the SDK's AArch64 boards.
+target = "aarch64-unknown-none"
+# seL4/microkit's tag 2.3.1, and the rust-sel4 commit its Cargo.toml and Cargo.lock pin.
+microkit-commit = "ec86afdcd662b5976d11d4994acf1b11a2979882"
+rust-sel4-commit = "dbe6445d56059ed9a757e53c7137892aece1d179"
+rust = "1.94.0 (4a4ef493e 2026-03-02)"
+established = "cargo's unit graph for build_sdk.py's initialiser build in Microkit 2.3.1's source at its tag, against its Cargo.lock; licences from each crate's manifest, rust-sel4's file by file; checked against each initialiser.elf's .comment section, panic locations and symbols, not rebuilt bit for bit; the linux-x86-64 archive's initialiser.elf files are byte for byte the linux-aarch64 archive's"
+advisories = "None open: cargo-deny 0.20.2 (unmaintained, unsound and yanked all errors) over Microkit 2.3.1's Cargo.lock against the RustSec advisory database at ef6173cbc5c5 (2026-10-03); rkyv 0.8.17 is the release that fixes RUSTSEC-2026-0233, -0234 and -0235; no RustSec advisory for Rust's standard library affects 1.94.0"
+
+# ---- Microkit's own crate -----------------------------------------------------
+
+[[crates]]
+name = "initialiser"
+version = "2.3.1"
+licence = "BSD-2-Clause"
+source = "microkit"
+note = "Microkit's initialiser/ crate: its Cargo.toml declares no licence; both its files carry SPDX-License-Identifier BSD-2-Clause"
+
+# ---- rust-sel4, at rust-sel4-commit (four commits before v5.0.0; none of the
+# four touches these crates). All 156 .rs files of the 28 rust-sel4 crates the
+# build compiles, the six build-time ones included, carry SPDX tags: 96
+# BSD-2-Clause, 60 MIT. --------------------------------------------------------
+
+[[crates]]
+name = "sel4"
+version = "0.1.0"
+licence = "MIT"
+source = "rust-sel4"
+
+[[crates]]
+name = "sel4-bitfield-ops"
+version = "0.1.0"
+licence = "BSD-2-Clause"
+source = "rust-sel4"
+
+[[crates]]
+name = "sel4-capdl-initializer"
+version = "0.1.0"
+licence = "BSD-2-Clause"
+source = "rust-sel4"
+
+[[crates]]
+name = "sel4-capdl-initializer-types"
+version = "0.1.0"
+licence = "BSD-2-Clause"
+source = "rust-sel4"
+
+[[crates]]
+name = "sel4-config"
+version = "0.1.0"
+licence = "BSD-2-Clause"
+source = "rust-sel4"
+
+[[crates]]
+name = "sel4-ctors-dtors"
+version = "0.1.0"
+licence = "BSD-2-Clause"
+source = "rust-sel4"
+
+[[crates]]
+name = "sel4-dlmalloc"
+version = "0.1.0"
+licence = "BSD-2-Clause"
+source = "rust-sel4"
+
+[[crates]]
+name = "sel4-immediate-sync-once-cell"
+version = "0.1.0"
+licence = "BSD-2-Clause"
+source = "rust-sel4"
+
+[[crates]]
+name = "sel4-immutable-cell"
+version = "0.1.0"
+licence = "BSD-2-Clause"
+source = "rust-sel4"
+
+[[crates]]
+name = "sel4-logging"
+version = "0.1.0"
+licence = "BSD-2-Clause"
+source = "rust-sel4"
+
+[[crates]]
+name = "sel4-no-allocator"
+version = "0.1.0"
+licence = "BSD-2-Clause"
+source = "rust-sel4"
+
+[[crates]]
+name = "sel4-panicking"
+version = "0.1.0"
+licence = "BSD-2-Clause"
+source = "rust-sel4"
+
+[[crates]]
+name = "sel4-panicking-env"
+version = "0.1.0"
+licence = "BSD-2-Clause"
+source = "rust-sel4"
+
+[[crates]]
+name = "sel4-phdrs"
+version = "0.1.0"
+licence = "BSD-2-Clause"
+source = "rust-sel4"
+
+[[crates]]
+name = "sel4-phdrs-constants"
+version = "0.1.0"
+licence = "BSD-2-Clause"
+source = "rust-sel4"
+
+[[crates]]
+name = "sel4-phdrs-patched"
+version = "0.1.0"
+licence = "BSD-2-Clause"
+source = "rust-sel4"
+
+[[crates]]
+name = "sel4-rodata-static"
+version = "0.1.0"
+licence = "BSD-2-Clause"
+source = "rust-sel4"
+
+[[crates]]
+name = "sel4-root-task"
+version = "0.1.0"
+licence = "BSD-2-Clause"
+source = "rust-sel4"
+
+[[crates]]
+name = "sel4-runtime-common"
+version = "0.1.0"
+licence = "BSD-2-Clause"
+source = "rust-sel4"
+
+[[crates]]
+name = "sel4-stack"
+version = "0.1.0"
+licence = "BSD-2-Clause"
+source = "rust-sel4"
+
+[[crates]]
+name = "sel4-sync"
+version = "0.1.0"
+licence = "MIT"
+source = "rust-sel4"
+
+[[crates]]
+name = "sel4-sys"
+version = "0.1.0"
+licence = "BSD-2-Clause"
+source = "rust-sel4"
+note = "Also holds the bindings its build script generated from the SDK's libsel4 headers and interface files (BSD-2-Clause) and the kernel's configuration values"
+
+# ---- crates.io: each with the sha256 Microkit's Cargo.lock pins. Where an
+# expression offers a licence outside the house list beside a house one
+# (adler2's 0BSD, miniz_oxide's Zlib), the house licence is taken. ----------
+
+[[crates]]
+name = "adler2"
+version = "2.0.1"
+licence = "0BSD OR MIT OR Apache-2.0"
+source = "crates.io"
+checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
+
+[[crates]]
+name = "bytecheck"
+version = "0.8.2"
+licence = "MIT"
+source = "crates.io"
+checksum = "0caa33a2c0edca0419d15ac723dff03f1956f7978329b1e3b5fdaaaed9d3ca8b"
+
+[[crates]]
+name = "cfg-if"
+version = "1.0.4"
+licence = "MIT OR Apache-2.0"
+source = "crates.io"
+checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
+
+[[crates]]
+name = "dlmalloc"
+version = "0.2.14"
+licence = "MIT/Apache-2.0"
+source = "crates.io"
+checksum = "ad5208a115eaba24916f7456929832e310a81518c641f93fee4f89aa93aa3675"
+note = "MIT/Apache-2.0 is cargo's old way of writing MIT OR Apache-2.0; a Rust port of Doug Lea's public-domain dlmalloc"
+
+[[crates]]
+name = "hashbrown"
+version = "0.17.1"
+licence = "MIT OR Apache-2.0"
+source = "crates.io"
+checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
+
+[[crates]]
+name = "lock_api"
+version = "0.4.14"
+licence = "MIT OR Apache-2.0"
+source = "crates.io"
+checksum = "224399e74b87b5f3557511d98dff8b14089b3dadafcab6bb93eab67d3aace965"
+
+[[crates]]
+name = "log"
+version = "0.4.33"
+licence = "MIT OR Apache-2.0"
+source = "crates.io"
+checksum = "0ceec5bc11778974d1bcb055b18002eba7f4b3518b6a0081b3af5f21666da9ad"
+
+[[crates]]
+name = "miniz_oxide"
+version = "0.9.1"
+licence = "MIT OR Zlib OR Apache-2.0"
+source = "crates.io"
+checksum = "b63fbc4a50860e98e7b2aa7804ded1db5cbc3aff9193adaff57a6931bf7c4b4c"
+
+[[crates]]
+name = "munge"
+version = "0.4.7"
+licence = "MIT"
+source = "crates.io"
+checksum = "5e17401f259eba956ca16491461b6e8f72913a0a114e39736ce404410f915a0c"
+
+[[crates]]
+name = "ptr_meta"
+version = "0.3.1"
+licence = "MIT"
+source = "crates.io"
+checksum = "0b9a0cf95a1196af61d4f1cbdab967179516d9a4a4312af1f31948f8f6224a79"
+
+[[crates]]
+name = "rancor"
+version = "0.1.2"
+licence = "MIT"
+source = "crates.io"
+checksum = "daff8b7b3ccf5f7ba270b3e7a0a4d4c701c5797e38dec27c7e2c3dbb830fed1c"
+
+[[crates]]
+name = "rend"
+version = "0.5.4"
+licence = "MIT"
+source = "crates.io"
+checksum = "663ba70707f96e871406fe10d68128412e619b06d1d47cb91c3a4c6501176240"
+
+[[crates]]
+name = "rkyv"
+version = "0.8.17"
+licence = "MIT"
+source = "crates.io"
+checksum = "815cc8a37159a463064825246cadb07961e25cd9885908606f6d08a98d8f8874"
+
+[[crates]]
+name = "scopeguard"
+version = "1.2.0"
+licence = "MIT OR Apache-2.0"
+source = "crates.io"
+checksum = "94143f37725109f92c262ed2cf5e59bce7498c01bcc1502d7b9afe439a4e9f49"
+
+[[crates]]
+name = "simdutf8"
+version = "0.1.5"
+licence = "MIT OR Apache-2.0"
+source = "crates.io"
+checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
+
+# ---- Rust's standard library, prebuilt for aarch64-unknown-none in Rust 1.94.0.
+# Licences as the pinned nightly's rust-src declares them (pds/std-crates.txt). --
+
+[[crates]]
+name = "alloc"
+version = "0.0.0"
+licence = "MIT OR Apache-2.0"
+source = "rust"
+
+[[crates]]
+name = "compiler_builtins"
+version = "0.1.160"
+licence = "MIT AND Apache-2.0 WITH LLVM-exception AND (MIT OR Apache-2.0)"
+source = "rust"
+signed-off = "2026-10-04"
+note = "Gives the binary its memcpy and memset. Version 0.1.160 is inferred: the last crates.io release (2025-05-30) and the pinned nightly's rust-src (2026-04-04), either side of Rust 1.94.0, both carry it; 1.94.0's own source was not read"
+
+[[crates]]
+name = "core"
+version = "0.0.0"
+licence = "MIT OR Apache-2.0"
+source = "rust"

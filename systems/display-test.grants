@@ -1,0 +1,24 @@
+# Everything systems/display-test.system grants, one fact per line.
+# tools/check-system fails the build if the system description grants anything
+# not listed here, or lists anything it does not grant, and checks the map
+# rights again in the kernel objects the Microkit tool generates (format: see
+# tools/check-system). A change here is a security change: call it out in the
+# pull request.
+
+# The kind of system, and each PD's role (tools/grant-rules.toml).
+system test
+role ramfb display
+
+pd ramfb priority=1 budget=1000 period=1000
+
+# fw_cfg's registers, by name from the board file: uncached, this PD only.
+device ramfb fw_cfg rw
+
+# fw_cfg's requests and ramfb's configuration, by DMA.
+map ramfb requests rw
+paddr ramfb requests
+
+# The framebuffer QEMU shows: the PD draws into it and gives QEMU its
+# physical address.
+map ramfb framebuffer rw
+paddr ramfb framebuffer

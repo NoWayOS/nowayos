@@ -1,0 +1,39 @@
+# Lines NoWayOS's tools/qemu-test must see, in this order: the
+# storage stand-in's provisioned state, the update PD's start, then each of
+# the run's bundles - the bad ones in tools/update-bundles' order, each
+# refused for its reason with no slot marked, then the good one, written to
+# slot B, checked and marked for one trial - and the state written for it.
+NOWAYOS: update-storage: starting
+NOWAYOS: update-storage: provisioned copy A: generation 1: slot A boots; nothing marked; rollback index 3; trust list v1
+NOWAYOS: update: starting
+NOWAYOS: update: starting: slot A boots; trial: none; rollback index 3; trust list v1 (held, checked against the anchors)
+NOWAYOS: update: slot A runs, from the slot marked good; 1 trust anchor(s) in the image
+NOWAYOS: update-bundles: starting
+NOWAYOS: update-bundles: 8 bundles from fw_cfg's opt/nowayos/bundles
+NOWAYOS: update-bundles: offering bundle 1 of 8
+NOWAYOS: update: bundle 1: refused: its manifest is not signed by an image key the trust list names; no slot marked
+NOWAYOS: update-bundles: offering bundle 2 of 8
+NOWAYOS: update: bundle 2: refused: its manifest is not signed by an image key the trust list names; no slot marked
+NOWAYOS: update-bundles: offering bundle 3 of 8
+NOWAYOS: update: bundle 3: refused: its manifest is not signed by an image key the trust list names; no slot marked
+NOWAYOS: update-bundles: offering bundle 4 of 8
+NOWAYOS: update: bundle 4: refused: its trust list is older than the one held; no slot marked
+NOWAYOS: update-bundles: offering bundle 5 of 8
+NOWAYOS: update: bundle 5: refused: a development manifest under a production trust list; no slot marked
+NOWAYOS: update-bundles: offering bundle 6 of 8
+NOWAYOS: update: bundle 6: refused: its security version is below the rollback index; no slot marked
+NOWAYOS: update-bundles: offering bundle 7 of 8
+NOWAYOS: update: bundle 7: refused: its image does not match the manifest's length and SHA-256; no slot marked
+NOWAYOS: update-bundles: offering bundle 8 of 8
+NOWAYOS: update-storage: copy A written: generation 3: slot A boots; slot B marked for one trial, security version 5; rollback index 3; trust list v2
+NOWAYOS: update: bundle 8: staged in slot B for one trial; restart wanted
+NOWAYOS: update-bundles: all 8 bundles offered
+
+# Output that fails the test at once if it appears anywhere.
+!MON|ERROR
+!seL4(CPU
+!panicked
+!gave up
+!not taken
+!does not decode
+!a slot is marked

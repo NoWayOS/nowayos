@@ -1,0 +1,28 @@
+[package]
+name = "nowayos-seed-consumer"
+description = "A test instrument: the entropy PD's consumers - refused before its first seed, then keyed from a seed off its ring, it prints a SHA-256 of a draw, never the bytes, and checks the slot it took was overwritten; or takes seeds politely, or floods, to show each consumer held to its rate"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "nowayos-seed-consumer"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+nowayos-bounded.workspace = true
+nowayos-entropy.workspace = true
+nowayos-hw.workspace = true
+nowayos-ipc.workspace = true
+nowayos-region.workspace = true
+nowayos-seed.workspace = true
+nowayos-timer-api = { workspace = true, features = ["client"] }
+sel4-microkit.workspace = true
+sha2.workspace = true
+
+[lints]
+workspace = true

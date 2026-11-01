@@ -1,0 +1,58 @@
+# Lines tools/qemu-test must see, in this order, as whole serial lines.
+# In QEMU: the clock PD holds
+# wall-clock time as an interval from the image's build time. The PDs start
+# in priority order: the timer, the clock, tls_stand_in, then reader. Every
+# line is fixed text, relative to the floor - no time, Instant or date is
+# printed - so the same lines hold whenever the image was built and run; the
+# test PDs check the times themselves and print "gave up" if one is wrong.
+NOWAYOS: timer: starting
+NOWAYOS: clock: starting
+NOWAYOS: clock: the floor is the image's build time, from its read-only configuration; the time is not known
+NOWAYOS: clock: samples on channel 1's ring
+# AC 1: before any sample, the time is not known, never earlier than the
+# build time tls_stand_in reads from the same read-only region, and a date
+# check fails closed.
+NOWAYOS: clock-test tls_stand_in: starting
+NOWAYOS: clock-test tls_stand_in: the time is not known: its earliest is no earlier than the build time
+NOWAYOS: clock-test tls_stand_in: a certificate valid from a day before the build refused: the time is not known
+# AC 2: a sample a day after the floor is taken, and the same date check
+# passes; three bad samples are each refused with their own error, and the
+# time is as it was - every reading exactly the sample carried on.
+NOWAYOS: clock: a sample on channel 1 taken: it is the newest
+NOWAYOS: clock-test tls_stand_in: a sample of the floor plus a day taken: the same certificate's date check passes
+NOWAYOS: clock: a sample on channel 1 refused: its earliest is before the floor; the time is as it was
+NOWAYOS: clock-test tls_stand_in: a sample from a day before the build, earlier than the floor, refused: the time is as it was
+NOWAYOS: clock: a sample on channel 1 refused: it is narrower than its round trip; the time is as it was
+NOWAYOS: clock-test tls_stand_in: a sample narrower than its round trip refused: the time is as it was
+NOWAYOS: clock: a sample on channel 1 refused: it was measured at an Instant still to come; the time is as it was
+NOWAYOS: clock-test tls_stand_in: a sample measured a second from now refused: the time is as it was
+NOWAYOS: clock-test tls_stand_in: waiting 300 ms of monotonic time
+# AC 3: a PD with only a reading channel cannot move the time.
+NOWAYOS: clock-test reader: starting
+NOWAYOS: clock-test reader: request 99 refused: unknown request 99
+NOWAYOS: clock-test reader: a read with a word too many refused: request 1 sent 1 word(s), the wrong number
+NOWAYOS: clock: a sample offered by call on channel 3 refused: samples come only on a source's ring; the time is as it was
+NOWAYOS: clock-test reader: a sample sent by call refused: samples come only on a source's ring
+NOWAYOS: clock-test reader: the time is unchanged: within what it read before, moved on
+NOWAYOS: clock-test reader: done
+# AC 4: 300 ms on, the interval has moved on by the elapsed time less the
+# drift and widened by twice it, exactly; no Instant tls_stand_in saw - its
+# own from the timer, or the clock's in a reading - went back.
+NOWAYOS: clock-test tls_stand_in: 300 ms on, the interval has moved on and widened as the drift bound says, 100 ppm
+NOWAYOS: clock-test tls_stand_in: no reading of monotonic time went back
+NOWAYOS: clock-test tls_stand_in: done
+
+# Output that fails the test at once if it appears anywhere (substring match),
+# including in the second after the last line above: a fault reported by the
+# Microkit monitor, a kernel error message, a panic, a test PD giving up, the
+# timer or the clock failing to start or read what it needs, a notification
+# the clock refuses (none but tls_stand_in's channel can notify it), or a
+# sample taken that was no newer than the anchor.
+!MON|ERROR
+!seL4(CPU
+!panicked
+!gave up
+!timer: could not
+!clock: could not
+!clock: a notification
+!valid, but measured no later

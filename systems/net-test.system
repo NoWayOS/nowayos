@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    In QEMU: the NIC driver PD for virtio-net passes Ethernet frames between QEMU's network card and one
+    client through sDDF's network queues, byte for byte. net_client, a test
+    instrument standing in for the network stack, sends five descriptors
+    the driver must drop and count, then an ARP request for the gateway of
+    QEMU's user-mode network, and prints the reply. net-test.qemu gives QEMU
+    the card and that network, isolated from the host's (restrict=on).
+
+    QEMU only: the Pi 5's Ethernet is RP1's, behind PCIe.
+
+    Capabilities: the driver maps one page of virtio-mmio transports (24 to
+    31; QEMU places the card on transport 31) uncached, read-write; two
+    DMA regions of its own, one per queue of the card - descriptors, rings
+    and virtio-net headers - whose physical addresses it learns; the
+    physical addresses of the client's receive and transmit buffers, which
+    it hands to the card but never maps; and the card's interrupt. Four
+    queues with the client, each one page both map read-write, as sDDF's
+    layout has each side write its own index: receive free and transmit
+    active (filled by the client), receive active and transmit free (filled
+    by the driver). The client maps the receive buffers read-only and its
+    transmit buffers read-write: 128 buffers of 2048 bytes each
+    (nowayos-net's DATA_REGION_LEN; tools/test_tools.py checks the sizes).
+    One channel, on which either side notifies the other. The client holds
+    no device, interrupt or physical address (role network,
+    tools/grant-rules.toml). The driver runs above the client.
+
+    Every grant above is also listed in net-test.grants, which
+    tools/check-system compares with this file and with the kernel objects
+    the Microkit tool generates (make image, make qemu-test).
+-->
+<system>
+    <memory_region name="virtio_regs" size="@virtio_mmio_24_31" phys_addr="@virtio_mmio_24_31" />
+    <memory_region name="rx_ring" size="0x3000" />
+    <memory_region name="tx_ring" size="0x3000" />
+    <memory_region name="rx_buffers" size="0x40000" />
+    <memory_region name="tx_buffers" size="0x40000" />
+    <memory_region name="rx_free" size="0x1000" />
+    <memory_region name="rx_active" size="0x1000" />
+    <memory_region name="tx_free" size="0x1000" />
+    <memory_region name="tx_active" size="0x1000" />
+
+    <protection_domain name="virtio_net" priority="200" stack_size="0x10000">
+        <program_image path="nowayos-virtio-net.elf" />
+        <map mr="virtio_regs" vaddr="0x200_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_device_0_vaddr" setvar_size="nowayos_device_0_size" />
+        <map mr="rx_ring" vaddr="0x300_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_dma_0_vaddr" setvar_size="nowayos_dma_0_size" />
+        <map mr="tx_ring" vaddr="0x300_4000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_dma_1_vaddr" setvar_size="nowayos_dma_1_size" />
+        <setvar symbol="nowayos_dma_0_paddr" region_paddr="rx_ring" />
+        <setvar symbol="nowayos_dma_1_paddr" region_paddr="tx_ring" />
+        <!-- The client's buffers, by physical address only: never mapped here. -->
+        <setvar symbol="nowayos_io_0_paddr" region_paddr="rx_buffers" />
+        <setvar symbol="nowayos_io_1_paddr" region_paddr="tx_buffers" />
+        <map mr="rx_free" vaddr="0x4000_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+        <map mr="rx_active" vaddr="0x4000_1000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_1_vaddr" setvar_size="nowayos_rw_region_1_size" />
+        <map mr="tx_free" vaddr="0x4000_2000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_2_vaddr" setvar_size="nowayos_rw_region_2_size" />
+        <map mr="tx_active" vaddr="0x4000_3000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_3_vaddr" setvar_size="nowayos_rw_region_3_size" />
+        <irq irq="@virtio_mmio_24_31[7]" id="1" trigger="@virtio_mmio_24_31" />
+    </protection_domain>
+
+    <protection_domain name="net_client" priority="100" stack_size="0x10000">
+        <program_image path="nowayos-net-client.elf" />
+        <map mr="rx_free" vaddr="0x4000_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+        <map mr="rx_active" vaddr="0x4000_1000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_1_vaddr" setvar_size="nowayos_rw_region_1_size" />
+        <map mr="tx_free" vaddr="0x4000_2000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_2_vaddr" setvar_size="nowayos_rw_region_2_size" />
+        <map mr="tx_active" vaddr="0x4000_3000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_3_vaddr" setvar_size="nowayos_rw_region_3_size" />
+        <map mr="rx_buffers" vaddr="0x5000_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+        <map mr="tx_buffers" vaddr="0x5100_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_4_vaddr" setvar_size="nowayos_rw_region_4_size" />
+    </protection_domain>
+
+    <channel>
+        <end pd="virtio_net" id="0" />
+        <end pd="net_client" id="0" />
+    </channel>
+</system>

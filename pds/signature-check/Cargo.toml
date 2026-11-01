@@ -1,0 +1,22 @@
+[package]
+name = "nowayos-signature-check"
+description = "Test instrument: checks a P-256 signature OpenSSL made, and one-bit changes of it, inside a PD, and times each check"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "nowayos-signature-check"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+nowayos-hw.workspace = true
+nowayos-signature.workspace = true
+sel4-microkit.workspace = true
+
+[lints]
+workspace = true

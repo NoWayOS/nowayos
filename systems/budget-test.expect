@@ -1,0 +1,17 @@
+# Lines NoWayOS's tools/qemu-test must see, in this order: the
+# heartbeat starts, the looper starts looping after the third beat, and with
+# its budget below its period the heartbeat below it keeps its time - every
+# beat on time, none late.
+NOWAYOS: budget-probe: heartbeat: beating every 100 ms
+NOWAYOS: budget-probe: heartbeat: beat 3: on time
+NOWAYOS: budget-probe: looper: looping from now on
+NOWAYOS: budget-probe: heartbeat: beat 4: on time
+NOWAYOS: budget-probe: heartbeat: beat 10: on time
+NOWAYOS: budget-probe: heartbeat: beat 20: on time
+NOWAYOS: budget-probe: heartbeat: 20 beats, every one on time
+
+!MON|ERROR
+!seL4(CPU
+!panicked
+!gave up
+!late by

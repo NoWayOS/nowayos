@@ -1,0 +1,133 @@
+# The parts of a system image that are not our crates: the
+# Microkit SDK files the Microkit tool packs into every loader.img, and the
+# boot files `make sdcard` puts beside it for a board that boots from an SD
+# card. tools/image-sbom reads this file when `make image` writes each image's
+# SBOM (build/BOARD/SYSTEM/sbom.cdx.json); versions and hashes come from the
+# SDK, the Containerfile's pins and tools/container/rpi-firmware.sha256, never
+# from here (those of the crates inside an audited part: from its audit).
+#
+# Each part states its licence as an SPDX expression, with where it was
+# checked (`checked`, written into every SBOM whatever SDK is pinned: it
+# names what was checked, never an audit that may not hold for the image).
+# A part whose licence cannot be taken without a GPL-family licence
+# is marked in the SBOM as needing a source offer with every shipment.
+# `composition` says whether what is
+# inside a prebuilt binary is known:
+#   "unaudited"                  nobody here has audited it: the SBOM labels it
+#                                'composition unaudited', in a composition whose
+#                                aggregate is "unknown";
+#   "audited, sign-off pending"  audited, and `audit` names the audit's file
+#                                beside this one: the SBOM lists every crate the
+#                                audit found inside the part, in a composition
+#                                whose aggregate is "complete" - but a licence in
+#                                it awaits the project owner's sign-off;
+#   "audited"                    the same, every licence in it on the house list
+#                                or signed off.
+# image-sbom refuses a composition that claims more than its audit shows, and
+# takes an audit done for another SDK than the Containerfile pins as none: the
+# part is 'composition unaudited' again until the audit is re-run for it.
+#
+# A file in the SDK's board/BOARD/CONFIG/elf/ folder with no [sdk] entry, or a
+# firmware file no [[firmware.files]] entry covers, fails image-sbom until it
+# is reviewed and added here.
+
+# ---- The Microkit SDK: in every loader.img ------------------------------------
+# `version`: "seL4" is the seL4 release tools/sel4-verification.toml records
+# for the pinned SDK; "Microkit" is the SDK's own VERSION.
+
+[sdk.kernel]
+file = "sel4.elf"
+name = "sel4"
+type = "operating-system"
+version = "seL4"
+description = "The seL4 microkernel, as the Microkit SDK builds it for the image's board and configuration"
+licence = "GPL-2.0-only"
+vcs = "https://github.com/seL4/seL4"
+checked = "Licensing Options, the kernel (decision 1); development use approved, distribution pending"
+
+[sdk.loader]
+file = "loader.elf"
+name = "microkit-loader"
+type = "application"
+version = "Microkit"
+description = "Microkit's loader: starts the CPU, places the kernel and the initial task in memory and jumps to the kernel"
+licence = "BSD-2-Clause"
+vcs = "https://github.com/seL4/microkit"
+checked = "Licensing Options, Microkit: checked for the pinned 2.3.1 on 2026-10-01"
+
+[sdk.monitor]
+file = "monitor.elf"
+name = "microkit-monitor"
+type = "application"
+version = "Microkit"
+description = "Microkit's monitor: the protection domains' fault handler, which reports their faults"
+licence = "BSD-2-Clause"
+vcs = "https://github.com/seL4/microkit"
+checked = "Licensing Options, Microkit: checked for the pinned 2.3.1 on 2026-10-01"
+
+[sdk.initialiser]
+file = "initialiser.elf"
+name = "microkit-capdl-initialiser"
+type = "application"
+version = "Microkit"
+description = "The capDL initialiser, the initial task: creates every kernel object and capability the system description grants, from the capDL specification the Microkit tool packs with it"
+licence = "BSD-2-Clause"
+vcs = "https://github.com/seL4/microkit"
+checked = "Microkit 2.3.1's initialiser crate and rust-sel4's sel4-capdl-initializer, which it wraps, are BSD-2-Clause (2026-10-04)"
+composition = "audited"
+audit = "initialiser-audit.toml"
+note = "Audited for Microkit 2.3.1: 41 crates, all on the house list but compiler_builtins, whose licence is signed off for the protection domains (item 12) and for the initialiser's copy"
+
+# The Microkit tool made the image but is not in it: listed as excluded.
+[sdk-tool]
+file = "bin/microkit"
+name = "microkit"
+type = "application"
+version = "Microkit"
+description = "The Microkit tool, which made loader.img from the system description, the program images and the parts above"
+licence = "BSD-2-Clause"
+vcs = "https://github.com/seL4/microkit"
+checked = "Licensing Options, Microkit: checked for the pinned 2.3.1 on 2026-10-01"
+
+# ---- The Raspberry Pi 5's SD card: beside loader.img --------------------------
+
+[uboot]
+name = "u-boot"
+type = "firmware"
+description = "U-Boot, the bootloader that loads loader.img, built by make uboot from the pinned source release"
+licence = "GPL-2.0-or-later"
+vcs = "https://source.denx.de/u-boot/u-boot"
+# {version}: the Containerfile's UBOOT_VERSION.
+distribution = "https://ftp.denx.de/pub/u-boot/u-boot-{version}.tar.bz2"
+checked = "Licensing Options, U-Boot (decision 2); development use approved, distribution pending"
+
+[firmware]
+name = "raspberrypi-firmware"
+vcs = "https://github.com/raspberrypi/firmware"
+checked = "Licensing Options, Raspberry Pi firmware and boot assets; development use approved, distribution pending"
+
+# Every file in tools/container/rpi-firmware.sha256 matches exactly one entry
+# (fnmatch patterns on its path there). `type` is its CycloneDX component type.
+[[firmware.files]]
+paths = ["boot/start4.elf", "boot/fixup4.dat"]
+type = "firmware"
+licence = "LicenseRef-Broadcom-Raspberry-Pi-Firmware"
+note = "Broadcom's binary licence, boot/LICENCE.broadcom (on the card): redistribution without modification, only for developing for, running or using a Raspberry Pi device"
+
+[[firmware.files]]
+paths = ["boot/bcm2712-rpi-5-b.dtb"]
+type = "file"
+licence = "GPL-2.0-only OR MIT"
+note = "The Raspberry Pi 5's device tree"
+
+[[firmware.files]]
+paths = ["boot/overlays/*"]
+type = "file"
+licence = "GPL-2.0-only"
+note = "Device-tree overlays compiled from the Linux kernel's sources, mostly GPL-2.0 (boot/COPYING.linux, on the card); each file's own licence is not checked, so all are treated as GPL-2.0-only"
+
+# No `licence`: these are the licence texts themselves.
+[[firmware.files]]
+paths = ["boot/LICENCE.broadcom", "boot/COPYING.linux"]
+type = "file"
+note = "A licence text the firmware's licences require on the card"

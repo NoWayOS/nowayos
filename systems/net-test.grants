@@ -1,0 +1,55 @@
+# Everything systems/net-test.system grants, one fact per line.
+# tools/check-system fails the build if the system description grants anything
+# not listed here, or lists anything it does not grant, and checks the map
+# rights again in the kernel objects the Microkit tool generates (format: see
+# tools/check-system). A change here is a security change: call it out in the
+# pull request.
+
+# The kind of system, and each PD's role (tools/grant-rules.toml): the NIC
+# driver is a driver; its client stands in for the network stack, so the
+# network role's rules apply to it - no device memory, interrupt, physical
+# address or channel to a UI.
+system test
+role virtio_net driver
+role net_client network
+
+# The driver runs above its client. Full budgets.
+pd virtio_net priority=200 budget=1000 period=1000
+pd net_client priority=100 budget=1000 period=1000
+
+# One page of virtio-mmio transports, by name from the board file: uncached,
+# this PD only; and the interrupt of transport 31, the card's.
+device virtio_net virtio_mmio_24_31 rw
+irq virtio_net virtio_mmio_24_31 79
+
+# The card's two queues - descriptors, rings and virtio-net headers - which
+# the card reads and writes by DMA.
+map virtio_net rx_ring rw
+paddr virtio_net rx_ring
+map virtio_net tx_ring rw
+paddr virtio_net tx_ring
+
+# The client's receive and transmit buffers, by physical address only: the
+# driver hands them to the card and never maps them (tools/check-system
+# refuses a map of a region bound by nowayos_io_N_paddr in the same PD).
+paddr virtio_net rx_buffers
+paddr virtio_net tx_buffers
+
+# sDDF's four queues, each read-write in both PDs: each side writes its own
+# index (and the flag), and checks the other's.
+map virtio_net rx_free rw
+map virtio_net rx_active rw
+map virtio_net tx_free rw
+map virtio_net tx_active rw
+map net_client rx_free rw
+map net_client rx_active rw
+map net_client tx_free rw
+map net_client tx_active rw
+
+# The client's buffers: the receive buffers read-only, the transmit buffers
+# read-write.
+map net_client rx_buffers r
+map net_client tx_buffers rw
+
+# Either side notifies the other.
+channel net_client virtio_net

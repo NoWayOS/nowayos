@@ -1,0 +1,6 @@
+# QEMU devices input-broker-test's PDs drive (tools/make/system.mk): the
+# virtio transports on the modern interface (virtio 1.x), and a keyboard and
+# a tablet, which QEMU places on transports 31 and 30.
+-global virtio-mmio.force-legacy=false
+-device virtio-keyboard-device
+-device virtio-tablet-device

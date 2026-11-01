@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    The Pi 5 only: the watchdog PD services the
+    board's own hardware watchdog - BCM2712's PM watchdog, through its
+    registers - while every PD it watches answers its heartbeat, so the
+    board runs past the 15 s the PM watchdog can be armed for at once; once
+    a heartbeat stops, it services no more and the PM watchdog resets the
+    board. watchdog-test is the same in QEMU, with a stand-in for the
+    hardware; here the stand-in program only ticks.
+
+        pm_watchdog        the watchdog PD (250), above all it watches; maps
+                           the PM block's page, which only a watchdog PD may
+                           hold, and arms the PM watchdog for 6 s at each
+                           round's end
+        timer              times the ticker's ticks (240), on the system
+                           timer as in timer-demo's Pi variant
+        ticker             the watchdog's tick every 2 s (230): the PM
+                           watchdog has none of its own; no run length
+        upper, looper, lower  heartbeat probes (200, 150, 100); looper loops
+                           after ten rounds - 20 s - with a full budget
+
+    For ten rounds every PD answers and the watchdog arms the PM watchdog
+    again; then looper loops and starves lower. At round 11's tick the
+    watchdog names both and stops servicing, and the PM watchdog resets the
+    board about 4 s later: tools/pi-run, which armed it for PI_WATCHDOG
+    seconds at go, sees the board boot again and parks it at U-Boot's
+    prompt.
+
+    No supervisor: nothing here faults, and the watchdog's part is the
+    subject. Every grant is listed in pm-watchdog-test.grants, which
+    tools/check-system compares with this file and the kernel objects.
+-->
+<system>
+    <memory_region name="pm_regs" size="@pm_watchdog" phys_addr="@pm_watchdog" />
+    <memory_region name="system_timer_regs" size="@system_timer" phys_addr="@system_timer" />
+
+    <protection_domain name="pm_watchdog" priority="250" stack_size="0x10000">
+        <program_image path="nowayos-watchdog.elf" />
+        <map mr="pm_regs" vaddr="0x200_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_device_0_vaddr" setvar_size="nowayos_device_0_size" />
+    </protection_domain>
+
+    <protection_domain name="timer" priority="240" stack_size="0x10000">
+        <program_image path="nowayos-timer.elf" />
+        <map mr="system_timer_regs" vaddr="0x200_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_device_0_vaddr" setvar_size="nowayos_device_0_size" />
+        <irq irq="@system_timer[1]" id="0" trigger="@system_timer" />
+    </protection_domain>
+
+    <protection_domain name="ticker" priority="230" stack_size="0x10000">
+        <program_image path="nowayos-watchdog-stand-in.elf" />
+    </protection_domain>
+
+    <protection_domain name="upper" priority="200" stack_size="0x10000">
+        <program_image path="nowayos-heartbeat-probe.elf" />
+    </protection_domain>
+
+    <protection_domain name="looper" priority="150" stack_size="0x10000">
+        <program_image path="nowayos-heartbeat-probe.elf" />
+    </protection_domain>
+
+    <protection_domain name="lower" priority="100" stack_size="0x10000">
+        <program_image path="nowayos-heartbeat-probe.elf" />
+    </protection_domain>
+
+    <!-- The heartbeats: notification-only, both ways - the watchdog pings,
+         each PD answers. -->
+    <channel>
+        <end pd="pm_watchdog" id="0" />
+        <end pd="upper" id="0" />
+    </channel>
+    <channel>
+        <end pd="pm_watchdog" id="1" />
+        <end pd="looper" id="0" />
+    </channel>
+    <channel>
+        <end pd="pm_watchdog" id="2" />
+        <end pd="lower" id="0" />
+    </channel>
+    <!-- The ticker's ticks: the watchdog never notifies it. -->
+    <channel>
+        <end pd="pm_watchdog" id="3" notify="false" />
+        <end pd="ticker" id="0" />
+    </channel>
+    <!-- The ticker calls the timer; the timer notifies it of each tick. -->
+    <channel>
+        <end pd="ticker" id="1" pp="true" notify="false" />
+        <end pd="timer" id="1" />
+    </channel>
+</system>

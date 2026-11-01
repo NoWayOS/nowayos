@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Four cores, each PD pinned to one (Microkit's cpu attribute), in
+    an SMP configuration only (smp-test.configs): the kernel says which core
+    each PD runs on, and three PDs spinning for ever on cores 1 to 3, above
+    the heartbeat on core 0, leave it its time.
+
+        timer          core 0: the timer PD, woken by the CPU's timer
+        smp_heartbeat  core 0: asks the kernel to list core 0's threads,
+                       then has each spinner list its core's, in turn; then
+                       beats every 100 ms on the timer and says whether
+                       each beat came on time; after the third beat it
+                       tells the spinners to spin: every beat still does
+        spinner_1..3   cores 1, 2 and 3, above the heartbeat, each with a
+                       full budget (budget equal to period): told once,
+                       each lists its core's threads and passes the word
+                       on; told again, each spins for ever. On one core any
+                       of them would starve the heartbeat, as
+                       budget-test-widened shows
+
+    All but the timer run nowayos-budget-probe, a test instrument. No PD
+    holds a device but the timer, which holds its interrupt; the heartbeat
+    calls the timer; the heartbeat and the spinners notify each other in a
+    ring, heartbeat to spinner_1 to spinner_2 to spinner_3 and back.
+
+    QEMU (-smp 4, smp-test.qemu). The Pi 5 builds its own variant,
+    rpi5b_2gb/smp-test.system, with the timer on BCM2712's system timer.
+
+    Every grant above is also listed in smp-test.grants, which
+    tools/check-system compares with this file and with the kernel objects
+    the Microkit tool generates (make image, make qemu-test).
+-->
+<system>
+    <protection_domain name="timer" priority="200" stack_size="0x10000" cpu="0">
+        <program_image path="nowayos-timer.elf" />
+        <irq irq="@phys_timer" id="0" trigger="@phys_timer" />
+    </protection_domain>
+
+    <protection_domain name="smp_heartbeat" priority="100" stack_size="0x10000" cpu="0">
+        <program_image path="nowayos-budget-probe.elf" />
+    </protection_domain>
+
+    <protection_domain name="spinner_1" priority="150" stack_size="0x10000" cpu="1">
+        <program_image path="nowayos-budget-probe.elf" />
+    </protection_domain>
+
+    <protection_domain name="spinner_2" priority="150" stack_size="0x10000" cpu="2">
+        <program_image path="nowayos-budget-probe.elf" />
+    </protection_domain>
+
+    <protection_domain name="spinner_3" priority="150" stack_size="0x10000" cpu="3">
+        <program_image path="nowayos-budget-probe.elf" />
+    </protection_domain>
+
+    <!-- The heartbeat calls the timer; the timer notifies it of expiries. -->
+    <channel>
+        <end pd="smp_heartbeat" id="0" pp="true" notify="false" />
+        <end pd="timer" id="1" />
+    </channel>
+
+    <!-- The ring: each PD's channel 1 notifies the next one's channel 0
+         (the heartbeat's channel 2). -->
+    <channel>
+        <end pd="smp_heartbeat" id="1" />
+        <end pd="spinner_1" id="0" notify="false" />
+    </channel>
+    <channel>
+        <end pd="spinner_1" id="1" />
+        <end pd="spinner_2" id="0" notify="false" />
+    </channel>
+    <channel>
+        <end pd="spinner_2" id="1" />
+        <end pd="spinner_3" id="0" notify="false" />
+    </channel>
+    <channel>
+        <end pd="spinner_3" id="1" />
+        <end pd="smp_heartbeat" id="2" notify="false" />
+    </channel>
+</system>

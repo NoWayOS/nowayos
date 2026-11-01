@@ -1,0 +1,77 @@
+# The verification position for the pinned Microkit SDK.
+#
+# seL4's proofs cover specific kernel configurations on specific platforms,
+# and every statement we make names the configuration it is about. This file records, for
+# the Microkit SDK pinned in tools/container/Containerfile, the kernel options
+# that decide whether a kernel is seL4's AArch64 verified configuration, with
+# the value each has there, and what a difference means. `make image` reads
+# the options of the kernel it builds in from the SDK, compares them with this
+# file and writes the result beside the image (tools/sel4-config,
+# build/BOARD/SYSTEM/sel4-config.txt).
+#
+# The position is tied to the SDK by [sdk]: `make ci` (make sel4-config-check)
+# fails when the Containerfile pins another Microkit version or archive. Then
+# re-check everything below against the new SDK's seL4 release - its
+# configs/ folder and seL4's verified-configurations page - and update [sdk]
+# in the same change. Every image's record also says when its SDK has not
+# been re-checked.
+#
+# Matching every option here is not a claim that an image is verified: the
+# proofs leave out the kernel's boot code, the System MMU, the debug and
+# printing interfaces, and everything outside the kernel - Microkit's tools,
+# the monitor and the protection domains.
+
+[sdk]
+# The SDK this position was checked against: tools/container/Containerfile's
+# MICROKIT_VERSION, MICROKIT_SHA256_ARM64 and MICROKIT_SHA256_AMD64.
+version = "2.3.1"
+sha256-arm64 = "979553f288e8e2c099dae8fbec86cbe2cfda2ca006ee36de8234649d6d23bbee"
+sha256-amd64 = "b1b285b8785db7557eba6d0665dd4fbf2f265ea5c0b39d6f91ae3dcc43d2c424"
+# The seL4 release the SDK's kernels are built from.
+sel4 = "16.0.0"
+checked = "2026-10-03"
+sources = [
+    "https://docs.sel4.systems/projects/sel4/verified-configurations.html (AArch64: C-level functional correctness including the fast path, integrity, confidentiality; kernel in EL2, hypervisor mode; MCS proofs in progress)",
+    "seL4 16.0.0, configs/include/AARCH64_verified_include.cmake: the option values below, as facts only",
+]
+
+# seL4's AArch64 verified configuration (seL4 16.0.0), with each option named
+# as the SDK's board/BOARD/CONFIG/include/kernel/gen_config.json names it.
+# DEBUG_BUILD, ENABLE_SMP_SUPPORT and KERNEL_MCS are the values that
+# configuration implies (a verification build, one node, no MCS).
+[configuration]
+SEL4_ARCH = "aarch64"
+ARM_HYPERVISOR_SUPPORT = true
+VERIFICATION_BUILD = true
+DEBUG_BUILD = false
+MAX_NUM_NODES = "1"
+ENABLE_SMP_SUPPORT = false
+KERNEL_MCS = false
+KERNEL_OPT_LEVEL = "-O2"
+RETYPE_FAN_OUT_LIMIT = "256"
+KERNEL_BENCHMARK = "none"
+DANGEROUS_CODE_INJECTION = false
+FASTPATH = true
+PRINTING = false
+NUM_DOMAINS = "16"
+MAX_NUM_BOOTINFO_UNTYPED_CAPS = "50"
+ARM_SMMU = false
+ALLOW_SMC_CALLS = true
+
+[platforms]
+# gen_config.json's PLAT for each board NoWayOS builds for, and whether
+# seL4's verified-configurations page lists it for AArch64 (it lists the
+# Raspberry Pi 5B; QEMU's virt machine is a development target only).
+verified = ["bcm2712"]
+not-verified = ["qemu-arm-virt"]
+
+# What a kernel that differs in one of these options is. Any other difference
+# is listed as one: the kernel is then not the verified configuration either.
+[labels]
+DEBUG_BUILD = "development build: a debug kernel, with printing and debug interfaces, outside seL4's proofs"
+ENABLE_SMP_SUPPORT = "outside seL4's proofs: a multi-core kernel (the proofs are for single-core kernels)"
+MAX_NUM_NODES = "outside seL4's proofs: a multi-core kernel (the proofs are for single-core kernels)"
+KERNEL_MCS = "outside seL4's completed proofs: a mixed-criticality (MCS) kernel, whose AArch64 proofs are in progress"
+KERNEL_BENCHMARK = "outside seL4's proofs: a benchmarking kernel"
+PLAT = "outside seL4's proofs: a platform that is not on seL4's AArch64 verified list"
+SEL4_ARCH = "no verification position is recorded for this architecture"

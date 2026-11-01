@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    uart-input-test on the Raspberry Pi 5: systems/uart-input-test.system
+    with the timer PD given BCM2712's system timer - its registers, uncached,
+    and channel 1's interrupt, INTID 97 - instead of the CPU's timer, which
+    this board's kernel does not export to user level, as
+    rpi5b_2gb/timer-demo.system does. The same programs and the same
+    expect file: the timer PD finds which timer it was given. The debug
+    UART's window and facts come from the board file, as in QEMU.
+
+    The script, uart-input-test.qmp, is typed through the Debug Probe by
+    tools/pi-run (make pi-run PI_SYSTEMS=uart-input-test); make pi-show
+    SYSTEM=uart-input-test PI_TYPE=1 lets a person type instead. Every grant
+    is listed in rpi5b_2gb/uart-input-test.grants.
+-->
+<system>
+    <memory_region name="system_timer_regs" size="@system_timer" phys_addr="@system_timer" />
+    <memory_region name="debug_uart_regs" size="@debug_uart" phys_addr="@debug_uart" />
+    <memory_region name="debug_uart_facts" prefill_path="device-debug_uart.bin" />
+    <memory_region name="keys_messages" size="0x1000" />
+    <memory_region name="keys_control" size="0x1000" />
+    <memory_region name="ui_messages" size="0x1000" />
+    <memory_region name="ui_control" size="0x1000" />
+    <!-- Configuration: the UI's screen, 800x480 (tools/board-system writes the
+         file; read-only everywhere, rule 12). -->
+    <memory_region name="screen" prefill_path="screen-800x480.bin" />
+
+    <protection_domain name="timer" priority="4" stack_size="0x10000">
+        <program_image path="nowayos-timer.elf" />
+        <map mr="system_timer_regs" vaddr="0x200_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_device_0_vaddr" setvar_size="nowayos_device_0_size" />
+        <irq irq="@system_timer[1]" id="0" trigger="@system_timer" />
+    </protection_domain>
+
+    <protection_domain name="input_broker" priority="3" stack_size="0x10000">
+        <program_image path="nowayos-input-broker.elf" />
+        <map mr="ui_messages" vaddr="0x4000_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+        <map mr="ui_control" vaddr="0x4000_1000" perms="r"
+             setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+        <map mr="keys_messages" vaddr="0x4100_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_1_vaddr" setvar_size="nowayos_ro_region_1_size" />
+        <map mr="keys_control" vaddr="0x4100_1000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_1_vaddr" setvar_size="nowayos_rw_region_1_size" />
+        <map mr="screen" vaddr="0x5000_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_7_vaddr" setvar_size="nowayos_ro_region_7_size" />
+    </protection_domain>
+
+    <protection_domain name="uart_input" priority="2" stack_size="0x10000">
+        <program_image path="nowayos-uart-input.elf" />
+        <map mr="debug_uart_regs" vaddr="0x200_0000" perms="r" cached="false"
+             setvar_vaddr="nowayos_device_0_vaddr" setvar_size="nowayos_device_0_size" />
+        <map mr="debug_uart_facts" vaddr="0x4000_4000" perms="r"
+             setvar_vaddr="nowayos_ro_region_5_vaddr" setvar_size="nowayos_ro_region_5_size" />
+        <map mr="keys_messages" vaddr="0x4000_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+        <map mr="keys_control" vaddr="0x4000_1000" perms="r"
+             setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+    </protection_domain>
+
+    <protection_domain name="ui" priority="1" stack_size="0x10000">
+        <program_image path="nowayos-input-print.elf" />
+        <map mr="ui_control" vaddr="0x4000_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+        <map mr="ui_messages" vaddr="0x4000_1000" perms="r"
+             setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+    </protection_domain>
+
+    <!-- uart_input's "events waiting"; the broker never notifies it. -->
+    <channel>
+        <end pd="uart_input" id="0" />
+        <end pd="input_broker" id="1" notify="false" />
+    </channel>
+    <!-- uart_input calls the timer; the timer notifies it when a poll is due. -->
+    <channel>
+        <end pd="uart_input" id="1" pp="true" notify="false" />
+        <end pd="timer" id="1" />
+    </channel>
+    <!-- The broker's "events waiting" for ui. -->
+    <channel>
+        <end pd="input_broker" id="0" />
+        <end pd="ui" id="0" notify="false" />
+    </channel>
+</system>

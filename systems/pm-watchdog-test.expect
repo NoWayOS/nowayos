@@ -1,0 +1,37 @@
+# Lines tools/pi-run must see, in this order, as whole serial lines (the Pi
+# 5 only: rpi5b_2gb/pm-watchdog-test.system). The watchdog PD arms
+# the PM watchdog for 6 s at each round's end, the ticker's 2 s tick, for
+# ten rounds - past the 15 s it can be armed for at once - while three
+# probes answer their heartbeats; then looper loops and starves lower, and
+# at round 11 the watchdog names both and stops servicing, and the PM
+# watchdog resets the board (pi-run sees it boot again).
+NOWAYOS: watchdog: the PM watchdog, armed for 6 s at each servicing
+NOWAYOS: watchdog: watching 3 PDs, highest priority first: upper, looper, lower
+NOWAYOS: watchdog-stand-in: ticker: a tick to the watchdog every 2000 ms, with no run length
+NOWAYOS: heartbeat-probe: upper answering its heartbeat
+NOWAYOS: heartbeat-probe: looper answering its heartbeat
+NOWAYOS: heartbeat-probe: lower answering its heartbeat
+NOWAYOS: watchdog: round 1: every PD answered; hardware watchdog serviced
+NOWAYOS: watchdog: round 2: every PD answered; hardware watchdog serviced
+NOWAYOS: watchdog: round 3: every PD answered; hardware watchdog serviced
+NOWAYOS: watchdog: round 4: every PD answered; hardware watchdog serviced
+NOWAYOS: watchdog: round 5: every PD answered; hardware watchdog serviced
+NOWAYOS: watchdog: round 6: every PD answered; hardware watchdog serviced
+NOWAYOS: watchdog: round 7: every PD answered; hardware watchdog serviced
+NOWAYOS: watchdog: round 8: every PD answered; hardware watchdog serviced
+NOWAYOS: watchdog: round 9: every PD answered; hardware watchdog serviced
+NOWAYOS: watchdog: round 10: every PD answered; hardware watchdog serviced
+NOWAYOS: heartbeat-probe: looper: looping from now on, after 10 answers, starving every PD below it
+NOWAYOS: watchdog: round 11: no answer from looper, lower (highest priority first); the hardware watchdog is no longer serviced and will reset the board
+
+# Output that fails the run at once if it appears anywhere (substring match):
+# a fault the monitor saw, a kernel error message, a PD giving up, the
+# watchdog unable to watch or to service the PM watchdog, servicing after a
+# miss, or a panic.
+!MON|ERROR
+!seL4(CPU
+!gave up
+!cannot watch
+!could not service
+!round 12
+!panicked

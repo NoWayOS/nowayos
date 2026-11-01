@@ -1,0 +1,22 @@
+[package]
+name = "nowayos-timer-api"
+description = "The timer PD's interface: monotonic time for other PDs, behind protected procedure calls that name no board"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+# Monotonic time's type, Instant, which this crate re-exports.
+nowayos-time.workspace = true
+# Only for the `client` feature: the call itself. The protocol needs no seL4,
+# so `make pds-test` tests it on the host without this feature.
+sel4-microkit = { workspace = true, optional = true }
+
+[features]
+# `Client`: asks the timer PD over a channel, from inside a PD.
+client = ["dep:sel4-microkit"]
+
+[lints]
+workspace = true

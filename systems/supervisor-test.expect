@@ -1,0 +1,30 @@
+# Lines tools/qemu-test must see, in this order, as whole serial lines.
+# The supervisor stops and reports a faulted child, then resets the
+# board; the system boots again, and the marker written before the fault is
+# gone. The fault line names what was accessed and why it failed, not code
+# addresses; the "fault detail" line that follows carries those and is not
+# checked.
+NOWAYOS: supervisor: starting; children faulter (0) and trigger (1)
+NOWAYOS: isolation-probe: faulter: no marker - this boot's memory is fresh
+NOWAYOS: isolation-probe: faulter wrote its marker; waiting for the trigger
+NOWAYOS: isolation-probe: trigger notifying faulter
+NOWAYOS: isolation-probe: faulter triggered
+NOWAYOS: supervisor: faulter stopped: data write at 0x40001000: permission fault (the mapping does not allow it)
+NOWAYOS: supervisor: resetting the board
+NOWAYOS: supervisor: starting; children faulter (0) and trigger (1)
+NOWAYOS: isolation-probe: faulter: no marker - this boot's memory is fresh
+NOWAYOS: isolation-probe: faulter wrote its marker; waiting for the trigger
+
+# Output that fails the test at once if it appears anywhere (substring match):
+# the marker surviving the reset, the reset returning, a fault the monitor
+# had to handle (the supervisor itself faulted), a kernel error message, the
+# supervisor or a probe failing, or an access that should have faulted.
+!SURVIVED
+!the reset returned
+!NOT stopped
+!MON|ERROR
+!seL4(CPU
+!ISOLATION FAILURE
+!no probe is defined
+!no children are defined
+!cannot

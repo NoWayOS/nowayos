@@ -1,0 +1,16 @@
+[package]
+name = "nowayos-heartbeat"
+description = "The watchdog PD's heartbeat rounds: a round completes only when every watched PD answered after it began; otherwise the PDs that missed are named, highest priority first, and servicing stops"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true

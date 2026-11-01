@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    negative tests at the client's side of the virtio-net
+    driver. Each probe maps exactly what net_client, the client, maps in
+    net-test.system - the four queues with the driver, the receive buffers
+    read-only and the transmit buffers, with the same regions, rights and
+    addresses, though not its channel - and has its role (network), and
+    makes one access those maps do not allow. seL4 must stop it and send the
+    fault to net_isolation_parent, which reports it; driver_side, a
+    bystander standing in for the driver's DMA memory, must keep running
+    with its private page intact.
+
+        net_writes_driver_dma   writes 0x300_0000, where the driver maps its
+                                receive queue's DMA memory and driver_side
+                                keeps its private page: the client cannot
+                                reach the driver's memory, nor through it the
+                                card's rings
+        net_writes_rx_buffers   writes the receive buffers, which it maps
+                                read-only: the client cannot change a frame
+                                the card wrote
+
+    The probes run the same program image and pick their probe by PD name
+    (pds/isolation-probe); the parent picks its test by its own name.
+    tools/test_tools.py checks each probe's maps, stack size and role against
+    net_client's in net-test.system.
+
+    The static half is the grants check, run on net-test itself: only the
+    driver holds the card's registers, interrupt and DMA memory, and the
+    buffers' physical addresses (rules 1, 4, 6 and 10), and the client, role
+    network, may hold none of them (rule 11, tools/grant-rules.toml).
+
+    Priorities make the order deterministic on one core: the parent, then
+    driver_side, then the probes in the order above.
+-->
+<system>
+    <memory_region name="rx_buffers" size="0x40000" />
+    <memory_region name="tx_buffers" size="0x40000" />
+    <memory_region name="rx_free" size="0x1000" />
+    <memory_region name="rx_active" size="0x1000" />
+    <memory_region name="tx_free" size="0x1000" />
+    <memory_region name="tx_active" size="0x1000" />
+    <memory_region name="driver_dma" size="0x1000" />
+
+    <protection_domain name="net_isolation_parent" priority="100" stack_size="0x10000">
+        <program_image path="nowayos-isolation-parent.elf" />
+
+        <!-- net_client's maps (net-test.system), twice. -->
+        <protection_domain name="net_writes_driver_dma" id="0" priority="30" stack_size="0x10000">
+            <program_image path="nowayos-isolation-probe.elf" />
+            <map mr="rx_free" vaddr="0x4000_0000" perms="rw"
+                 setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+            <map mr="rx_active" vaddr="0x4000_1000" perms="rw"
+                 setvar_vaddr="nowayos_rw_region_1_vaddr" setvar_size="nowayos_rw_region_1_size" />
+            <map mr="tx_free" vaddr="0x4000_2000" perms="rw"
+                 setvar_vaddr="nowayos_rw_region_2_vaddr" setvar_size="nowayos_rw_region_2_size" />
+            <map mr="tx_active" vaddr="0x4000_3000" perms="rw"
+                 setvar_vaddr="nowayos_rw_region_3_vaddr" setvar_size="nowayos_rw_region_3_size" />
+            <map mr="rx_buffers" vaddr="0x5000_0000" perms="r"
+                 setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+            <map mr="tx_buffers" vaddr="0x5100_0000" perms="rw"
+                 setvar_vaddr="nowayos_rw_region_4_vaddr" setvar_size="nowayos_rw_region_4_size" />
+        </protection_domain>
+
+        <protection_domain name="net_writes_rx_buffers" id="1" priority="20" stack_size="0x10000">
+            <program_image path="nowayos-isolation-probe.elf" />
+            <map mr="rx_free" vaddr="0x4000_0000" perms="rw"
+                 setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+            <map mr="rx_active" vaddr="0x4000_1000" perms="rw"
+                 setvar_vaddr="nowayos_rw_region_1_vaddr" setvar_size="nowayos_rw_region_1_size" />
+            <map mr="tx_free" vaddr="0x4000_2000" perms="rw"
+                 setvar_vaddr="nowayos_rw_region_2_vaddr" setvar_size="nowayos_rw_region_2_size" />
+            <map mr="tx_active" vaddr="0x4000_3000" perms="rw"
+                 setvar_vaddr="nowayos_rw_region_3_vaddr" setvar_size="nowayos_rw_region_3_size" />
+            <map mr="rx_buffers" vaddr="0x5000_0000" perms="r"
+                 setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+            <map mr="tx_buffers" vaddr="0x5100_0000" perms="rw"
+                 setvar_vaddr="nowayos_rw_region_4_vaddr" setvar_size="nowayos_rw_region_4_size" />
+        </protection_domain>
+    </protection_domain>
+
+    <!-- driver_side: a bystander standing in for the driver's receive queue's DMA memory.
+         0x300_0000: pds/isolation-probe/src/forbidden.rs, Unmapped::DriverDma -->
+    <protection_domain name="driver_side" priority="50" stack_size="0x10000">
+        <program_image path="nowayos-isolation-bystander.elf" />
+        <map mr="driver_dma" vaddr="0x300_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+    </protection_domain>
+
+    <!-- "Are you still running?" and the answer. -->
+    <channel>
+        <end pd="net_isolation_parent" id="0" />
+        <end pd="driver_side" id="0" />
+    </channel>
+</system>

@@ -1,0 +1,22 @@
+# The icons: Lucide icons drawn at build time into alpha masks by
+# tools/icon-masks (`make atlases`), so the device draws them, tinted by the
+# theme, without parsing an SVG file.
+#
+# A crate of its own, because the masks are made from Lucide's icons under
+# the ISC licence (LICENSE-LUCIDE.txt here, unchanged): this crate - the
+# masks, the small API over them, the SVG files they are made from and
+# icons.toml - is ISC, whatever licence NoWayOS's own crates take.
+# tools/check-baseline allows this local crate its licence field, as it does
+# nowayos-glyphs'.
+
+[package]
+name = "nowayos-icons"
+description = "NoWayOS's icons: Lucide icons drawn at build time into 8-bit alpha masks, at every device scale"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+license = "ISC"
+
+[lints]
+workspace = true

@@ -1,0 +1,11 @@
+# Everything systems/getrandom-test.system grants, one fact per line.
+# tools/check-system fails the build if the system description grants
+# anything not listed here, or lists anything it does not grant (format: see
+# tools/check-system). A change here is a security change: call it out in the
+# pull request.
+
+# The kind of system, and each PD's role (tools/grant-rules.toml).
+system test
+role getrandom_probe test
+
+pd getrandom_probe priority=1 budget=1000 period=1000

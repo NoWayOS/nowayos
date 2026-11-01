@@ -1,0 +1,62 @@
+# Everything systems/usb-audio-loop-test.system grants, one fact per line.
+# tools/check-system fails the build if the system description grants anything
+# not listed here, or lists anything it does not grant, and checks the map
+# rights again in the kernel objects the Microkit tool generates (format: see
+# tools/check-system). A change here is a security change: call it out in the
+# pull request.
+
+# A test system: the client runs nowayos-audio-loop, a test instrument.
+# usb0 is the USB host PD itself, as in usb-test.
+system test
+role timer driver
+role usb0 input
+role client test
+
+# The timer runs above the PD that calls it, and usb0 above its client.
+# Full budgets.
+pd timer priority=200 budget=1000 period=1000
+pd usb0 priority=100 budget=1000 period=1000
+pd client priority=90 budget=1000 period=1000
+
+# The controller's register window, by name from the board file: uncached,
+# its PD only; and, on QEMU, its PCI function's configuration page, to place
+# the window (nowayos_hw::pci).
+device usb0 xhci0 rw
+device usb0 xhci0_config rw
+
+# The controller's rings, contexts, buffers and streams, which it reads and
+# writes by DMA: the PD learns the region's physical address to give the
+# controller.
+map usb0 usb0_memory rw
+paddr usb0 usb0_memory
+
+# The board's facts about the controller (device-xhci0.bin). Configuration,
+# read-only.
+map usb0 xhci0_facts r
+
+# Only the timer PD holds the timer's interrupt.
+irq timer phys_timer
+
+# usb0 calls the timer for its tick; the timer notifies it.
+channel usb0 timer notify=timer
+call usb0 timer
+
+# The audio client's rings: each side writes only what it owns.
+# From usb0, the microphone's sound and the devices: usb0 writes the
+# messages, the client its index.
+map usb0 audio_from_messages rw
+map usb0 audio_from_control r
+map client audio_from_messages r
+map client audio_from_control rw
+# To usb0, the speaker's sound: the client writes the messages, usb0 its
+# index.
+map client audio_to_messages rw
+map client audio_to_control r
+map usb0 audio_to_messages r
+map usb0 audio_to_control rw
+
+# The client's recording, its own.
+map client recording rw
+
+# usb0 notifies the client.
+channel usb0 client notify=usb0

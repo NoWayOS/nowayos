@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    one Rust protection domain that prints two lines on the seL4
+    debug console. No channels, no memory regions, no devices.
+    Board-independent: the same description serves qemu_virt_aarch64 now and
+    the Raspberry Pi 5 (rpi5b_2gb) later. Its one grant, the PD itself, is
+    listed in hello.grants (checked by tools/check-system).
+-->
+<system>
+    <protection_domain name="hello" priority="1" stack_size="0x10000">
+        <program_image path="nowayos-hello.elf" />
+    </protection_domain>
+</system>

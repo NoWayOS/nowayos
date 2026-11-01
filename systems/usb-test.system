@@ -1,0 +1,161 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    the USB host PD. Two instances of
+    nowayos-usb-host, usb0 and usb1, each drive one xHCI controller - xhci0
+    and xhci1 - through nowayos-hw, with no unsafe code of their own: each
+    identifies its controller from its capability registers, halts and
+    resets it, sets it up in its own DMA region, runs it and sends a No Op
+    command, whose completion comes back through DMA, then reports its root
+    ports. Then, on the timer PD's tick, each enumerates the devices on its
+    ports and starts the reports of each boot keyboard and mouse.
+
+    What is attached differs by board - nothing on QEMU here, whatever is
+    plugged in on the Pi 5 - so this system's expect file checks only the
+    controllers; usb-input-test is the same system with QEMU's keyboard and
+    mouse attached, and checks what they do (make tools-test keeps the two
+    the same).
+
+    In QEMU the controllers are two qemu-xhci PCI functions
+    (usb-test.qemu). QEMU has no firmware to enumerate PCI, so each PD is
+    also granted its function's configuration page (xhciN_config) and
+    places the controller's window, BAR 0, where the board file says (the
+    controller's facts carry the address: pci_bar0). The Pi 5 builds its
+    own variant, rpi5b_2gb/usb-test.system: RP1's two controllers, which
+    U-Boot's enumeration has placed, and no configuration page.
+
+    Capabilities, per PD: its controller's register window - xhciN, by name
+    from the board file - uncached, read-write (on QEMU also its PCI
+    configuration page); its channel to the timer PD, which it calls for a
+    tick every 8 ms and which notifies it; its DMA region, 76 KiB - the
+    controller's context
+    array, scratchpad buffers, command and event rings, and each device's
+    contexts, transfer rings and buffers (nowayos_hw::xhci::DMA_SIZE) -
+    mapped uncached, whose physical address it learns to give the
+    controller; and the board's facts about its controller, read-only. No
+    interrupt (the driver polls), nothing else. The timer PD holds the
+    CPU's timer interrupt (on the Pi 5, BCM2712's system timer: the variant)
+    and runs above both; usb0 runs above usb1, so their start-up lines do
+    not mix.
+
+    Every grant above is also listed in usb-test.grants, which
+    tools/check-system compares with this file and with the kernel objects
+    the Microkit tool generates (make image, make qemu-test).
+-->
+<system>
+    <protection_domain name="timer" priority="200" stack_size="0x10000">
+        <program_image path="nowayos-timer.elf" />
+        <irq irq="@phys_timer" id="0" trigger="@phys_timer" />
+    </protection_domain>
+
+    <memory_region name="xhci0_regs" size="@xhci0" phys_addr="@xhci0" />
+    <memory_region name="xhci0_config_regs" size="@xhci0_config" phys_addr="@xhci0_config" />
+    <memory_region name="xhci0_facts" prefill_path="device-xhci0.bin" />
+    <memory_region name="usb0_memory" size="0x13000" />
+    <memory_region name="xhci1_regs" size="@xhci1" phys_addr="@xhci1" />
+    <memory_region name="xhci1_config_regs" size="@xhci1_config" phys_addr="@xhci1_config" />
+    <memory_region name="xhci1_facts" prefill_path="device-xhci1.bin" />
+    <memory_region name="usb1_memory" size="0x13000" />
+    <!-- Each USB host PD's ring to the input broker, and the broker's to the
+         UI: the messages written by the producer, the control (its index)
+         by the consumer. -->
+    <memory_region name="usb0_messages" size="0x1000" />
+    <memory_region name="usb0_control" size="0x1000" />
+    <memory_region name="usb1_messages" size="0x1000" />
+    <memory_region name="usb1_control" size="0x1000" />
+    <memory_region name="ui_messages" size="0x1000" />
+    <memory_region name="ui_control" size="0x1000" />
+    <!-- Configuration: the UI's screen, 800x480, pointers are clamped to
+         (tools/board-system writes the file; read-only everywhere, rule 12). -->
+    <memory_region name="screen" prefill_path="screen-800x480.bin" />
+
+    <protection_domain name="usb0" priority="100" stack_size="0x10000">
+        <program_image path="nowayos-usb-host.elf" />
+        <map mr="xhci0_regs" vaddr="0x200_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_device_0_vaddr" setvar_size="nowayos_device_0_size" />
+        <map mr="xhci0_config_regs" vaddr="0x210_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_device_1_vaddr" setvar_size="nowayos_device_1_size" />
+        <map mr="usb0_memory" vaddr="0x300_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_dma_0_vaddr" setvar_size="nowayos_dma_0_size" />
+        <setvar symbol="nowayos_dma_0_paddr" region_paddr="usb0_memory" />
+        <map mr="xhci0_facts" vaddr="0x4000_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_5_vaddr" setvar_size="nowayos_ro_region_5_size" />
+        <map mr="usb0_messages" vaddr="0x4100_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+        <map mr="usb0_control" vaddr="0x4100_1000" perms="r"
+             setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+        <map mr="screen" vaddr="0x5000_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_7_vaddr" setvar_size="nowayos_ro_region_7_size" />
+    </protection_domain>
+
+    <protection_domain name="usb1" priority="90" stack_size="0x10000">
+        <program_image path="nowayos-usb-host.elf" />
+        <map mr="xhci1_regs" vaddr="0x200_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_device_0_vaddr" setvar_size="nowayos_device_0_size" />
+        <map mr="xhci1_config_regs" vaddr="0x210_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_device_1_vaddr" setvar_size="nowayos_device_1_size" />
+        <map mr="usb1_memory" vaddr="0x300_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_dma_0_vaddr" setvar_size="nowayos_dma_0_size" />
+        <setvar symbol="nowayos_dma_0_paddr" region_paddr="usb1_memory" />
+        <map mr="xhci1_facts" vaddr="0x4000_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_5_vaddr" setvar_size="nowayos_ro_region_5_size" />
+        <map mr="usb1_messages" vaddr="0x4100_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+        <map mr="usb1_control" vaddr="0x4100_1000" perms="r"
+             setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+        <map mr="screen" vaddr="0x5000_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_7_vaddr" setvar_size="nowayos_ro_region_7_size" />
+    </protection_domain>
+
+    <!-- The input broker (nowayos-input-broker): source 1 is usb0's
+         ring, source 2 usb1's; it sends what passes to the UI. -->
+    <protection_domain name="input_broker" priority="150" stack_size="0x10000">
+        <program_image path="nowayos-input-broker.elf" />
+        <map mr="ui_messages" vaddr="0x4000_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+        <map mr="ui_control" vaddr="0x4000_1000" perms="r"
+             setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+        <map mr="usb0_messages" vaddr="0x4100_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_1_vaddr" setvar_size="nowayos_ro_region_1_size" />
+        <map mr="usb0_control" vaddr="0x4100_1000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_1_vaddr" setvar_size="nowayos_rw_region_1_size" />
+        <map mr="usb1_messages" vaddr="0x4200_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_2_vaddr" setvar_size="nowayos_ro_region_2_size" />
+        <map mr="usb1_control" vaddr="0x4200_1000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_2_vaddr" setvar_size="nowayos_rw_region_2_size" />
+        <map mr="screen" vaddr="0x5000_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_7_vaddr" setvar_size="nowayos_ro_region_7_size" />
+    </protection_domain>
+
+    <!-- The UI's stand-in: nowayos-input-print, run as ui, prints each event. -->
+    <protection_domain name="ui" priority="80" stack_size="0x10000">
+        <program_image path="nowayos-input-print.elf" />
+        <map mr="ui_control" vaddr="0x4000_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+        <map mr="ui_messages" vaddr="0x4000_1000" perms="r"
+             setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+    </protection_domain>
+
+    <!-- Each USB host PD notifies the broker; the broker notifies the UI. -->
+    <channel>
+        <end pd="usb0" id="1" />
+        <end pd="input_broker" id="1" notify="false" />
+    </channel>
+    <channel>
+        <end pd="usb1" id="1" />
+        <end pd="input_broker" id="2" notify="false" />
+    </channel>
+    <channel>
+        <end pd="input_broker" id="0" />
+        <end pd="ui" id="0" notify="false" />
+    </channel>
+
+    <!-- Each USB host PD calls the timer, which notifies it of its tick. -->
+    <channel>
+        <end pd="usb0" id="0" pp="true" notify="false" />
+        <end pd="timer" id="1" />
+    </channel>
+    <channel>
+        <end pd="usb1" id="0" pp="true" notify="false" />
+        <end pd="timer" id="2" />
+    </channel>
+</system>

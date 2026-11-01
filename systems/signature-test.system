@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Checking ECDSA P-256 signatures in a protection domain. One test
+    PD checks, with nowayos-signature, a signature OpenSSL made once (its
+    private key discarded), then the same with one bit changed in the
+    message, the signature and the public key, and a signature whose r is
+    zero; it prints each result and how long each check took. No channels,
+    memory regions, devices or children. Everything it grants is listed in
+    signature-test.grants (checked by tools/check-system).
+-->
+<system>
+    <protection_domain name="signature_check" priority="1" stack_size="0x10000">
+        <program_image path="nowayos-signature-check.elf" />
+    </protection_domain>
+</system>

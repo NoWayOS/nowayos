@@ -1,0 +1,21 @@
+[package]
+name = "nowayos-update"
+description = "The update records - the signed trust list, the update manifest and the chunks a bundle arrives in - as fixed-layout, versioned records whose decoders cannot panic"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+nowayos-ipc.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+# The updater's tests check real ECDSA P-256 signatures, by keys made at test
+# time: NoWayOS's own signature crate, and p256 (Apache-2.0 OR MIT) to sign.
+nowayos-signature.workspace = true
+p256.workspace = true
+
+[lints]
+workspace = true

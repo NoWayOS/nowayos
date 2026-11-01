@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    the first isolation test. A PD that attempts a memory access it
+    was not granted must be stopped by seL4, the fault must reach its fault
+    handler, and the rest of the system must keep running.
+
+    isolation_parent is the parent of two probe PDs, so it receives their
+    faults (instead of the Microkit monitor). Both probes run the same
+    program image and pick their probe by PD name:
+
+        probe_unmapped   reads 0x4000_0000, where nothing is mapped in its own
+                         address space (it is where the bystander's private
+                         page is mapped in the bystander's): translation fault
+        probe_readonly   reads its read-only page (allowed), then writes to it:
+                         permission fault
+
+    After each fault the parent notifies the bystander, which answers only if
+    it is still running, after checking that its private page is intact.
+
+    Capabilities, deliberately minimal: probe_unmapped has no memory regions,
+    channels or devices at all; probe_readonly has one page, read-only; the
+    bystander has one private page; parent and bystander share one channel.
+    Symbol names state the rights each map must grant (nowayos_rw_* on
+    perms="rw", nowayos_ro_* on perms="r"; pds/region/src/lib.rs).
+
+    Priorities make the order deterministic on one core: parent above
+    bystander above both probes; probe_unmapped runs before probe_readonly.
+
+    Every grant above is also listed in isolation-test.grants, which
+    tools/check-system compares with this file and with the kernel objects
+    the Microkit tool generates (make image, make qemu-test).
+-->
+<system>
+    <memory_region name="bystander_private" size="0x1000" />
+    <memory_region name="probe_readonly_page" size="0x1000" />
+
+    <protection_domain name="isolation_parent" priority="100" stack_size="0x10000">
+        <program_image path="nowayos-isolation-parent.elf" />
+
+        <protection_domain name="probe_unmapped" id="0" priority="20" stack_size="0x10000">
+            <program_image path="nowayos-isolation-probe.elf" />
+        </protection_domain>
+
+        <protection_domain name="probe_readonly" id="1" priority="10" stack_size="0x10000">
+            <program_image path="nowayos-isolation-probe.elf" />
+            <map mr="probe_readonly_page" vaddr="0x5000_0000" perms="r"
+                 setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+        </protection_domain>
+    </protection_domain>
+
+    <protection_domain name="bystander" priority="50" stack_size="0x10000">
+        <program_image path="nowayos-isolation-bystander.elf" />
+        <!-- 0x4000_0000: pds/isolation-probe/src/forbidden.rs UNMAPPED_TARGET -->
+        <map mr="bystander_private" vaddr="0x4000_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+    </protection_domain>
+
+    <!-- "Are you still running?" and the answer. -->
+    <channel>
+        <end pd="isolation_parent" id="0" />
+        <end pd="bystander" id="0" />
+    </channel>
+</system>

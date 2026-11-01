@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    The Pi 5 only: usb-audio-test's streams on real
+    devices - the USB host PD's test program, nowayos-usb-tone, on each of
+    RP1's two xHCI
+    controllers (platforms/rpi5b_2gb.toml: xhci0 and xhci1, the first page
+    of each), for a run of 660 s. Each PD enumerates what is plugged into
+    its ports and streams every USB audio interface it finds: a camera's
+    microphone - the isochronous IN endpoint of its audio streaming
+    interface, selected by its alternate setting - with its packets counted
+    and never kept, and a USB speaker or headset's OUT endpoint with a
+    440 Hz tone. Every 10 s each stream reports how long it has run and its
+    intervals missed; a missed interval fails the run (usb-stream-test.expect).
+    Its own system, not usb-audio-test's variant: two controllers, and the
+    watchdog and ticker that make a run of 660 s.
+
+        run_watchdog  the watchdog PD, watching no PD: keeps the PM watchdog
+                      armed while ticker ticks, so the run lasts its run
+                      length, 660 s - ten minutes of streaming after the
+                      devices are enumerated - then the board resets
+        timer         BCM2712's system timer, channel 1's interrupt, as in
+                      usb-test's Pi variant
+        ticker        the watchdog's tick every 2 s, until the run length
+                      (test-run-length-660.bin, read-only region 0)
+        usb0, usb1    nowayos-usb-tone, one for each controller
+
+    Capabilities, per USB PD: its controller's first page, uncached,
+    read-write; its DMA region, 188 KiB (nowayos_hw::xhci::DMA_SIZE_STREAMING:
+    the rings and contexts, four streams' rings and buffers, a large control
+    buffer for a camera's configuration), uncached, and its physical
+    address; the board's facts about its controller, read-only; a channel
+    to the timer PD, which it calls. No ring to an input broker and no
+    screen. The watchdog holds the PM block's page and its channel from the
+    ticker; the ticker its run length, read-only, and a channel to the
+    timer. Every grant is listed in usb-stream-test.grants, which
+    tools/check-system compares with this file and with the kernel objects.
+-->
+<system>
+    <memory_region name="system_timer_regs" size="@system_timer" phys_addr="@system_timer" />
+    <memory_region name="pm_regs" size="@pm_watchdog" phys_addr="@pm_watchdog" />
+    <memory_region name="run_length" prefill_path="test-run-length-660.bin" />
+
+    <protection_domain name="run_watchdog" priority="250" stack_size="0x10000">
+        <program_image path="nowayos-watchdog.elf" />
+        <map mr="pm_regs" vaddr="0x200_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_device_0_vaddr" setvar_size="nowayos_device_0_size" />
+    </protection_domain>
+
+    <protection_domain name="timer" priority="240" stack_size="0x10000">
+        <program_image path="nowayos-timer.elf" />
+        <map mr="system_timer_regs" vaddr="0x200_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_device_0_vaddr" setvar_size="nowayos_device_0_size" />
+        <irq irq="@system_timer[1]" id="0" trigger="@system_timer" />
+    </protection_domain>
+
+    <protection_domain name="ticker" priority="230" stack_size="0x10000">
+        <program_image path="nowayos-watchdog-stand-in.elf" />
+        <map mr="run_length" vaddr="0x4000_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+    </protection_domain>
+
+    <memory_region name="xhci0_regs" size="@xhci0" phys_addr="@xhci0" />
+    <memory_region name="xhci0_facts" prefill_path="device-xhci0.bin" />
+    <memory_region name="usb0_memory" size="0x2f000" />
+    <memory_region name="xhci1_regs" size="@xhci1" phys_addr="@xhci1" />
+    <memory_region name="xhci1_facts" prefill_path="device-xhci1.bin" />
+    <memory_region name="usb1_memory" size="0x2f000" />
+
+    <protection_domain name="usb0" priority="100" stack_size="0x10000">
+        <program_image path="nowayos-usb-tone.elf" />
+        <map mr="xhci0_regs" vaddr="0x200_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_device_0_vaddr" setvar_size="nowayos_device_0_size" />
+        <map mr="usb0_memory" vaddr="0x300_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_dma_0_vaddr" setvar_size="nowayos_dma_0_size" />
+        <setvar symbol="nowayos_dma_0_paddr" region_paddr="usb0_memory" />
+        <map mr="xhci0_facts" vaddr="0x4000_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_5_vaddr" setvar_size="nowayos_ro_region_5_size" />
+    </protection_domain>
+
+    <protection_domain name="usb1" priority="90" stack_size="0x10000">
+        <program_image path="nowayos-usb-tone.elf" />
+        <map mr="xhci1_regs" vaddr="0x200_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_device_0_vaddr" setvar_size="nowayos_device_0_size" />
+        <map mr="usb1_memory" vaddr="0x300_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_dma_0_vaddr" setvar_size="nowayos_dma_0_size" />
+        <setvar symbol="nowayos_dma_0_paddr" region_paddr="usb1_memory" />
+        <map mr="xhci1_facts" vaddr="0x4000_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_5_vaddr" setvar_size="nowayos_ro_region_5_size" />
+    </protection_domain>
+
+    <!-- The ticker's ticks: the watchdog never notifies it. -->
+    <channel>
+        <end pd="run_watchdog" id="0" notify="false" />
+        <end pd="ticker" id="0" />
+    </channel>
+    <!-- The ticker and each USB host PD call the timer; it notifies each of
+         its tick. -->
+    <channel>
+        <end pd="ticker" id="1" pp="true" notify="false" />
+        <end pd="timer" id="1" />
+    </channel>
+    <channel>
+        <end pd="usb0" id="0" pp="true" notify="false" />
+        <end pd="timer" id="2" />
+    </channel>
+    <channel>
+        <end pd="usb1" id="0" pp="true" notify="false" />
+        <end pd="timer" id="3" />
+    </channel>
+</system>

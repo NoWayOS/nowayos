@@ -1,0 +1,16 @@
+[package]
+name = "nowayos-bounded"
+description = "Fixed-capacity containers (vector, queue, UTF-8 string) for no_std code that must not allocate"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true

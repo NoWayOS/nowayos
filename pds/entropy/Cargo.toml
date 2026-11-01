@@ -1,0 +1,54 @@
+[package]
+name = "nowayos-entropy"
+description = "A protection domain's own random generator, and the getrandom back end every getrandom version calls in it: bytes from that generator or an error (approved-unsafe crate)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+# getrandom 0.2: its `custom` feature makes it call `__getrandom_custom` on a
+# target it does not otherwise support - target_os "none", as aarch64-sel4 is.
+# MIT OR Apache-2.0.
+getrandom02 = { package = "getrandom", version = "=0.2.17", features = ["custom"] }
+# getrandom 0.3, whose `Error` the one back end returns: 0.3 and 0.4 both
+# call `__getrandom_v03_custom` when built with --cfg getrandom_backend="custom"
+# (.cargo/config.toml). MIT OR Apache-2.0.
+getrandom03 = { package = "getrandom", version = "=0.3.4" }
+# The generator: RustCrypto's ChaCha20Rng (rand_core 0.10), the crate a TLS PD
+# already compiles for ChaCha20-Poly1305; with `zeroize` it wipes its state
+# when it is replaced. MIT OR Apache-2.0.
+chacha20 = { version = "=0.10.2", default-features = false, features = ["rng", "zeroize"] }
+# Wipes the seed once used. Apache-2.0 OR MIT.
+zeroize = { version = "=1.9.0", default-features = false }
+
+[dev-dependencies]
+# getrandom 0.4, to check that an error made as 0.3's arrives intact as 0.4's
+# (the two share a symbol). MIT OR Apache-2.0.
+getrandom04 = { package = "getrandom", version = "=0.4.3" }
+
+# This crate is on the approved-`unsafe` list, so it cannot inherit the
+# workspace lints (they forbid `unsafe_code`, and a forbid cannot be relaxed).
+# The same lints, with `unsafe_code` at deny: exactly two modules
+# (src/cell.rs, src/backend.rs) allow it. Keep in step with ../Cargo.toml.
+[lints.rust]
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+missing_docs = "warn"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+unreachable = "deny"
+undocumented_unsafe_blocks = "deny"
+multiple_unsafe_ops_per_block = "deny"
+# No panic inside a function that returns Result, and every #[allow] says why.
+panic_in_result_fn = "deny"
+allow_attributes_without_reason = "deny"
+# No out-of-bounds panics and no unchecked arithmetic on lengths and offsets.
+indexing_slicing = "deny"
+arithmetic_side_effects = "deny"

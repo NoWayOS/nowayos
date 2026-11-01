@@ -1,0 +1,17 @@
+[package]
+name = "nowayos-audio"
+description = "The audio channel between the USB host PD and a client PD: 16-bit PCM records from a microphone and to a speaker, the devices' formats, and the record assembler"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+nowayos-ipc.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true

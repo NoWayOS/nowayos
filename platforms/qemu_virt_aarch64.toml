@@ -1,0 +1,195 @@
+# Devices a protection domain can be granted on Microkit's qemu_virt_aarch64
+# board: QEMU's `virt` machine (AArch64), as the dev container's QEMU 7.2
+# builds it. Read by tools/check-system (rules 6, 7 and 8) and by
+# tools/board-system, which fills these facts into the system descriptions
+# in systems/ (they name devices, never addresses).
+#
+# A device that every board has under the same name (debug_uart) lets one
+# system serve every board; a device only this board has (fw_cfg, the
+# virtio-mmio pages) keeps its systems QEMU only.
+#
+# One entry per page-aligned register window a PD can map:
+#   name        what .grants files call it (`device PD NAME r|rw`,
+#               `irq PD NAME INTID`)
+#   address     physical address of the window (a multiple of 4 KiB)
+#   size        bytes (a multiple of 4 KiB); a system description must map
+#               exactly this window, through a memory_region with phys_addr
+#   irqs        its GIC interrupt numbers (INTIDs, as Microkit's
+#               <irq irq="..."> takes them: shared peripheral interrupt n is
+#               INTID 32 + n); may be empty
+#   trigger     "level" or "edge", for every interrupt in irqs
+#   source      where these facts come from - required
+#   compatible  (optional) the devicetree compatible string, printable ASCII,
+#               at most 64 characters: which device it is. A driver given
+#               the device's facts (prefill_path="device-NAME.bin")
+#               drives it by this, so a device without one cannot have them
+#   registers   (optional) how many bytes of the window, from its start, are
+#               the device's registers, when fewer than size: a driver reads
+#               no further (a multiple of 4; default: size)
+#   note        (optional) anything a reviewer granting it should know
+#
+# A system description that maps a physical address or takes an interrupt not
+# listed here fails the check. Add a device only with its source.
+#
+# A device reached through system registers, not memory, has no address or
+# size: only its interrupts (the CPU's EL1 physical timer, below).
+#
+# Not listed: the GIC and the timers the kernel keeps for itself, the
+# secure-world UART and GPIO, flash, PCIe and the platform bus.
+
+board = "qemu_virt_aarch64"
+
+[[device]]
+name = "phys_timer"
+compatible = "arm,armv8-timer"
+irqs = [30]
+trigger = "level"
+source = "QEMU 7.2's own device tree for this machine, observed 2026-10-03 (qemu-system-aarch64 -machine virt,virtualization=on,dumpdtb=FILE, decoded with dtc): /timer, compatible arm,armv8-timer, interrupts = <1 13 0x104>, <1 14 0x104>, <1 11 0x104>, <1 10 0x104> - PPIs, level-high, in the arm,arch_timer devicetree binding's order (secure, non-secure EL1 physical, virtual, hypervisor timer), so the EL1 physical timer is PPI 14, INTID 16 + 14 = 30"
+note = "The CPU's EL1 physical timer: system registers, no memory window. Microkit 2.3.1 exports it to user level on this board only (KernelArmExportPTMRUser); not on rpi5b_2gb. A per-CPU interrupt (PPI)."
+
+[[device]]
+name = "debug_uart"
+compatible = "arm,pl011"
+address = 0x0900_0000
+size = 0x1000
+irqs = [33]
+trigger = "level"
+source = "QEMU v7.2.0 hw/arm/virt.c: base_memmap[VIRT_UART] = { 0x09000000, 0x00001000 }; a15irqmap[VIRT_UART] = 1 (SPI 1 = INTID 33); create_uart: GIC_FDT_IRQ_FLAGS_LEVEL_HI"
+note = "QEMU's only non-secure UART (pl011@9000000, uart0 in QEMU's own naming): the board's debug UART. In Microkit's debug configuration the seL4 kernel also writes its debug console to this UART, so a PD granted it shares the device with the kernel (a test boot on 2026-10-02 mapped it without error)."
+
+[[device]]
+name = "rtc"
+compatible = "arm,pl031"
+address = 0x0901_0000
+size = 0x1000
+irqs = [34]
+trigger = "level"
+source = "QEMU v7.2.0 hw/arm/virt.c: base_memmap[VIRT_RTC] = { 0x09010000, 0x00001000 }; a15irqmap[VIRT_RTC] = 2 (SPI 2 = INTID 34); create_rtc: GIC_FDT_IRQ_FLAGS_LEVEL_HI"
+
+[[device]]
+name = "fw_cfg"
+compatible = "qemu,fw-cfg-mmio"
+address = 0x0902_0000
+size = 0x1000
+irqs = []
+trigger = "level"
+source = "QEMU v7.2.0 hw/arm/virt.c: base_memmap[VIRT_FW_CFG] = { 0x09020000, 0x00000018 }; no interrupt. Confirmed in QEMU 7.2's own device tree, observed 2026-10-03: fw-cfg@9020000, reg = <0x9020000 0x18>, compatible qemu,fw-cfg-mmio, dma-coherent"
+note = "QEMU's firmware configuration device: its registers are 0x18 bytes, alone in this page. Its DMA interface makes it a DMA test device (systems/dma-demo); it holds nothing a product needs. Its DMA is cache-coherent (dma-coherent)."
+
+[[device]]
+name = "gpio"
+compatible = "arm,pl061"
+address = 0x0903_0000
+size = 0x1000
+irqs = [39]
+trigger = "level"
+source = "QEMU v7.2.0 hw/arm/virt.c: base_memmap[VIRT_GPIO] = { 0x09030000, 0x00001000 }; a15irqmap[VIRT_GPIO] = 7 (SPI 7 = INTID 39); create_gpio_devices: GIC_FDT_IRQ_FLAGS_LEVEL_HI"
+
+# virtio-mmio: 32 transports of 0x200 bytes from 0x0a000000, transport i on
+# SPI 16 + i (INTID 48 + i). A page holds eight of them, so a PD granted one
+# page can reach all eight transports in it: the grant is per page.
+# QEMU fills transports from the highest down, so the first
+# `-device virtio-*-device` lands on transport 31 (0x0a003e00, INTID 79),
+# in virtio_mmio_24_31.
+
+[[device]]
+name = "virtio_mmio_0_7"
+compatible = "virtio,mmio"
+address = 0x0a00_0000
+size = 0x1000
+irqs = [48, 49, 50, 51, 52, 53, 54, 55]
+trigger = "edge"
+source = "QEMU v7.2.0 hw/arm/virt.c: base_memmap[VIRT_MMIO] = { 0x0a000000, 0x00000200 }, repeated NUM_VIRTIO_TRANSPORTS (32, include/hw/arm/virt.h) times; a15irqmap[VIRT_MMIO] = 16; create_virtio_devices: transport i at base + i * 0x200 on SPI 16 + i, GIC_FDT_IRQ_FLAGS_EDGE_LO_HI"
+
+# The random source: QEMU's virtio-rng, which a
+# system's .qemu file puts on transport 8 (bus=virtio-mmio-bus.8), the first
+# transport of a page of its own, so that only the entropy PD, granted this
+# page, can reach it.
+[[device]]
+name = "rng"
+compatible = "virtio,mmio"
+address = 0x0a00_1000
+size = 0x1000
+irqs = [56, 57, 58, 59, 60, 61, 62, 63]
+trigger = "edge"
+source = "As virtio_mmio_0_7: transports 8-15; the random source on transport 8 (INTID 56)"
+note = "virtio-rng's page: only an entropy PD may be granted it (tools/grant-rules.toml, rng-only-entropy)."
+
+[[device]]
+name = "virtio_mmio_16_23"
+compatible = "virtio,mmio"
+address = 0x0a00_2000
+size = 0x1000
+irqs = [64, 65, 66, 67, 68, 69, 70, 71]
+trigger = "edge"
+source = "As virtio_mmio_0_7: transports 16-23"
+
+[[device]]
+name = "virtio_mmio_24_31"
+compatible = "virtio,mmio"
+address = 0x0a00_3000
+size = 0x1000
+irqs = [72, 73, 74, 75, 76, 77, 78, 79]
+trigger = "edge"
+source = "As virtio_mmio_0_7: transports 24-31"
+
+# xHCI USB host controllers: two of QEMU's `qemu-xhci` PCI functions,
+# which systems/usb-test.qemu puts on PCI bus 0 as devices 2 and 3 (addr=2,
+# addr=3). QEMU's virt machine has no firmware to enumerate PCI, so the xHCI
+# PD places each controller's BAR 0 itself, through its function's
+# configuration page (nowayos_hw::pci), at the bus address `pci_bar0` -
+# carried to it in the controller's facts, device-xhciN.bin (version 3) -
+# which is where the controller's window then decodes. On the Raspberry Pi 5,
+# U-Boot's enumeration places RP1's controllers, and the same names, xhci0 and
+# xhci1, are RP1's (rpi5b_2gb.toml). Polled: no interrupt is granted (the
+# functions' legacy INTx are switched off when placed).
+#
+# The configuration pages: QEMU 7.2's own device tree for this machine,
+# observed 2026-10-07 (qemu-system-aarch64 -machine virt,virtualization=on,
+# dumpdtb=FILE, with the two controllers, decoded with a standard-library
+# reader written from the Devicetree Specification v0.4, chapter 5):
+# /pcie@10000000, compatible pci-host-ecam-generic, reg = <0x40 0x10000000 0x0
+# 0x10000000> - the ECAM window at 0x40_1000_0000, 256 MiB, buses 0 to 255
+# (bus-range); a function's 4 KiB of configuration space is at bus << 20 |
+# device << 15 | function << 12 in it (PCI Express Base Specification,
+# Enhanced Configuration Access Mechanism).
+
+[[device]]
+name = "xhci0_config"
+address = 0x40_1001_0000
+size = 0x1000
+irqs = []
+trigger = "level"
+source = "QEMU 7.2's device tree for this machine (observed 2026-10-07, above): ECAM at 0x40_1000_0000; bus 0, device 2 (systems/usb-test.qemu's addr=2), function 0: 0x40_1000_0000 + (2 << 15) = 0x40_1001_0000"
+note = "The configuration space of the first qemu-xhci function: its header, Command register and BARs. Only the xHCI PD that drives xhci0 maps it, to place xhci0's window."
+
+[[device]]
+name = "xhci1_config"
+address = 0x40_1001_8000
+size = 0x1000
+irqs = []
+trigger = "level"
+source = "As xhci0_config: bus 0, device 3 (addr=3), function 0: 0x40_1000_0000 + (3 << 15) = 0x40_1001_8000"
+note = "The second qemu-xhci function's configuration space, for the xHCI PD that drives xhci1."
+
+[[device]]
+name = "xhci0"
+compatible = "pci1b36,d"
+address = 0x1000_0000
+size = 0x4000
+pci_bar0 = 0x1000_0000
+irqs = []
+trigger = "level"
+source = "QEMU 7.2's device tree for this machine (observed 2026-10-07): /pcie@10000000 ranges = <0x2000000 0x0 0x10000000 0x0 0x10000000 0x0 0x2eff0000>, a 32-bit memory window whose bus addresses are its physical addresses, from 0x1000_0000; the BAR's size and the function's identity from QEMU 7.2's monitor (info pci, the same machine): qemu-xhci is PCI 1b36:000d, class 0x0c0330, BAR0 a 64-bit memory BAR of 16 KiB. The xHCI PD places BAR 0 at the start of the window (pci_bar0), so its 16 KiB decode here"
+note = "The first qemu-xhci controller's registers: capability, operational, runtime (at 0x1000) and doorbells (at 0x2000), all in its 16 KiB. Its compatible string is the devicetree's PCI form for vendor 1b36, device 000d."
+
+[[device]]
+name = "xhci1"
+compatible = "pci1b36,d"
+address = 0x1000_4000
+size = 0x4000
+pci_bar0 = 0x1000_4000
+irqs = []
+trigger = "level"
+source = "As xhci0: the second qemu-xhci function's BAR 0, placed by its xHCI PD after the first's, at 0x1000_4000 in the same window"
+note = "The second qemu-xhci controller's registers."

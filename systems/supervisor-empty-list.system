@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    A supervisor whose program names no children still reads its
+    counts, and fails closed. NoWayOS's supervisor program picks a test
+    system's children by its own PD name and has no list for
+    empty_list_supervisor, so it runs with none - as a product's program
+    would with an empty list, which nowayos_supervisor::valid refuses at
+    build time. Every child is then an unknown child.
+
+    Its stand-in counts are at the restart limit: test-counts-4-0.bin,
+    restart count 4 and sensitive count 0, prefilled at build time and
+    mapped read-only (tools/board-system), which the grants check refuses
+    outside a test system (check-system rule 12). So before any child runs
+    the supervisor enters the fail-safe state and stops every one of the 64
+    slots a child can have: stopped_child and unnamed_child never print
+    their start lines, and nothing is kept.
+
+    Capabilities: empty_list_supervisor holds its children's thread
+    capabilities, the SMC capability (smc="true"; unbadged in Microkit
+    2.3.1) and its stand-in counts, read-only - in a test system only:
+    the grants check refuses the supervisor any memory in a demo or product
+    system (supervisor-no-memory). stopped_child and unnamed_child hold
+    nothing.
+
+    Every grant above is also listed in supervisor-empty-list.grants, which
+    tools/check-system compares with this file and with the kernel objects the
+    Microkit tool generates (make image, make qemu-test).
+-->
+<system>
+    <memory_region name="counts" prefill_path="test-counts-4-0.bin" />
+
+    <protection_domain name="empty_list_supervisor" priority="254" stack_size="0x10000" smc="true">
+        <program_image path="nowayos-supervisor.elf" />
+        <map mr="counts" vaddr="0x4000_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_1_vaddr" setvar_size="nowayos_ro_region_1_size" />
+
+        <protection_domain name="stopped_child" id="0" priority="50" stack_size="0x10000">
+            <program_image path="nowayos-isolation-probe.elf" />
+        </protection_domain>
+
+        <protection_domain name="unnamed_child" id="1" priority="40" stack_size="0x10000">
+            <program_image path="nowayos-isolation-probe.elf" />
+        </protection_domain>
+    </protection_domain>
+</system>

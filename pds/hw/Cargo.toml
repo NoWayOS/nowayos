@@ -1,0 +1,43 @@
+[package]
+name = "nowayos-hw"
+description = "Typed, safe views of device registers, the counter and barriers, for driver protection domains (approved-unsafe crate)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+safe-mmio.workspace = true
+# The xHCI driver's records, contexts and register fields, decoded and
+# checked without hardware.
+nowayos-usb.workspace = true
+# A GEM MAC's register values, MDIO frames, PHY link and checked descriptor
+# rings, without hardware; and the network path's buffer sizes.
+nowayos-gem.workspace = true
+nowayos-net.workspace = true
+
+# This crate is on the approved-`unsafe` list, so it cannot inherit the
+# workspace lints (they forbid `unsafe_code`, and a forbid cannot be relaxed).
+# The same lints, with `unsafe_code` at deny: only the modules lib.rs names
+# allow it. Keep in step with ../Cargo.toml.
+[lints.rust]
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+missing_docs = "warn"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+unreachable = "deny"
+undocumented_unsafe_blocks = "deny"
+multiple_unsafe_ops_per_block = "deny"
+# No panic inside a function that returns Result, and every #[allow] says why.
+panic_in_result_fn = "deny"
+allow_attributes_without_reason = "deny"
+# No out-of-bounds panics and no unchecked arithmetic on lengths and offsets.
+indexing_slicing = "deny"
+arithmetic_side_effects = "deny"

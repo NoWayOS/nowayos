@@ -1,0 +1,39 @@
+# Everything systems/virtio-console-test.system grants, one fact per line.
+# tools/check-system fails the build if the system description grants anything
+# not listed here, or lists anything it does not grant, and checks the map
+# rights again in the kernel objects the Microkit tool generates (format: see
+# tools/check-system). A change here is a security change: call it out in the
+# pull request.
+
+# The kind of system, and each PD's role (tools/grant-rules.toml).
+system test
+role console driver
+role serial_test test
+
+# The driver runs above its client. Full budgets.
+pd console priority=150 budget=1000 period=1000
+pd serial_test priority=100 budget=1000 period=1000
+
+# One page of virtio-mmio transports, by name from the board file: uncached,
+# this PD only; and the interrupt of transport 31, where QEMU puts the console.
+device console virtio_mmio_24_31 rw
+irq console virtio_mmio_24_31 79
+
+# The console's two queues - descriptors, rings and buffers - which the device
+# reads and writes by DMA.
+map console receive_queue rw
+paddr console receive_queue
+map console transmit_queue rw
+paddr console transmit_queue
+
+# The transmit ring from the client and the receive ring to it: each ring's
+# messages written by its producer only, its index by its consumer only.
+map console transmit_control rw
+map console transmit_messages r
+map console receive_messages rw
+map console receive_control r
+map serial_test transmit_messages rw
+map serial_test transmit_control r
+map serial_test receive_control rw
+map serial_test receive_messages r
+channel console serial_test

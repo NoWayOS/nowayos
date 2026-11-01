@@ -1,0 +1,30 @@
+# Lines tools/qemu-test must see, in this order, as whole serial lines.
+# In QEMU: the network stack PD
+# against a hostile NIC driver. The PDs start in priority order: the timer,
+# seed_source, driver_stand_in, then the stack. The stack's first frame is a
+# DHCP discover; the stand-in then passes back its bad frames.
+NOWAYOS: timer: starting
+NOWAYOS: net-stack-test seed_source: starting
+NOWAYOS: net-stack-test seed_source: a fixed test seed sent on the stack's seed ring
+NOWAYOS: net-stack-test driver_stand_in: starting
+NOWAYOS: net-stack: starting
+NOWAYOS: net-stack: seeded; interface up at 52:54:00:12:34:56: asking for a DHCP lease
+NOWAYOS: net-stack-test driver_stand_in: the stack asks for a lease: a DHCP discover from 52:54:00:12:34:56
+NOWAYOS: net-stack-test driver_stand_in: took 128 receive buffers; passed back 7 descriptors: 2 oversize frames, 3 malformed and 2 frames smoltcp cannot use
+# AC 4: each oversize and malformed frame dropped and counted, without a
+# panic, and nothing else counted as dropped (that frames passing the checks
+# reach smoltcp is tested on the host, in nowayos-ip).
+NOWAYOS: net-stack: dropped so far: 2 oversize frames, 3 malformed frames, 0 corrupt queue indices, 0 frames unsent
+
+# Output that fails the test at once if it appears anywhere (substring match),
+# including in the second after the last line above: a fault reported by the
+# Microkit monitor, a kernel error message, a panic, a PD giving up, the
+# stack not ready or failing to read the time, or a lease - nothing here
+# offers one.
+!MON|ERROR
+!seL4(CPU
+!panicked
+!gave up
+!not ready
+!could not
+!net-stack: DHCP lease

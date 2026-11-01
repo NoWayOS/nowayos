@@ -1,0 +1,33 @@
+# Everything systems/rpi5b_2gb/run-length-test.system grants, one fact per
+# line. tools/check-system fails the build if the system description grants
+# anything not listed here, or lists anything it does not grant, and checks
+# the map rights again in the kernel objects the Microkit tool generates
+# (format: see tools/check-system). A change here is a security change: call
+# it out in the pull request.
+
+# A test system: the ticker is a test instrument. The watchdog has the role
+# watchdog - the only role that may hold the PM block's page
+# (pm-watchdog-only-watchdog) - and makes no call.
+system test
+role run_watchdog watchdog
+role timer driver
+role ticker test
+
+pd run_watchdog priority=250 budget=1000 period=1000
+pd timer priority=240 budget=1000 period=1000
+pd ticker priority=230 budget=1000 period=1000
+
+# The PM block's page in the watchdog only; the system timer's page and its
+# channel 1 interrupt in the timer only.
+device run_watchdog pm_watchdog rw
+device timer system_timer rw
+irq timer system_timer 97
+
+# The run length: a test-only prefill (rule 12), read-only in the ticker.
+map ticker run_length r
+
+# The ticker's ticks, one way; the ticker calls the timer, which notifies it
+# of each tick.
+channel ticker run_watchdog notify=ticker
+channel ticker timer notify=timer
+call ticker timer

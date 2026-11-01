@@ -1,0 +1,106 @@
+# The approved-`unsafe` list: the answer to "where is all the unsafe code?"
+# (unsafe; CI stage 5, Development Workflow).
+#
+# tools/check-unsafe (make unsafe-audit, part of make container-ci) fails if:
+# * `unsafe` code, or an attribute that relaxes the `unsafe_code` lint
+#   (allow, expect or warn), appears in any .rs file not listed here;
+# * a listed file no longer needs to be listed;
+# * any crate in the two Cargo workspaces (crates/*, pds/*) that is not listed
+#   here does not take its workspace's lints, which forbid `unsafe_code`;
+# * a listed crate's own lint tables are weaker than its workspace's (they
+#   must match it, with unsafe_code = "deny" so that one module can allow it,
+#   and may only add stricter lints).
+# `miri = true` crates are the ones `make pds-miri` runs under Miri.
+#
+# Adding an entry is a security change: state why below, keep the unsafe
+# code in as few files as possible, give every block a SAFETY comment, and
+# call it out in the pull request.
+
+[[crate]]
+name = "nowayos-region"
+workspace = "pds"
+files = [
+    "pds/region/src/lib.rs",     # `#[allow(unsafe_code)] mod mapping;` only
+    "pds/region/src/mapping.rs", # all of the crate's unsafe code
+]
+miri = true
+why = "Declares the symbols the Microkit tool patches (export_name, link_section) and turns a patched region address into a &'static view of atomics: a typed layout, or the whole region as atomic bytes (a framebuffer)."
+
+[[crate]]
+name = "nowayos-isolation-probe"
+workspace = "pds"
+files = [
+    "pds/isolation-probe/src/main.rs",      # `#[allow(unsafe_code)] mod forbidden;` only
+    "pds/isolation-probe/src/forbidden.rs", # the forbidden accesses
+]
+miri = false
+miri_exempt = "A test instrument, never in a product image: its only unsafe code is two kinds of deliberately forbidden memory access, each one inline-assembly instruction that must fault under seL4, which Miri cannot run."
+why = "The isolation tests need reads of addresses not mapped in the probe (a fixed list in forbidden.rs) and writes to its read-only regions, as single load and store instructions: volatile accesses may not trap, and these must."
+
+[[crate]]
+name = "nowayos-budget-probe"
+workspace = "pds"
+files = [
+    "pds/budget-probe/src/main.rs",   # `#[allow(unsafe_code)] mod census;` only
+    "pds/budget-probe/src/census.rs", # the one debug system call
+]
+miri = false
+miri_exempt = "A test instrument, never in a product image: its only unsafe code is one inline-assembly system call to a debug kernel, which Miri cannot run."
+why = "The SMP test needs the kernel to say which core each PD runs on: a PD cannot read its core (AArch64 gives EL0 no such register), and rust-sel4 does not wrap seL4_DebugDumpScheduler, so census.rs makes that one debug system call, as libsel4 does."
+
+[[crate]]
+name = "nowayos-hw"
+workspace = "pds"
+files = [
+    "pds/hw/src/lib.rs",    # `#[allow(unsafe_code)]` on the sixteen modules below only
+    "pds/hw/src/device.rs", # the patched device symbols, and a patched address turned into a register view
+    "pds/hw/src/dma.rs",    # the patched DMA-region and I/O-region symbols, and a patched address turned into atomic bytes
+    "pds/hw/src/pl011.rs",  # the PL011 register block's `unsafe impl`, and safe-mmio's field! projections
+    "pds/hw/src/fw_cfg.rs", # fw_cfg's register block's `unsafe impl`, and the one write that starts a DMA transfer
+    "pds/hw/src/cpu.rs",    # the counter, its frequency, barriers and cleaning the data cache by address: inline assembly, PD builds only
+    "pds/hw/src/system_timer.rs", # the BCM2835-family system timer's register block's `unsafe impl` (the VideoCore's channels as padding), and safe-mmio's field! projections
+    "pds/hw/src/scanout.rs", # a framebuffer the firmware scans out: a patched address turned into atomic words
+    "pds/hw/src/virtio.rs", # the virtio-mmio register block's `unsafe impl` (configuration read a byte at a time), field! projections, and the writes that let a device use its queues' DMA memory and I/O regions
+    "pds/hw/src/pci.rs", # a PCI function's configuration page as plain words: header reads, and the Command and BAR 0 writes that place its window (QEMU)
+    "pds/hw/src/rp1_fan.rs", # RP1's PWM1 clock, PWM1's channel 3 and GPIO45's control as plain words: the Pi 5's fan
+    "pds/hw/src/vc_mailbox.rs", # the VideoCore mailbox's registers as plain words: one property call, the firmware's temperature
+    "pds/hw/src/xhci.rs", # an xHCI controller's window as plain words: register reads, and the writes - Run/Stop, its rings' and contexts' pointers, the doorbells - that point it only into its own DMA region
+    "pds/hw/src/gem.rs", # a GEM MAC's window as plain words: register reads, and the writes - its rings' bases, the enables, transmit start - that point it only into its DMA region and the client's I/O regions
+    "pds/hw/src/rp1.rs", # two words of RP1's GPIO bank 1: the Ethernet PHY's reset line driven high
+    "pds/hw/src/pm_watchdog.rs", # BCM2712's PM watchdog as plain words: RSTC, RSTS and WDOG read, and the two writes that arm it - never one that stops it
+    "pds/hw/src/hvs.rs", # the HVS's register block's `unsafe impl` - two read-only words a display channel - and safe-mmio's field_shared! projections: where the Pi 5's display is in its scan
+]
+miri = true
+why = "Driver PDs reach hardware only through this crate: it binds a device's register window from patched symbols and views it through safe-mmio, which never makes a Rust reference to device memory; views the framebuffer the firmware scans out as atomic words; binds DMA memory with its physical address, and I/O regions - memory another PD maps - by physical address alone, and gives devices only addresses checked to lie inside them; and reads the counter, issues barriers and cleans the data cache by address (a framebuffer mapped cached) with inline assembly. Miri runs its binding, checking and DMA-memory logic; the register accesses are inline assembly, run by make pds-test on the host and by QEMU."
+
+[[crate]]
+name = "nowayos-entropy"
+workspace = "pds"
+files = [
+    "pds/entropy/src/lib.rs",     # `#[allow(unsafe_code)] mod cell;` and `mod backend;` only
+    "pds/entropy/src/cell.rs",    # the static that holds the PD's generator: `unsafe impl Sync`, one `&mut` at a time
+    "pds/entropy/src/backend.rs", # `__getrandom_v03_custom`: #[no_mangle] over a pointer and a length
+]
+miri = true
+why = "Randomness in a PD: the PD's one generator lives in a static, which needs `unsafe impl Sync` - sound because a PD has one thread, the cell refusing re-entry - and getrandom 0.3 and 0.4 call the back end through one #[no_mangle] function over a raw pointer and a length (getrandom 0.2's, registered through its macro, is safe code). Miri runs the cell, the generator and the back end on ordinary memory, all but the check that 0.3's error arrives intact as 0.4's, a layout Rust does not promise, which make pds-test runs."
+
+[[crate]]
+name = "nowayos-heap"
+workspace = "pds"
+files = [
+    "pds/heap/src/lib.rs",      # `#[allow(unsafe_code)] mod counting;` and `mod region;` only
+    "pds/heap/src/counting.rs", # `unsafe impl GlobalAlloc`, forwarding each call to the wrapped allocator
+    "pds/heap/src/region.rs", # `unsafe(export_name)` and `unsafe(link_section)` on the heap region's patched symbols
+]
+miri = true
+why = "A PD's heap: a global allocator is an `unsafe impl GlobalAlloc`, and this one forwards each call, with the arguments it was given, to sel4-dlmalloc over the PD's static arena - the allocator sel4-microkit's heap_size declares - counting the bytes in use, the peak and the refusals around the call. Miri runs the counting over the system allocator and one that refuses everything. Or over a memory region: the region's address and size are symbols the Microkit tool patches, defined as nowayos-region defines its own (`unsafe(export_name)`, `unsafe(link_section)` into .data), and check-system's rule 16 holds the region to a read-write map of ordinary memory no other PD maps."
+
+[[crate]]
+name = "nowayos-restart"
+workspace = "pds"
+files = [
+    "pds/restart/src/lib.rs",   # `#[allow(unsafe_code)] mod entry;` only
+    "pds/restart/src/entry.rs", # all of the crate's unsafe code: the restart entry, PD builds only
+]
+miri = true
+why = "Restarting one PD cleanly: the restart entry runs before rust-sel4's runtime, so it is a few instructions of assembly, the patched symbols of the PD's restart image (export_name, link_section), and views of the image and of the PD's own writable segments - checked against its program headers - made from addresses. Miri runs the image's parsing, checking and restoring on ordinary memory; the entry itself runs only in a PD (systems/restart-test, make qemu-test)."

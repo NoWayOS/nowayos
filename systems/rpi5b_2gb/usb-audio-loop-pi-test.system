@@ -1,0 +1,178 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    The Pi 5 only: a call's sound through the USB host
+    PD and its client's rings, for a person to hear - the USB host PD itself,
+    nowayos-usb-host, on each of RP1's two xHCI controllers
+    (platforms/rpi5b_2gb.toml: xhci0 and xhci1, the first page of each), and
+    one client, nowayos-audio-loop, a test instrument, of both, for a run of
+    180 s. Plug a USB speaker or headset and a USB camera with a microphone
+    (or a headset alone) into any of the Pi's USB ports.
+
+    Each USB host PD streams, for the client, the first speaker and the first
+    microphone it finds: of each device's alternate settings, the best it
+    supports, at the rate it takes nearest 48 kHz, set by request where the
+    endpoint has the control; an asynchronous speaker paced by its feedback
+    endpoint. The client, told which side has which, in turns records 5 s
+    of the microphone while the speaker plays a 440 Hz tone for 1 s, then
+    plays the recording back, converted to the speaker's rate and channels;
+    and again, until the run ends. With no microphone the tone plays
+    without end. Every 10 s each stream reports its intervals missed; a
+    missed interval, a stream not streamed or a speaker the client fed too
+    little fails the run (usb-audio-loop-pi-test.expect).
+
+        run_watchdog  the watchdog PD, watching no PD: keeps the PM watchdog
+                      armed while ticker ticks, so the run lasts 180 s, then
+                      the board resets
+        timer         BCM2712's system timer, channel 1's interrupt
+        ticker        the watchdog's tick every 2 s, until the run length
+                      (test-run-length-180.bin, read-only region 0)
+        usb0, usb1    nowayos-usb-host, one for each controller
+        client        nowayos-audio-loop: side 0 is usb0, side 1 usb1
+
+    Capabilities, per USB PD: its controller's first page, uncached,
+    read-write; its DMA region, 188 KiB (DMA_SIZE_STREAMING), uncached, and
+    its physical address; the board's facts about its controller,
+    read-only; a channel to the timer PD, which it calls; and its client's
+    two rings - from it (lossy: it never waits), its messages 36 KiB
+    read-write and its control page read-only; to it, its control page
+    read-write and its messages 68 KiB read-only - and a channel on which it
+    notifies the client. No ring to an input broker and no screen. The
+    client maps each side's rings the other way round, its own recording
+    region (1 MiB) read-write, and holds no device. The watchdog holds the
+    PM block's page and its channel from the ticker; the ticker its run
+    length, read-only, and a channel to the timer. Every grant is listed in
+    usb-audio-loop-pi-test.grants, which tools/check-system compares with
+    this file and with the kernel objects.
+-->
+<system>
+    <memory_region name="system_timer_regs" size="@system_timer" phys_addr="@system_timer" />
+    <memory_region name="pm_regs" size="@pm_watchdog" phys_addr="@pm_watchdog" />
+    <memory_region name="run_length" prefill_path="test-run-length-180.bin" />
+
+    <protection_domain name="run_watchdog" priority="250" stack_size="0x10000">
+        <program_image path="nowayos-watchdog.elf" />
+        <map mr="pm_regs" vaddr="0x200_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_device_0_vaddr" setvar_size="nowayos_device_0_size" />
+    </protection_domain>
+
+    <protection_domain name="timer" priority="240" stack_size="0x10000">
+        <program_image path="nowayos-timer.elf" />
+        <map mr="system_timer_regs" vaddr="0x200_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_device_0_vaddr" setvar_size="nowayos_device_0_size" />
+        <irq irq="@system_timer[1]" id="0" trigger="@system_timer" />
+    </protection_domain>
+
+    <protection_domain name="ticker" priority="230" stack_size="0x10000">
+        <program_image path="nowayos-watchdog-stand-in.elf" />
+        <map mr="run_length" vaddr="0x4000_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+    </protection_domain>
+
+    <memory_region name="xhci0_regs" size="@xhci0" phys_addr="@xhci0" />
+    <memory_region name="xhci0_facts" prefill_path="device-xhci0.bin" />
+    <memory_region name="usb0_memory" size="0x2f000" />
+    <memory_region name="xhci1_regs" size="@xhci1" phys_addr="@xhci1" />
+    <memory_region name="xhci1_facts" prefill_path="device-xhci1.bin" />
+    <memory_region name="usb1_memory" size="0x2f000" />
+
+    <!-- Each USB host PD's client rings: from it (lossy) and to it. -->
+    <memory_region name="audio0_from_messages" size="0x9000" />
+    <memory_region name="audio0_from_control" size="0x1000" />
+    <memory_region name="audio0_to_messages" size="0x11000" />
+    <memory_region name="audio0_to_control" size="0x1000" />
+    <memory_region name="audio1_from_messages" size="0x9000" />
+    <memory_region name="audio1_from_control" size="0x1000" />
+    <memory_region name="audio1_to_messages" size="0x11000" />
+    <memory_region name="audio1_to_control" size="0x1000" />
+    <memory_region name="recording" size="0x100000" />
+
+    <protection_domain name="usb0" priority="100" stack_size="0x10000">
+        <program_image path="nowayos-usb-host.elf" />
+        <map mr="xhci0_regs" vaddr="0x200_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_device_0_vaddr" setvar_size="nowayos_device_0_size" />
+        <map mr="usb0_memory" vaddr="0x300_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_dma_0_vaddr" setvar_size="nowayos_dma_0_size" />
+        <setvar symbol="nowayos_dma_0_paddr" region_paddr="usb0_memory" />
+        <map mr="xhci0_facts" vaddr="0x4000_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_5_vaddr" setvar_size="nowayos_ro_region_5_size" />
+        <map mr="audio0_from_messages" vaddr="0x4100_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_1_vaddr" setvar_size="nowayos_rw_region_1_size" />
+        <map mr="audio0_from_control" vaddr="0x4101_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_1_vaddr" setvar_size="nowayos_ro_region_1_size" />
+        <map mr="audio0_to_control" vaddr="0x4102_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_2_vaddr" setvar_size="nowayos_rw_region_2_size" />
+        <map mr="audio0_to_messages" vaddr="0x4103_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_2_vaddr" setvar_size="nowayos_ro_region_2_size" />
+    </protection_domain>
+
+    <protection_domain name="usb1" priority="90" stack_size="0x10000">
+        <program_image path="nowayos-usb-host.elf" />
+        <map mr="xhci1_regs" vaddr="0x200_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_device_0_vaddr" setvar_size="nowayos_device_0_size" />
+        <map mr="usb1_memory" vaddr="0x300_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_dma_0_vaddr" setvar_size="nowayos_dma_0_size" />
+        <setvar symbol="nowayos_dma_0_paddr" region_paddr="usb1_memory" />
+        <map mr="xhci1_facts" vaddr="0x4000_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_5_vaddr" setvar_size="nowayos_ro_region_5_size" />
+        <map mr="audio1_from_messages" vaddr="0x4100_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_1_vaddr" setvar_size="nowayos_rw_region_1_size" />
+        <map mr="audio1_from_control" vaddr="0x4101_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_1_vaddr" setvar_size="nowayos_ro_region_1_size" />
+        <map mr="audio1_to_control" vaddr="0x4102_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_2_vaddr" setvar_size="nowayos_rw_region_2_size" />
+        <map mr="audio1_to_messages" vaddr="0x4103_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_2_vaddr" setvar_size="nowayos_ro_region_2_size" />
+    </protection_domain>
+
+    <protection_domain name="client" priority="80" stack_size="0x10000">
+        <program_image path="nowayos-audio-loop.elf" />
+        <map mr="audio0_from_control" vaddr="0x41000000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+        <map mr="audio0_from_messages" vaddr="0x41010000" perms="r"
+             setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+        <map mr="audio0_to_messages" vaddr="0x41020000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_1_vaddr" setvar_size="nowayos_rw_region_1_size" />
+        <map mr="audio0_to_control" vaddr="0x41040000" perms="r"
+             setvar_vaddr="nowayos_ro_region_1_vaddr" setvar_size="nowayos_ro_region_1_size" />
+        <map mr="audio1_from_control" vaddr="0x41100000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_2_vaddr" setvar_size="nowayos_rw_region_2_size" />
+        <map mr="audio1_from_messages" vaddr="0x41110000" perms="r"
+             setvar_vaddr="nowayos_ro_region_2_vaddr" setvar_size="nowayos_ro_region_2_size" />
+        <map mr="audio1_to_messages" vaddr="0x41120000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_3_vaddr" setvar_size="nowayos_rw_region_3_size" />
+        <map mr="audio1_to_control" vaddr="0x41140000" perms="r"
+             setvar_vaddr="nowayos_ro_region_3_vaddr" setvar_size="nowayos_ro_region_3_size" />
+        <map mr="recording" vaddr="0x5000_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_4_vaddr" setvar_size="nowayos_rw_region_4_size" />
+    </protection_domain>
+
+    <!-- The ticker's ticks: the watchdog never notifies it. -->
+    <channel>
+        <end pd="run_watchdog" id="0" notify="false" />
+        <end pd="ticker" id="0" />
+    </channel>
+    <!-- The ticker and each USB host PD call the timer; it notifies each of
+         its tick. -->
+    <channel>
+        <end pd="ticker" id="1" pp="true" notify="false" />
+        <end pd="timer" id="1" />
+    </channel>
+    <channel>
+        <end pd="usb0" id="0" pp="true" notify="false" />
+        <end pd="timer" id="2" />
+    </channel>
+    <channel>
+        <end pd="usb1" id="0" pp="true" notify="false" />
+        <end pd="timer" id="3" />
+    </channel>
+    <!-- Each USB host PD notifies the client each tick it sent or took a
+         record: side 0 on the client's channel 0, side 1 on its 1. -->
+    <channel>
+        <end pd="usb0" id="2" />
+        <end pd="client" id="0" notify="false" />
+    </channel>
+    <channel>
+        <end pd="usb1" id="2" />
+        <end pd="client" id="1" notify="false" />
+    </channel>
+</system>

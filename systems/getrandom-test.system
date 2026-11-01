@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Randomness in a protection domain. One test PD,
+    built with nowayos-entropy and every way into getrandom, checks that each
+    is refused before the PD's generator is seeded, draws from that one
+    generator once a fixed, public test seed is given, and is refused again
+    once the generator is dropped. No channels, memory regions, devices or
+    children: the entropy PD that will seed real PDs is
+    entropy-test's. Everything it grants is listed in getrandom-test.grants
+    (checked by tools/check-system).
+-->
+<system>
+    <protection_domain name="getrandom_probe" priority="1" stack_size="0x10000">
+        <program_image path="nowayos-getrandom-probe.elf" />
+    </protection_domain>
+</system>

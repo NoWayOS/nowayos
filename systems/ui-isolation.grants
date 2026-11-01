@@ -1,0 +1,70 @@
+# Everything systems/ui-isolation.system grants, one fact per line.
+# tools/check-system fails the build if the system description grants anything
+# not listed here, or lists anything it does not grant, and checks the map
+# rights again in the kernel objects the Microkit tool generates (format: see
+# tools/check-system). A change here is a security change: call it out in the
+# pull request.
+
+# The kind of system, and each PD's role (tools/grant-rules.toml). Each probe
+# has the role of the PD whose maps it holds, so the role rules apply to it as
+# they would to that PD; the parent and display_side are test instruments.
+system test
+role ui_isolation_parent test
+role display_side test
+role display_writes_framebuffer display
+role ui_writes_display_index ui
+role ui_reads_display_private ui
+role ui_reads_device ui
+
+pd ui_isolation_parent priority=100 budget=1000 period=1000
+pd display_side priority=50 budget=1000 period=1000
+pd display_writes_framebuffer priority=40 budget=1000 period=1000
+pd ui_writes_display_index priority=30 budget=1000 period=1000
+pd ui_reads_display_private priority=20 budget=1000 period=1000
+pd ui_reads_device priority=10 budget=1000 period=1000
+
+# The parent receives every probe's faults and stops the probe.
+child ui_isolation_parent display_writes_framebuffer
+child ui_isolation_parent ui_writes_display_index
+child ui_isolation_parent ui_reads_display_private
+child ui_isolation_parent ui_reads_device
+
+# The display's maps in ui-demo.grants.
+map display_writes_framebuffer present_messages r
+map display_writes_framebuffer present_control rw
+map display_writes_framebuffer display_messages rw
+map display_writes_framebuffer display_control r
+map display_writes_framebuffer framebuffer r
+
+# The UI's maps in ui-demo.grants.
+map ui_writes_display_index present_messages rw
+map ui_writes_display_index present_control r
+map ui_writes_display_index display_messages r
+map ui_writes_display_index display_control rw
+map ui_writes_display_index framebuffer rw
+map ui_writes_display_index input_messages r
+map ui_writes_display_index input_control rw
+
+# The UI's maps again.
+map ui_reads_display_private present_messages rw
+map ui_reads_display_private present_control r
+map ui_reads_display_private display_messages r
+map ui_reads_display_private display_control rw
+map ui_reads_display_private framebuffer rw
+map ui_reads_display_private input_messages r
+map ui_reads_display_private input_control rw
+
+# The UI's maps again.
+map ui_reads_device present_messages rw
+map ui_reads_device present_control r
+map ui_reads_device display_messages r
+map ui_reads_device display_control rw
+map ui_reads_device framebuffer rw
+map ui_reads_device input_messages r
+map ui_reads_device input_control rw
+
+# display_side's private page, which no probe may reach.
+map display_side display_private rw
+
+# "Are you still running?" and the answer.
+channel ui_isolation_parent display_side

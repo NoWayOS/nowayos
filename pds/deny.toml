@@ -1,0 +1,167 @@
+# cargo-deny configuration for the pds workspace. Run: make pds-deny
+#
+# House licence list: MIT, Apache-2.0,
+# BSD-2-Clause, BSD-3-Clause, ISC. Anything else needs a per-crate exception
+# below and the project owner's written sign-off.
+#
+# Not checked by cargo-deny: the standard-library crates rebuilt from rust-src
+# by build-std (core, alloc, compiler_builtins). They are not in Cargo.lock;
+# pds/std-crates.txt lists them with their licences, and make
+# std-crates-check (tools/check-std-crates) fails if they change.
+# compiler_builtins is "MIT AND Apache-2.0 WITH LLVM-exception AND (MIT OR
+# Apache-2.0)": outside the house list, signed off.
+
+[graph]
+# Every platform: a superset of what the PDs and their build scripts use.
+targets = []
+all-features = false
+no-default-features = false
+
+[advisories]
+# Every vulnerability, unsound and unmaintained advisory is an error, whichever
+# crate in the tree it concerns, and so is a yanked crate version, unless it is
+# listed in `ignore` with the reason it does not apply. (By default cargo-deny
+# fails an unsound advisory only for a direct dependency, and only warns about
+# a yanked version.) The NoWayOS baseline: tools/baseline.toml.
+unmaintained = "all"
+unsound = "all"
+yanked = "deny"
+ignore = [
+    # rsa 0.9.10's Marvin attack: timing that can recover an RSA private key
+    # from its decryption or signing (no patched release). nowayos-tls-crypto
+    # only verifies signatures, with public keys, and its key provider loads
+    # no private key.
+    { id = "RUSTSEC-2023-0071", reason = "no RSA private key is used: rsa only verifies signatures, with public keys" },
+]
+
+[licenses]
+allow = ["MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "ISC"]
+confidence-threshold = 0.93
+# Dev-dependencies too: the house rule covers every package we add, and
+# cargo-deny leaves them out unless told.
+include-dev = true
+exceptions = [
+    # outside house list - signed off: nowayos-glyphs, the glyph
+    # atlases, a Modified Version of the signed-off font, is OFL-1.1.
+    { crate = "nowayos-glyphs", allow = ["OFL-1.1"] },
+    # outside house list - signed off 2026-10-04: smoltcp 0.14.0, the IP stack NoWayOS's network stack PD runs, and its
+    # dependency managed 0.8.0, at those versions. 0BSD asks less than MIT.
+    # The only 0BSD crates allowed: any other fails here.
+    { crate = "smoltcp@0.14.0", allow = ["0BSD"] },
+    { crate = "managed@0.8.0", allow = ["0BSD"] },
+    # outside house list - signed off 2026-10-01.
+    # Unicode-3.0 covers Unicode data tables. Build-time only (a dependency of
+    # proc-macro2, used by proc macros and build scripts); never linked into a PD.
+    { crate = "unicode-ident", allow = ["Unicode-3.0"] },
+]
+
+[licenses.private]
+# Our own crates declare their licence (MIT OR Apache-2.0, nowayos-glyphs
+# OFL-1.1, nowayos-icons ISC) and are checked like any other crate.
+ignore = false
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# Our crates depend on each other by path (workspace dependencies), which is
+# not a wildcard risk; a registry dependency written as "*" is refused.
+allow-wildcard-paths = true
+# The trusted path has no browser engine, WebView, window system or C GUI
+# runtime (non-negotiables). Their usual crates are
+# banned by name, so one can never arrive as a dependency of something else.
+# The list is the NoWayOS baseline's (tools/baseline.toml): make
+# deny fails a workspace, in any repo, that lacks one or bans it only in part,
+# narrows the graph cargo-deny checks, or has one in its Cargo.lock.
+deny = [
+    # getrandom only where nowayos-entropy serves it: its back end is nowayos-entropy's, so its only direct users
+    # are nowayos-entropy itself, the getrandom-test instrument, and
+    # rand_core (0.9's OsRng, under that instrument). Any other crate that
+    # brings it in fails here until it is reviewed; checking a signature
+    # needs none.
+    { crate = "getrandom", wrappers = ["nowayos-entropy", "nowayos-getrandom-probe", "rand_core"], reason = "randomness in a PD only from its own generator, through nowayos-entropy's back end" },
+    { crate = "wry", reason = "trusted-path non-negotiable: no WebView" },
+    { crate = "webkit2gtk", reason = "trusted-path non-negotiable: no browser engine" },
+    { crate = "webkit2gtk-sys", reason = "trusted-path non-negotiable: no browser engine" },
+    { crate = "webview2-com", reason = "trusted-path non-negotiable: no WebView" },
+    { crate = "servo", reason = "trusted-path non-negotiable: no browser engine" },
+    { crate = "tao", reason = "trusted-path non-negotiable: no window system" },
+    { crate = "winit", reason = "trusted-path non-negotiable: no window system" },
+    { crate = "x11", reason = "trusted-path non-negotiable: no window system" },
+    { crate = "x11-dl", reason = "trusted-path non-negotiable: no window system" },
+    { crate = "x11rb", reason = "trusted-path non-negotiable: no window system" },
+    { crate = "wayland-client", reason = "trusted-path non-negotiable: no window system" },
+    { crate = "wayland-sys", reason = "trusted-path non-negotiable: no window system" },
+    { crate = "gtk", reason = "trusted-path non-negotiable: no C GUI runtime" },
+    { crate = "gtk4", reason = "trusted-path non-negotiable: no C GUI runtime" },
+    { crate = "gtk-sys", reason = "trusted-path non-negotiable: no C GUI runtime" },
+    { crate = "sdl2", reason = "trusted-path non-negotiable: no C GUI runtime" },
+    { crate = "sdl2-sys", reason = "trusted-path non-negotiable: no C GUI runtime" },
+    { crate = "minifb", reason = "trusted-path non-negotiable: no window system" },
+    # No C or assembly cryptography in a PD, and no HPKE (MPL-2.0): rustls's
+    # provider is pure Rust, from RustCrypto crates. rustls-webpki names ring as an optional dependency, so the
+    # Cargo.lock lists it; it is never built, and fails here if it ever is.
+    { crate = "ring", reason = "rustls's provider is pure Rust (RustCrypto); ring brings C and assembly" },
+    { crate = "aws-lc-rs", reason = "rustls's provider is pure Rust (RustCrypto); aws-lc-rs brings C and needs std" },
+    { crate = "aws-lc-sys", reason = "rustls's provider is pure Rust (RustCrypto); aws-lc-sys is C" },
+    { crate = "aws-lc-fips-sys", reason = "rustls's provider is pure Rust (RustCrypto); aws-lc-fips-sys is C" },
+    { crate = "hpke-rs", reason = "no HPKE (MPL-2.0) in rustls's provider" },
+    { crate = "hpke-rs-crypto", reason = "no HPKE (MPL-2.0) in rustls's provider" },
+    { crate = "hpke-rs-rust-crypto", reason = "no HPKE (MPL-2.0) in rustls's provider" },
+]
+
+# Two generations of RustCrypto crates, on purpose: nowayos-tls-crypto
+# is on the digest 0.10 generation, because rsa 0.9.10 - the only stable rsa
+# - is, and the rest of rustls's provider must share its digest and
+# signature traits; nowayos-signature is on the digest 0.11 generation (p256
+# 0.14, sha2 0.11). These are the 0.10 generation's copies. One generation
+# again once a stable rsa moves to digest 0.11.
+skip = [
+    { crate = "base16ct@0.2.0", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
+    { crate = "block-buffer@0.10.4", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
+    { crate = "const-oid@0.9.6", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
+    { crate = "cpufeatures@0.2.17", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
+    { crate = "crypto-bigint@0.5.5", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
+    { crate = "crypto-common@0.1.7", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
+    { crate = "der@0.7.10", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
+    { crate = "digest@0.10.7", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
+    { crate = "ecdsa@0.16.9", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
+    { crate = "elliptic-curve@0.13.8", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
+    { crate = "ff@0.13.1", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
+    { crate = "group@0.13.0", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
+    { crate = "hmac@0.12.1", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
+    { crate = "p256@0.13.2", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
+    { crate = "primeorder@0.13.6", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
+    { crate = "rand_core@0.6.4", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
+    { crate = "rfc6979@0.4.0", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
+    { crate = "sec1@0.7.3", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
+    { crate = "sha2@0.10.9", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
+    { crate = "signature@2.2.0", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
+]
+
+# smoltcp is built with exactly the features the network stack PD needs:
+# a DHCP lease over Ethernet - medium-ethernet, proto-ipv4,
+# proto-dhcpv4 and socket-dhcpv4 - and TCP connections for its socket client
+# over `nowayos-socket`'s records (socket-tcp), `socket`, which they turn on,
+# and auto-icmp-echo-reply, the answer to ping (no code of its own
+# beyond smoltcp's ICMP reply, no crate).
+# Any other feature - std, alloc, log, UDP, IPv6, a raw socket - fails here
+# until it is added, in a reviewed change, and
+# managed keeps to `map`, with no allocation. The same in every workspace
+# that builds it (root, pds/, fuzz/).
+[[bans.features]]
+crate = "smoltcp"
+exact = true
+allow = ["medium-ethernet", "proto-ipv4", "proto-dhcpv4", "socket-dhcpv4", "socket-tcp", "socket", "auto-icmp-echo-reply"]
+reason = "only what the network stack PD needs: a DHCP lease over Ethernet, TCP connections for its one socket client, and an answer to ping, so a person can see it on the LAN"
+
+[[bans.features]]
+crate = "managed"
+exact = true
+allow = ["map"]
+reason = "no allocation in a PD: smoltcp's default `map` only"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = ["https://github.com/seL4/rust-sel4"]

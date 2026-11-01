@@ -1,0 +1,45 @@
+# Lines make check-serial (and tools/pi-run, live) must see on the Pi 5, in
+# this order, as whole serial lines: rpi5b_2gb/usb-camera-test.system, the
+# Pi 5 only. Each USB host PD runs its controller as
+# usb-test's do and lays out its ring of frames; which controller the camera
+# is on, what it offers and the frames' sizes differ by desk and are printed
+# between these lines, not checked here - the log shows the camera's Motion
+# JPEG sizes and rates, the size and rate chosen, and every 10 s the frames,
+# their sizes and the drops. The client must take a whole JPEG, of the size
+# and rate the host offered before any frame, see ten minutes of
+# frames, and dump one (tools/serial-frame saves it); then it wants no more
+# frames, and the host's line says its camera stopped streaming, back at
+# alternate setting 0. The run ends at its run length, 720 s (the
+# ticker's last line). A ring's layout, record, count or offer refused by
+# the client ("camera-test: ring N: ..."), a frame that is not a JPEG, or a
+# camera not streamed fails it.
+NOWAYOS: usb0: starting
+NOWAYOS: usb0: controller identified
+NOWAYOS: usb0: halted and reset
+NOWAYOS: usb0: running: a No Op command came back through DMA
+NOWAYOS: usb0: ready
+NOWAYOS: usb0: a ring of 4 frame slots of 524288 bytes for a camera's client
+NOWAYOS: usb1: starting
+NOWAYOS: usb1: controller identified
+NOWAYOS: usb1: halted and reset
+NOWAYOS: usb1: running: a No Op command came back through DMA
+NOWAYOS: usb1: ready
+NOWAYOS: usb1: a ring of 4 frame slots of 524288 bytes for a camera's client
+NOWAYOS: camera-test: starting
+NOWAYOS: camera-test: a ring of 4 frame slots of 524288 bytes
+NOWAYOS: camera-test: the first frame: a whole JPEG
+NOWAYOS: camera-test: the host's offer is its frames'
+NOWAYOS: camera-test: 600 s of frames
+NOWAYOS: camera-test: the frame's dump ends
+NOWAYOS: camera-test: frames no longer wanted
+NOWAYOS: watchdog-stand-in: ticker: the run length is reached: no more ticks, so the watchdog services no more and the board resets
+
+# Output that fails the run at once if it appears anywhere (substring match).
+!MON|ERROR
+!seL4(CPU
+!panicked
+!gave up
+!could not service
+!not streamed
+!camera-test: ring
+!not a JPEG

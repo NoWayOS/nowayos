@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    The Pi 5 only: a test system that asks for a run of a set
+    length - 60 s, four times what the PM watchdog can be armed for at once
+    - and ends it by a reset into U-Boot's prompt, with no power cycle.
+
+        run_watchdog   the watchdog PD (250), watching no PD: it arms the PM
+                       watchdog for 6 s at each tick, for as long as the
+                       ticks come; maps the PM block's page, which only a
+                       watchdog PD may hold
+        timer          times the ticker's ticks (240), on the system timer
+        ticker         the watchdog's tick every 2 s (230), until the run
+                       length it reads - test-run-length-60.bin, read-only
+                       region 0 - then no more
+
+    tools/pi-run arms the PM watchdog for PI_WATCHDOG seconds at go, reads
+    the run length from this description and waits for the reset that
+    follows it; another test system asks for its run the same way, with
+    run_watchdog, ticker and its own test-run-length-N.bin. Every grant is
+    listed in run-length-test.grants, which tools/check-system compares with
+    this file and the kernel objects.
+-->
+<system>
+    <memory_region name="pm_regs" size="@pm_watchdog" phys_addr="@pm_watchdog" />
+    <memory_region name="system_timer_regs" size="@system_timer" phys_addr="@system_timer" />
+    <memory_region name="run_length" prefill_path="test-run-length-60.bin" />
+
+    <protection_domain name="run_watchdog" priority="250" stack_size="0x10000">
+        <program_image path="nowayos-watchdog.elf" />
+        <map mr="pm_regs" vaddr="0x200_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_device_0_vaddr" setvar_size="nowayos_device_0_size" />
+    </protection_domain>
+
+    <protection_domain name="timer" priority="240" stack_size="0x10000">
+        <program_image path="nowayos-timer.elf" />
+        <map mr="system_timer_regs" vaddr="0x200_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_device_0_vaddr" setvar_size="nowayos_device_0_size" />
+        <irq irq="@system_timer[1]" id="0" trigger="@system_timer" />
+    </protection_domain>
+
+    <protection_domain name="ticker" priority="230" stack_size="0x10000">
+        <program_image path="nowayos-watchdog-stand-in.elf" />
+        <map mr="run_length" vaddr="0x4000_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+    </protection_domain>
+
+    <!-- The ticker's ticks: the watchdog never notifies it. -->
+    <channel>
+        <end pd="run_watchdog" id="0" notify="false" />
+        <end pd="ticker" id="0" />
+    </channel>
+    <!-- The ticker calls the timer; the timer notifies it of each tick. -->
+    <channel>
+        <end pd="ticker" id="1" pp="true" notify="false" />
+        <end pd="timer" id="1" />
+    </channel>
+</system>

@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    the fault policy's supervisor when a child panics, in Microkit's debug
+    configuration and in its release configuration, which products use
+    (make qemu-test-all runs both: supervisor-panic.configs). A panic arrives
+    as a fault whose label rust-sel4 cannot parse - a debug exception in the
+    debug kernel, another kind in the release kernel - so panic_supervisor
+    reads the label first, reports the fault undecoded, survives, and resets
+    the board. The release kernel prints nothing, so everything this test
+    checks is printed by console, a test instrument driving the debug UART
+    through its own registers: its start-up line marks each boot.
+
+    Capabilities: panic_supervisor holds its children's thread capabilities,
+    the SMC capability (smc="true"; unbadged in Microkit 2.3.1, so the grants
+    check refuses it in a product system) and - this being a test
+    system - a ring to console and one channel to it, on which console tells
+    it the report is printed before it resets. console holds the debug UART's
+    registers, uncached, the board's facts about it, read-only
+    (device-debug_uart.bin, which says which PL011 it is and how many bytes
+    of its page are registers), and its end of the ring. panicker holds
+    nothing.
+
+    Every grant above is also listed in supervisor-panic.grants, which
+    tools/check-system compares with this file and with the kernel objects the
+    Microkit tool generates (make image, make qemu-test).
+-->
+<system>
+    <memory_region name="uart_regs" size="@debug_uart" phys_addr="@debug_uart" />
+    <memory_region name="uart_facts" prefill_path="device-debug_uart.bin" />
+    <memory_region name="console_messages" size="0x1000" />
+    <memory_region name="console_control" size="0x1000" />
+
+    <protection_domain name="panic_supervisor" priority="254" stack_size="0x10000" smc="true">
+        <program_image path="nowayos-supervisor.elf" />
+        <map mr="console_messages" vaddr="0x4000_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+        <map mr="console_control" vaddr="0x4000_1000" perms="r"
+             setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+
+        <protection_domain name="console" id="0" priority="200" stack_size="0x10000">
+            <program_image path="nowayos-console.elf" />
+            <map mr="uart_regs" vaddr="0x200_0000" perms="rw" cached="false"
+                 setvar_vaddr="nowayos_device_0_vaddr" setvar_size="nowayos_device_0_size" />
+            <map mr="console_control" vaddr="0x4000_0000" perms="rw"
+                 setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+            <map mr="console_messages" vaddr="0x4000_1000" perms="r"
+                 setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+            <map mr="uart_facts" vaddr="0x4000_2000" perms="r"
+                 setvar_vaddr="nowayos_ro_region_5_vaddr" setvar_size="nowayos_ro_region_5_size" />
+        </protection_domain>
+
+        <protection_domain name="panicker" id="1" priority="100" stack_size="0x10000">
+            <program_image path="nowayos-isolation-probe.elf" />
+        </protection_domain>
+    </protection_domain>
+
+    <!-- The report, and "printed" back. -->
+    <channel>
+        <end pd="panic_supervisor" id="0" />
+        <end pd="console" id="0" />
+    </channel>
+</system>

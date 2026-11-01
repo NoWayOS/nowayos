@@ -1,0 +1,39 @@
+# Everything systems/update-test.system grants, one fact per line.
+# tools/check-system fails the build if the system description grants
+# anything not listed here, or lists anything it does not grant (format: see
+# tools/check-system). A change here is a security change: call it out in the
+# pull request.
+
+# The kind of system, and each PD's role (tools/grant-rules.toml): the update
+# PD and two test instruments in the TLS PD's and the storage PD's places.
+system test
+role update update
+role update_bundles test
+role update_storage test
+
+pd update_storage priority=3 budget=1000 period=1000
+pd update priority=2 budget=1000 period=1000
+pd update_bundles priority=1 budget=1000 period=1000
+
+# The update PD: its end of the ring, the shared page, the anchors read-only.
+map update bundle_control rw
+map update bundle_records r
+map update storage_page rw
+map update trust_anchors r
+
+# The bundle server: fw_cfg and its DMA region, and its end of the ring.
+device update_bundles fw_cfg rw
+map update_bundles bundle_dma rw
+paddr update_bundles bundle_dma
+map update_bundles bundle_records rw
+map update_bundles bundle_control r
+
+# The storage stand-in: the shared page, the slots, the provisioned state.
+map update_storage storage_page rw
+map update_storage slot_a rw
+map update_storage slot_b rw
+map update_storage provisioned_state r
+
+channel update update_bundles
+channel update update_storage notify=none
+call update update_storage

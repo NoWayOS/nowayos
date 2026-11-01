@@ -1,0 +1,21 @@
+[package]
+name = "nowayos-dma-demo"
+description = "A device writes into a PD's DMA memory by the physical address the PD learned, through nowayos-hw, with no unsafe code of its own"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "nowayos-dma-demo"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+nowayos-hw.workspace = true
+sel4-microkit.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,22 @@
+[package]
+name = "nowayos-ip"
+description = "The network stack PD's logic: smoltcp over the NIC driver's sDDF queues, each frame checked and copied into private memory before it is parsed, a DHCP lease, and TCP connections for one socket client"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+nowayos-net.workspace = true
+nowayos-seed.workspace = true
+nowayos-socket.workspace = true
+nowayos-time.workspace = true
+# 0BSD, signed off: see ../../Cargo.toml.
+smoltcp.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true

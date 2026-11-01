@@ -1,0 +1,51 @@
+# Lines tools/pi-run's check must see, in this order, as whole serial lines
+# (the Pi 5 only, systems/rpi5b_2gb/gem-net-test.system): the NIC
+# driver releases the PHY's reset, identifies and resets RP1's GEM MAC, finds
+# the PHY on MDIO and restarts auto-negotiation - having first looped one
+# frame back inside the MAC (loopback_local) through its DMA and both rings,
+# with no link; the stack takes its seed
+# and asks for a lease. What the LAN gives - the link's speed and duplex,
+# the lease's address - differs from desk to desk, so it is printed
+# ("link up at ...", "DHCP lease ...") but not checked here; on the desk's
+# LAN the lease comes within seconds of the link, and the stack answers ping. The run lasts
+# its run length, 180 s, for a ping from the LAN.
+NOWAYOS: timer: starting
+NOWAYOS: gem-net: starting
+NOWAYOS: gem-net: PHY reset released (the firmware held it); waiting 50 ms
+NOWAYOS: gem-net: GEM_GXL revision 0x0109, design 0x08820000; it sees memory at bus address physical + 0x1000000000
+NOWAYOS: gem-net: MAC reset; receive and transmit off, rings empty
+NOWAYOS: gem-net: self-test: a 60-byte frame looped back through the MAC's DMA and rings, byte for byte
+NOWAYOS: gem-net: PHY at MDIO address 1, identifier 600d:84a2 (model 0x0a, revision 2)
+# The link is rgmii-id: the PHY delays both RGMII clocks. It starts with its
+# transmit delay on and its receive skew off; with the skew off the MAC
+# receives nothing. Then one frame through the PHY's loopback, over
+# the RGMII bus both ways.
+NOWAYOS: gem-net: PHY's RGMII delays for rgmii-id: receive skew on (was off), transmit delay on (was on); shadows 0x73e7 0x0e00
+NOWAYOS: gem-net: self-test: a 60-byte frame looped back through the PHY at 1000 Mb/s, byte for byte
+NOWAYOS: gem-net: auto-negotiation restarted: 10, 100 and 1000 Mb/s advertised
+NOWAYOS: gem-net: ready, MAC 52:54:00:12:34:56: waiting for a link
+NOWAYOS: net-stack-test seed_source: starting
+NOWAYOS: net-stack-test seed_source: a fixed test seed sent on the stack's seed ring
+NOWAYOS: net-stack: starting
+NOWAYOS: net-stack: seeded; interface up at 52:54:00:12:34:56: asking for a DHCP lease
+# The run's end: after its 180 s the ticker stops, and the PM
+# watchdog resets the board.
+NOWAYOS: watchdog-stand-in: ticker: the run length is reached: no more ticks, so the watchdog services no more and the board resets
+
+# Output that fails the run at once: a fault, a kernel error, a panic, the
+# driver giving up or failing to follow the link, the stack not ready or
+# losing its lease, a queue or ring error.
+!MON|ERROR
+!seL4(CPU
+!panicked
+!gave up
+!following the link
+!the PHY's registers
+!not ready
+!a seed refused
+!lease lost
+!could not
+!queue:
+!ring:
+!not looped back
+!RGMII delays:

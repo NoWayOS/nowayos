@@ -1,0 +1,18 @@
+[package]
+name = "nowayos-seed"
+description = "A seed for a PD's own generator: the fixed-size record the entropy PD sends on a consumer's seed ring, never all zeros, and taking one off the ring"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+nowayos-bounded.workspace = true
+nowayos-ipc.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    a device writes into a PD's DMA memory by the physical
+    address the PD learned. nowayos-dma-demo asks QEMU's fw_cfg device, by
+    DMA, for its signature item; the device reads the request from the DMA
+    region and writes "QEMU" into it - only possible if the physical address
+    the PD was given is right. Then a transfer past the end of the region
+    must be refused before the device sees it. No unsafe code in the PD.
+
+    QEMU only: fw_cfg is a device of the qemu_virt_aarch64 board file, and a
+    test device - nothing a product needs.
+
+    Capabilities: fw_cfg's register page, uncached, read-write; one 4 KiB
+    region of DMA memory, read-write and uncached, and its physical address
+    (setvar region_paddr - a physical-address grant: the PD can point a
+    DMA-capable device at this region, and only at it); nothing else. The
+    maps bind nowayos-hw's device-0 and DMA-0 symbols, which
+    tools/check-system allows only on a device's register window and on a
+    region whose nowayos_dma_0_paddr the same PD learns.
+
+    Every grant above is also listed in dma-demo.grants, which
+    tools/check-system compares with this file and with the kernel objects
+    the Microkit tool generates (make image, make qemu-test).
+-->
+<system>
+    <memory_region name="fw_cfg_regs" size="@fw_cfg" phys_addr="@fw_cfg" />
+    <memory_region name="dma_buffer" size="0x1000" />
+
+    <protection_domain name="dma_demo" priority="1" stack_size="0x10000">
+        <program_image path="nowayos-dma-demo.elf" />
+        <map mr="fw_cfg_regs" vaddr="0x200_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_device_0_vaddr" setvar_size="nowayos_device_0_size" />
+        <map mr="dma_buffer" vaddr="0x300_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_dma_0_vaddr" setvar_size="nowayos_dma_0_size" />
+        <setvar symbol="nowayos_dma_0_paddr" region_paddr="dma_buffer" />
+    </protection_domain>
+</system>

@@ -1,0 +1,121 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT OR Apache-2.0
+"""Saves the camera frame nowayos-camera-test dumped on serial as a JPEG
+.
+
+    serial-frame --log FILE --out FILE.jpg
+
+In `systems/rpi5b_2gb/usb-camera-test`, the client of the USB host PDs'
+rings of frames prints one frame of the camera's, twice, as lines
+
+    NOWAYOS: camera-test: jpeg SEQUENCE OFFSET BASE64 CRC32
+
+each of 48 bytes from OFFSET (six hex digits) with their CRC-32 (IEEE, as
+zlib's), and after each copy
+
+    NOWAYOS: camera-test: jpeg SEQUENCE end LENGTH CRC32
+
+with the whole frame's length and CRC-32. Two PDs printing at once can break
+a line, so this takes, for each offset, the first line whose CRC-32 checks -
+from either copy - joins them, and checks the whole: every offset there, its
+length and CRC-32 as the end line says, a JPEG's SOI at its start and EOI at
+its end. Only then is it written; otherwise the offsets missing or the check
+that failed are named, and nothing is written. The first frame dumped is
+the one taken.
+
+Run it on the host on the serial log `make pi-run` keeps
+(`build/rpi5b_2gb/pi-run/DATE-TIME/NN-usb-camera-test.log`). Python 3
+standard library only.
+"""
+
+import argparse
+import base64
+import binascii
+import re
+import sys
+import zlib
+
+LINE = 48
+DATA = re.compile(r"NOWAYOS: camera-test: jpeg (\d+) ([0-9a-f]{6}) ([A-Za-z0-9+/]+={0,2}) ([0-9a-f]{8})$")
+END = re.compile(r"NOWAYOS: camera-test: jpeg (\d+) end (\d+) ([0-9a-f]{8})$")
+SOI = b"\xff\xd8"
+EOI = b"\xff\xd9"
+
+
+class FrameError(Exception):
+    """The log holds no whole frame: the message says why."""
+
+
+def lines_of(data):
+    """The log's lines: CR LF, LF and a lone CR each end one."""
+    text = data.decode("latin-1")
+    return text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+
+
+def frame(log):
+    """The first frame dumped in `log` (bytes), checked whole."""
+    sequence = None
+    parts = {}
+    ends = []
+    for line in lines_of(log):
+        line = line.rstrip()
+        data = DATA.search(line)
+        end = END.search(line)
+        found = data or end
+        if not found:
+            continue
+        if sequence is None:
+            sequence = found.group(1)
+        if found.group(1) != sequence:
+            continue
+        if end:
+            ends.append((int(end.group(2)), int(end.group(3), 16)))
+            continue
+        offset = int(data.group(2), 16)
+        if offset in parts or offset % LINE:
+            continue
+        try:
+            chunk = base64.b64decode(data.group(3), validate=True)
+        except (binascii.Error, ValueError):
+            continue
+        if zlib.crc32(chunk) == int(data.group(4), 16) and 0 < len(chunk) <= LINE:
+            parts[offset] = chunk
+    if sequence is None:
+        raise FrameError("no frame dumped in the log")
+    if not ends:
+        raise FrameError(f"frame {sequence}: no end line, so no length to check")
+    length, crc = ends[0]
+    missing = [offset for offset in range(0, length, LINE) if offset not in parts]
+    if missing:
+        shown = ", ".join(f"{offset:06x}" for offset in missing[:8])
+        raise FrameError(f"frame {sequence}: {len(missing)} lines missing or broken in both copies: {shown}"
+                         + (" ..." if len(missing) > 8 else ""))
+    whole = b"".join(parts[offset] for offset in range(0, length, LINE))
+    if len(whole) != length or zlib.crc32(whole) != crc:
+        raise FrameError(f"frame {sequence}: {len(whole)} bytes, CRC-32 {zlib.crc32(whole):08x}, "
+                         f"not {length} bytes and {crc:08x}")
+    if not (whole.startswith(SOI) and whole.endswith(EOI)):
+        raise FrameError(f"frame {sequence}: not a JPEG's SOI and EOI at its ends")
+    return int(sequence), whole
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="Save the camera frame nowayos-camera-test dumped as a JPEG.")
+    parser.add_argument("--log", required=True, help="the serial log")
+    parser.add_argument("--out", required=True, help="the JPEG to write")
+    args = parser.parse_args(argv)
+    try:
+        with open(args.log, "rb") as handle:
+            sequence, whole = frame(handle.read())
+    except (OSError, FrameError) as err:
+        print(f"serial-frame: FAIL - {err}", file=sys.stderr)
+        return 1
+    with open(args.out, "wb") as handle:
+        handle.write(whole)
+    print(f"serial-frame: PASS - frame {sequence}: {len(whole)} bytes, CRC-32 {zlib.crc32(whole):08x}, "
+          f"written to {args.out}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

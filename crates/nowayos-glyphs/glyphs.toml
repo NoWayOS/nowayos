@@ -1,0 +1,80 @@
+# What the glyph atlases are made from, reviewed like the font itself.
+# tools/glyph-atlas reads it: `make atlases` writes src/atlas/ from it, and
+# `make atlases-check`, in make ci, writes the atlases again and fails on
+# any difference. The tool checks every file below against its sha256 first,
+# and fails naming any file in fonts/ that is not listed here.
+
+[family]
+name = "Atkinson Hyperlegible Next"
+licence = "OFL-1.1"
+licence-file = "OFL.txt"
+copyright = "Copyright 2020-2024 The Atkinson Hyperlegible Next Project Authors (https://github.com/googlefonts/atkinson-hyperlegible-next)"
+repository = "https://github.com/googlefonts/atkinson-hyperlegible-next"
+commit = "7925f50f649b3813257faf2f4c0b381011f434f1"
+decision = "signed off by the maintainer, 2026-10-04"
+
+# Every file of the family in this crate, as released at that commit, with
+# its version and sha256. A font's own name table must give the same
+# version.
+[[file]]
+path = "fonts/AtkinsonHyperlegibleNext-Regular.ttf"
+upstream = "fonts/ttf/AtkinsonHyperlegibleNext-Regular.ttf"
+version = "2.001"
+sha256 = "88ed5c31a71584c7772963b02d04bef1eb7e3d2e9c8b9cb204339b1f82cf432c"
+
+[[file]]
+path = "fonts/AtkinsonHyperlegibleNext-Bold.ttf"
+upstream = "fonts/ttf/AtkinsonHyperlegibleNext-Bold.ttf"
+version = "2.001"
+sha256 = "994414047df66bb4998d01c1cb1eeb4a2ddc4622d1aa56bbb8adbeca7645b041"
+
+[[file]]
+path = "OFL.txt"
+upstream = "OFL.txt"
+version = "2.001"
+sha256 = "aca6a428580965d2297d1b718042dd427c2a9443ece3b0d02d758e161e0c4030"
+
+# One face for each weight the type scale's roles need: every size of every theme's roles together, at device scales 1
+# and 2. The light theme: caption 14, label 16, body 18 - each
+# Regular or Bold - heading 20 Bold, title 28 Bold, display 96 Bold; the
+# large-text theme: caption, label and body 24, heading 28 Bold, title 36
+# Bold, display 96 Bold. At scale 2 each size doubles. Bold enters with the
+# pin recorded for its file.
+[[face]]
+name = "regular"
+style = "Regular"
+file = "fonts/AtkinsonHyperlegibleNext-Regular.ttf"
+sizes = [14, 16, 18, 24, 28, 32, 36, 48]
+
+[[face]]
+name = "bold"
+style = "Bold"
+file = "fonts/AtkinsonHyperlegibleNext-Bold.ttf"
+sizes = [14, 16, 18, 20, 24, 28, 32, 36, 40, 48, 56, 72]
+
+# The display role: digits, capitals and the few signs a number or a
+# reference carries - a queue number, an amount, a time - in Bold, at 96 px
+# and, at scale 2, 192: a face of its own, with only these characters, as
+# the whole set at that size would cost several megabytes. Text in the
+# display role must use only these (nowayos_ui::text::is_display; Screen Compiler
+# refuses any other, naming its line and column).
+[[face]]
+name = "display"
+style = "Bold"
+file = "fonts/AtkinsonHyperlegibleNext-Bold.ttf"
+sizes = [96, 192]
+ranges = [[0x20, 0x20], [0x23, 0x23], [0x25, 0x25], [0x2B, 0x3A], [0x41, 0x5A], [0xA3, 0xA3]]
+
+# The set: printable Latin-1, the 190 characters
+# nowayos_ui::text::is_printable accepts - the space to `~` and the no-break
+# space to the y with diaeresis, less the soft hyphen. A test in nowayos-ui
+# keeps the two the same.
+[characters]
+ranges = [[0x20, 0x7E], [0xA0, 0xAC], [0xAE, 0xFF]]
+
+# The one alias: the font has no micro sign, so U+00B5 is drawn, and
+# kerned, with the glyph of U+03BC, the Greek mu, the letter it is the same as
+# under Unicode's compatibility normalisation.
+[[alias]]
+char = 0xB5
+glyph-of = 0x3BC

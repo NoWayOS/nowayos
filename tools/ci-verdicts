@@ -1,0 +1,352 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT OR Apache-2.0
+"""Cached verdicts for make ci's slow checks: Kani, Miri and fuzzing.
+
+    ci-verdicts keep   KIND ITEM... [--root DIR] [--dir DIR] [--salt TEXT]... [--input FILE]...
+                       [--pins FILE]... [--upstream DIR]
+    ci-verdicts record KIND ITEM... (the same options)
+    ci-verdicts key    KIND ITEM    (the same options; prints the key and its inputs)
+
+KIND is `kani` (a crate of the root workspace), `miri` (a crate of pds/) or
+`fuzz` (a target in fuzz/fuzz_targets/). A Kani mutant is kept as `kani` for
+its crate, salted with its name. Each item's key is a SHA-256 over
+exactly what its check reads:
+
+* every file of the crate and of each crate of the repo it depends on, in
+  any section of its Cargo.toml, transitively (tools/ci-scope's graph); for
+  a fuzz target, its own file, the harness's library (fuzz/src/) and the
+  crates it names, with theirs;
+* with --upstream (a product repo: the NoWayOS clone it uses by path), every
+  file of each upstream crate those crates depend on, transitively in the
+  upstream's own graph - so a NoWayOS bump reaches only the verdicts whose
+  NoWayOS crates changed;
+* the locked third-party packages those crates reach, from the workspace's
+  Cargo.lock (name, version, source and checksum); for a fuzz target, the
+  harness's whole Cargo.lock;
+* the workspace's Cargo.toml - all but its `members` list, and of
+  [workspace.dependencies] only the entries the crates above use, so
+  adding a crate does not touch the others - rust-toolchain.toml and
+  .cargo/config.toml;
+* from each --pins file (the dev container's Containerfile), only its FROM
+  and ARG lines: the base image and every tool's version and checksum - Kani,
+  the Rust toolchains, Miri's nightly. A package added to the image, or the
+  Debian archive moving on, reaches no key; the checkpoint gate catches what
+  that could change;
+* each --input file, whole, and each --salt text (the check's own flags:
+  MIRIFLAGS, FUZZ_SECONDS, ...).
+
+`keep` prints the items with no verdict under their current key - a
+verdict under an earlier scheme (see `inputs`) for
+exactly today's inputs is carried over and not printed - and `record`
+writes one for each item, after its check passed. Verdicts live in --dir
+(make ci: the target volume, CARGO_TARGET_DIR-verdicts), one empty file per
+item and key; deleting the directory forgets them all. A change to the
+Makefile or a make fragment reaches no key: `make ci CI_SCOPE=full` and
+`make release-evidence` run everything regardless. Python 3.11 or later
+(tomllib), standard library only.
+"""
+import argparse
+import hashlib
+import importlib.machinery
+import importlib.util
+import json
+import os
+import re
+import sys
+import tomllib
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+NOWAYOS = os.path.dirname(HERE)
+_loader = importlib.machinery.SourceFileLoader("ci_scope", os.path.join(HERE, "ci-scope"))
+_spec = importlib.util.spec_from_loader("ci_scope", _loader)
+ci_scope = importlib.util.module_from_spec(_spec)
+_loader.exec_module(ci_scope)
+
+WORKSPACES = {"kani": ".", "miri": "pds", "fuzz": "fuzz"}
+SKIP_DIRS = {"target", ".git", "__pycache__"}
+
+
+def read(path):
+    with open(path, "rb") as handle:
+        return handle.read()
+
+
+def files_under(root, directory):
+    """Every file under `directory` (relative to root), build output aside."""
+    found = []
+    for top, dirs, names in os.walk(os.path.join(root, directory)):
+        dirs[:] = sorted(d for d in dirs if d not in SKIP_DIRS)
+        found.extend(os.path.join(top, name) for name in sorted(names))
+    return found
+
+
+def closure(graph, names):
+    """`names` and every crate of the repo they depend on, transitively."""
+    seen, todo = set(), [n for n in names if n in graph]
+    while todo:
+        name = todo.pop()
+        if name in seen:
+            continue
+        seen.add(name)
+        todo.extend(d for d in graph[name][1] if d not in seen)
+    return seen
+
+
+def locked(lock_path, names):
+    """The lock entries of `names` and of every package they reach."""
+    if not os.path.isfile(lock_path):
+        return []
+    packages = tomllib.loads(read(lock_path).decode("utf-8")).get("package", [])
+    by_name = {}
+    for package in packages:
+        by_name.setdefault(package["name"], []).append(package)
+
+    def find(dependency):
+        parts = dependency.split(" ")
+        candidates = by_name.get(parts[0], [])
+        if len(parts) > 1:
+            candidates = [p for p in candidates if p["version"] == parts[1]]
+        return candidates
+
+    seen, todo, entries = set(), [p for n in names for p in by_name.get(n, [])], []
+    while todo:
+        package = todo.pop()
+        ident = (package["name"], package["version"], package.get("source", ""))
+        if ident in seen:
+            continue
+        seen.add(ident)
+        entries.append([*ident, package.get("checksum", "")])
+        for dependency in package.get("dependencies", []):
+            todo.extend(find(dependency))
+    return sorted(entries)
+
+
+def workspace_files(root, workspace, used=None):
+    """The workspace's manifest, its toolchain and its cargo configuration.
+    From the manifest: every table but its member list, and of
+    [workspace.dependencies] only the entries `used` names, so a
+    line for another crate reaches no verdict. With `used` None, the whole
+    manifest but its member list, as the first scheme read it."""
+    if used is None:
+        return legacy_workspace_files(root, workspace)
+    out = []
+    manifest = os.path.join(root, workspace, "Cargo.toml")
+    if os.path.isfile(manifest):
+        table = tomllib.loads(read(manifest).decode("utf-8"))
+        section = table.get("workspace", {})
+        section.pop("members", None)
+        deps = section.get("dependencies")
+        if isinstance(deps, dict):
+            section["dependencies"] = {k: v for k, v in deps.items() if k in used}
+        text = json.dumps(table, sort_keys=True)
+        out.append(["Cargo.toml", hashlib.sha256(text.encode()).hexdigest()])
+    for name in ("rust-toolchain.toml", ".cargo/config.toml"):
+        path = os.path.join(root, workspace, name)
+        if os.path.isfile(path):
+            out.append([name, hashlib.sha256(read(path)).hexdigest()])
+    return out
+
+
+def legacy_workspace_files(root, workspace):
+    """The first scheme's: the manifest's text without its member
+    list. Frozen: legacy keys must stay what they were."""
+    out = []
+    manifest = os.path.join(root, workspace, "Cargo.toml")
+    if os.path.isfile(manifest):
+        text = read(manifest).decode("utf-8")
+        text = re.sub(r"^members\s*=\s*\[.*?\]", "members = [...]", text, flags=re.M | re.S)
+        out.append(["Cargo.toml", hashlib.sha256(text.encode()).hexdigest()])
+    for name in ("rust-toolchain.toml", ".cargo/config.toml"):
+        path = os.path.join(root, workspace, name)
+        if os.path.isfile(path):
+            out.append([name, hashlib.sha256(read(path)).hexdigest()])
+    return out
+
+
+def used_names(root, graph, crates, upstream_graph=(), upstream=None, upstream_crates=()):
+    """Every name the manifests of `crates` (and of the upstream crates they
+    reach) depend on: the [workspace.dependencies] entries they can use."""
+    names = set(crates) | set(upstream_crates)
+    for name in crates:
+        manifest = os.path.join(root, graph[name][0], "Cargo.toml")
+        if os.path.isfile(manifest):
+            names |= ci_scope.dependency_names(read(manifest).decode("utf-8"))
+    for name in upstream_crates:
+        manifest = os.path.join(upstream, upstream_graph[name][0], "Cargo.toml")
+        if os.path.isfile(manifest):
+            names |= ci_scope.dependency_names(read(manifest).decode("utf-8"))
+    return names
+
+
+def pinned_lines(path):
+    """A Containerfile's FROM and ARG lines, as written: what pins the tools."""
+    lines = []
+    for line in read(path).decode("utf-8").splitlines():
+        stripped = line.strip()
+        if stripped.startswith(("FROM ", "ARG ")):
+            lines.append(stripped)
+    return lines
+
+
+def upstream_reached(upstream, root, graph, crates, fuzz_target=None):
+    """The upstream crates `crates` (of root) depend on, transitively in the
+    upstream's own graph, with those a fuzz target names directly."""
+    if not upstream:
+        return {}, set()
+    up_graph = ci_scope.crates(upstream)
+    wanted = set()
+    for name in crates:
+        manifest = os.path.join(root, graph[name][0], "Cargo.toml")
+        if os.path.isfile(manifest):
+            wanted |= ci_scope.dependency_names(read(manifest).decode("utf-8")) & up_graph.keys()
+    if fuzz_target is not None:
+        wanted |= ci_scope.fuzz_crates(root, fuzz_target, up_graph)
+        manifest = os.path.join(root, "fuzz", "Cargo.toml")
+        if os.path.isfile(manifest):
+            wanted |= ci_scope.dependency_names(read(manifest).decode("utf-8")) & up_graph.keys()
+    return up_graph, closure(up_graph, wanted)
+
+
+SCHEME = 3
+
+
+def inputs(root, kind, item, extra, salts, pins=(), upstream=None, scheme=SCHEME, legacy=()):
+    """Everything item's check reads, as a JSON-ready structure, under key
+    scheme `scheme`: 3, today's; 2, the same with the manifest read
+    whole; 1, the manifest whole, no upstream or pins, and the
+    `legacy` files (the Containerfile, a product's nowayos.rev) read whole.
+    Each earlier scheme read a superset of what 3 reads, so a verdict under
+    one for today's inputs holds under 3."""
+    workspace = WORKSPACES[kind]
+    graph = ci_scope.crates(root)
+    if kind == "fuzz":
+        named = ci_scope.fuzz_crates(root, item, graph)
+        crates = closure(graph, named)
+        own = [os.path.join(root, "fuzz", "fuzz_targets", f"{item}.rs")]
+        own += files_under(root, os.path.join("fuzz", "src"))
+        # The harness's own lock, whole: libFuzzer and what every target
+        # shares come in through the harness package, not the crates named.
+        own.append(os.path.join(root, "fuzz", "Cargo.lock"))
+        lock_roots = []
+    else:
+        if item not in graph:
+            raise SystemExit(f"ci-verdicts: no crate {item} in {root}")
+        crates = closure(graph, [item])
+        own = []
+        lock_roots = sorted(crates)
+    files = own + (list(legacy) if scheme == 1 else extra)
+    for name in sorted(crates):
+        files += files_under(root, graph[name][0])
+    digests = []
+    for path in sorted(set(files)):
+        if os.path.isfile(path):
+            rel = os.path.relpath(path, root)
+            digests.append([rel, hashlib.sha256(read(path)).hexdigest()])
+    lock_path = os.path.join(root, workspace, "Cargo.lock")
+    if scheme == 1:
+        return {
+            "kind": kind,
+            "item": item,
+            "files": digests,
+            "locked": locked(lock_path, lock_roots),
+            "workspace": legacy_workspace_files(root, workspace),
+            "salt": list(salts),
+        }
+    up_graph, up_crates = upstream_reached(upstream, root, graph, crates,
+                                           item if kind == "fuzz" else None)
+    up_digests = []
+    for name in sorted(up_crates):
+        for path in files_under(upstream, up_graph[name][0]):
+            rel = os.path.relpath(path, upstream)
+            up_digests.append([rel, hashlib.sha256(read(path)).hexdigest()])
+    if kind != "fuzz":
+        lock_roots = sorted(set(lock_roots) | up_crates)
+    if scheme == 2:
+        manifest = legacy_workspace_files(root, workspace)
+    else:
+        used = used_names(root, graph, crates, up_graph, upstream, up_crates)
+        if kind == "fuzz":
+            harness = os.path.join(root, "fuzz", "Cargo.toml")
+            if os.path.isfile(harness):
+                used |= ci_scope.dependency_names(read(harness).decode("utf-8"))
+        manifest = workspace_files(root, workspace, used)
+    found = {
+        "kind": kind,
+        "item": item,
+        "files": digests,
+        "upstream": up_digests,
+        "locked": locked(lock_path, lock_roots),
+        "workspace": manifest,
+        "pins": [pinned_lines(path) for path in pins],
+        "salt": list(salts),
+    }
+    if scheme == SCHEME:
+        found["scheme"] = SCHEME
+    return found
+
+
+def key(root, kind, item, extra, salts, pins=(), upstream=None, scheme=SCHEME, legacy=()):
+    blob = json.dumps(inputs(root, kind, item, extra, salts, pins, upstream, scheme, legacy),
+                      sort_keys=True).encode()
+    return hashlib.sha256(blob).hexdigest()
+
+
+def verdict_path(directory, kind, item, digest):
+    return os.path.join(directory, kind, item.replace("/", "_"), digest)
+
+
+def carried(args, root, item, extra, pins, upstream, legacy):
+    """Whether item has a verdict under an earlier scheme for exactly its
+    inputs now; `keep` then records it under today's key."""
+    if args.action != "keep":
+        return False
+    for scheme in (2, 1):
+        if scheme == 1 and not legacy:
+            continue
+        digest = key(root, args.kind, item, extra, args.salt, pins, upstream, scheme, legacy)
+        if os.path.isfile(verdict_path(args.dir, args.kind, item, digest)):
+            return True
+    return False
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("action", choices=("keep", "record", "key"))
+    parser.add_argument("kind", choices=sorted(WORKSPACES))
+    parser.add_argument("items", nargs="*")
+    parser.add_argument("--root", default=NOWAYOS)
+    parser.add_argument("--dir", default=os.path.join(NOWAYOS, "build", "verdicts"))
+    parser.add_argument("--salt", action="append", default=[])
+    parser.add_argument("--input", action="append", default=[])
+    parser.add_argument("--pins", action="append", default=[])
+    parser.add_argument("--upstream")
+    parser.add_argument("--legacy-input", action="append", default=[],
+                        help="scheme 1's --input files, to carry its verdicts over")
+    args = parser.parse_args(argv)
+    legacy = [os.path.abspath(path) for path in args.legacy_input]
+    root = os.path.abspath(args.root)
+    extra = [os.path.abspath(path) for path in args.input]
+    pins = [os.path.abspath(path) for path in args.pins]
+    upstream = os.path.abspath(args.upstream) if args.upstream else None
+    if args.action == "key":
+        for item in args.items:
+            print(key(root, args.kind, item, extra, args.salt, pins, upstream))
+            print(json.dumps(inputs(root, args.kind, item, extra, args.salt, pins, upstream), indent=1))
+        return 0
+    kept = []
+    for item in args.items:
+        digest = key(root, args.kind, item, extra, args.salt, pins, upstream)
+        path = verdict_path(args.dir, args.kind, item, digest)
+        if args.action == "record" or (not os.path.isfile(path) and carried(args, root, item, extra, pins, upstream, legacy)):
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w", encoding="utf-8"):
+                pass
+        elif not os.path.isfile(path):
+            kept.append(item)
+    if args.action == "keep":
+        print(" ".join(kept))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

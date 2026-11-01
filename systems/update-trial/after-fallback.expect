@@ -1,0 +1,24 @@
+# After a trial that failed its health check or came late: the
+# bootloader boots slot A, release 1, as before the update; nothing is
+# marked, and the rollback index is still 3.
+NOWAYOS: supervisor: starting; children update_storage (0), update (1) and update_bundles (2)
+NOWAYOS: update-bundles: starting
+NOWAYOS: update-bundles: this image is release 1
+NOWAYOS: update-bundles: the disk handed to the storage stand-in: 1736 bytes
+NOWAYOS: update-bundles: no bundles and no health check this run
+NOWAYOS: update-storage: starting
+NOWAYOS: update-storage: the disk the last run left: booted slot A
+NOWAYOS: update-storage: copy A on the disk: generation 3: slot A boots; slot B marked for one trial, security version 5; rollback index 3; trust list v2
+NOWAYOS: update-storage: copy B on the disk: generation 4: slot A boots; nothing marked; rollback index 3; trust list v2
+NOWAYOS: update: starting
+NOWAYOS: update: starting: slot A boots; trial: none; rollback index 3; trust list v2 (held, checked against the anchors)
+NOWAYOS: update: slot A runs, from the slot marked good; 1 trust anchor(s) in the image
+
+# Output that fails the run at once if it appears anywhere.
+!MON|ERROR
+!seL4(CPU
+!panicked
+!gave up
+!not taken
+!: does not decode
+!refused

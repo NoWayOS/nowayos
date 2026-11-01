@@ -1,0 +1,72 @@
+# Everything systems/net-stack-test.system grants, one fact per line.
+# tools/check-system fails the build if the system description grants anything
+# not listed here, or lists anything it does not grant, and checks the map
+# rights again in the kernel objects the Microkit tool generates (format: see
+# tools/check-system). A change here is a security change: call it out in the
+# pull request.
+
+# A test system: seed_source is a test instrument, with a fixed test seed. The
+# NIC driver is a driver; the stack has the role network - no device memory,
+# interrupt, physical address or channel to a UI (tools/grant-rules.toml).
+system test
+role timer driver
+role virtio_net driver
+role seed_source test
+role net_stack network
+
+# Each PD the stack calls or waits on runs above it: the timer (which it
+# calls, as a protected procedure call must go to a strictly higher
+# priority), the driver, then seed_source, so the seed is on the ring before
+# the stack starts. Full budgets.
+pd timer priority=220 budget=1000 period=1000
+pd virtio_net priority=200 budget=1000 period=1000
+pd seed_source priority=150 budget=1000 period=1000
+pd net_stack priority=100 budget=1000 period=1000
+
+# Only the timer PD holds the timer interrupt.
+irq timer phys_timer
+
+# The NIC driver, exactly as in net-test: one page of virtio-mmio transports,
+# uncached, and the card's interrupt; the card's two queues in DMA memory it
+# learns the physical addresses of; the stack's buffers by physical address
+# only, never mapped (tools/check-system refuses a map of a region bound by
+# nowayos_io_N_paddr in the same PD).
+device virtio_net virtio_mmio_24_31 rw
+irq virtio_net virtio_mmio_24_31 79
+map virtio_net rx_ring rw
+paddr virtio_net rx_ring
+map virtio_net tx_ring rw
+paddr virtio_net tx_ring
+paddr virtio_net rx_buffers
+paddr virtio_net tx_buffers
+
+# sDDF's four queues, each read-write in both PDs: each side writes its own
+# index (and the flag), and checks the other's.
+map virtio_net rx_free rw
+map virtio_net rx_active rw
+map virtio_net tx_free rw
+map virtio_net tx_active rw
+map net_stack rx_free rw
+map net_stack rx_active rw
+map net_stack tx_free rw
+map net_stack tx_active rw
+
+# The stack's buffers: the receive buffers read-only - it copies each frame
+# out before smoltcp parses it - and the transmit buffers read-write.
+map net_stack rx_buffers r
+map net_stack tx_buffers rw
+
+# The stack's seed ring: seed_source writes the seed, the stack reads it and
+# writes only its own index.
+map seed_source seed_ring rw
+map seed_source seed_ring_control r
+map net_stack seed_ring r
+map net_stack seed_ring_control rw
+
+# The driver and the stack notify each other; the stack calls the timer,
+# which notifies it of its timeout; seed_source notifies the stack, which
+# never notifies it.
+channel virtio_net net_stack
+channel net_stack timer notify=timer
+call net_stack timer
+channel seed_source net_stack notify=seed_source

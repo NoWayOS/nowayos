@@ -1,0 +1,89 @@
+# Everything rpi5b_2gb/usb-audio-loop-pi-test.system grants, one fact per
+# line. tools/check-system fails the build if the system description grants
+# anything not listed here, or lists anything it does not grant, and checks
+# the map rights again in the kernel objects the Microkit tool generates
+# (format: see tools/check-system). A change here is a security change: call
+# it out in the pull request.
+
+# A test system: the client runs nowayos-audio-loop and the ticker
+# the watchdog's stand-in, test instruments; usb0 and usb1 are the USB host
+# PD itself, as in usb-test.
+system test
+role run_watchdog watchdog
+role timer driver
+role ticker test
+role usb0 input
+role usb1 input
+role client test
+
+# The watchdog above all; the timer above the PDs that call it; each USB
+# host PD above its client. Full budgets.
+pd run_watchdog priority=250 budget=1000 period=1000
+pd timer priority=240 budget=1000 period=1000
+pd ticker priority=230 budget=1000 period=1000
+pd usb0 priority=100 budget=1000 period=1000
+pd usb1 priority=90 budget=1000 period=1000
+pd client priority=80 budget=1000 period=1000
+
+# The PM block's page for the watchdog; the system timer's page and its
+# channel 1 interrupt for the timer PD.
+device run_watchdog pm_watchdog rw
+device timer system_timer rw
+irq timer system_timer 97
+
+# Each controller's first page, by name from the board file: uncached, its
+# PD only.
+device usb0 xhci0 rw
+device usb1 xhci1 rw
+
+# Each controller's rings, contexts, buffers and streams, which it reads and
+# writes by DMA: its PD learns the region's physical address.
+map usb0 usb0_memory rw
+paddr usb0 usb0_memory
+map usb1 usb1_memory rw
+paddr usb1 usb1_memory
+
+# The board's facts about each controller. Configuration, read-only.
+map usb0 xhci0_facts r
+map usb1 xhci1_facts r
+
+# The run's length, for the ticker. Read-only.
+map ticker run_length r
+
+# The ticker ticks the watchdog; it and each USB host PD call the timer.
+channel ticker run_watchdog notify=ticker
+channel ticker timer notify=timer
+call ticker timer
+channel usb0 timer notify=timer
+call usb0 timer
+channel usb1 timer notify=timer
+call usb1 timer
+
+# usb0's client rings: each side writes only what it owns. From
+# usb0: it writes the messages, the client its index. To usb0: the client
+# writes the messages, usb0 its index.
+map usb0 audio0_from_messages rw
+map usb0 audio0_from_control r
+map client audio0_from_messages r
+map client audio0_from_control rw
+map client audio0_to_messages rw
+map client audio0_to_control r
+map usb0 audio0_to_messages r
+map usb0 audio0_to_control rw
+channel usb0 client notify=usb0
+
+# usb1's client rings: each side writes only what it owns. From
+# usb1: it writes the messages, the client its index. To usb1: the client
+# writes the messages, usb1 its index.
+map usb1 audio1_from_messages rw
+map usb1 audio1_from_control r
+map client audio1_from_messages r
+map client audio1_from_control rw
+map client audio1_to_messages rw
+map client audio1_to_control r
+map usb1 audio1_to_messages r
+map usb1 audio1_to_control rw
+channel usb1 client notify=usb1
+
+# The client's recording, its own.
+map client recording rw

@@ -1,0 +1,21 @@
+[package]
+name = "nowayos-demo"
+description = "A small synthetic form demo and the scripted session that drives it: the same screens on the host and in a UI protection domain"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+nowayos-display.workspace = true
+nowayos-input.workspace = true
+nowayos-ui.workspace = true
+
+[dev-dependencies]
+nowayos-render-eg.workspace = true
+nowayos-testkit.workspace = true
+embedded-graphics.workspace = true
+
+[lints]
+workspace = true

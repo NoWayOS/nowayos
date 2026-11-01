@@ -1,0 +1,86 @@
+# Cryptographic crates, by name, for the release evidence pack: its
+# crypto.md lists every crate in NoWayOS's dependency graphs that is named
+# here or that crates.io files under the "cryptography" category, with where
+# it is used - built into a program image or a shipped library, or only by
+# tests and build tools. The Security Checklist's rule for cryptography
+# (no custom primitives; key access stays in the security PD) is checked by a
+# person against that list.
+#
+# One crate name per line. Add a crate here when it is cryptographic but
+# crates.io does not file it as such. Randomness crates are listed too: a
+# random number generator is cryptographic material when it makes keys.
+
+# Primitives and their traits
+aead
+aes
+aes-gcm
+aes-gcm-siv
+argon2
+bcrypt
+blake2
+blake3
+block-buffer
+chacha20
+chacha20poly1305
+cipher
+crypto-bigint
+crypto-common
+ctr
+curve25519-dalek
+digest
+dsa
+ecdsa
+ed25519
+ed25519-dalek
+elliptic-curve
+ff
+ghash
+group
+hkdf
+hmac
+k256
+md-5
+md4
+md5
+p256
+p384
+p521
+pbkdf2
+poly1305
+polyval
+rsa
+scrypt
+sha1
+sha2
+sha3
+signature
+subtle
+universal-hash
+x25519-dalek
+zeroize
+
+# Protocols, certificates and whole libraries
+aws-lc-rs
+aws-lc-sys
+boring
+boring-sys
+der
+native-tls
+openssl
+openssl-sys
+pkcs1
+pkcs8
+ring
+rustls
+rustls-pki-types
+rustls-webpki
+spki
+sspi
+webpki
+x509-cert
+
+# Randomness
+getrandom
+rand
+rand_chacha
+rand_core

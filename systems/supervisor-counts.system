@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    The fault policy's counts below their limits. There is no store yet, so this test system gives its supervisor
+    the counts in a read-only region prefilled at build time: a test-only
+    stand-in for The store still to come (test-counts-1-0.bin: restart count 1,
+    sensitive count 0; tools/board-system), which the grants check refuses
+    outside a test system (check-system rule 12). Nothing tells QEMU's
+    starts apart, so every start's cause was "not written down", and counts.
+
+    counts_supervisor reads the stand-in before any child runs - restart
+    count 2 of 4, sensitive count 0 of 2: below both limits, so every child
+    runs. When faulter, standing in for a storage PD (a sensitive class),
+    writes its read-only page on trigger's notification, the supervisor
+    stops and reports it, reports the counts the next boot would hold -
+    restart count 3, sensitive count 1 - and resets the board with PSCI
+    SYSTEM_RESET, as supervisor-test does. The stand-in stores nothing, so
+    the next boot reads the same counts again.
+
+    Capabilities: as supervisor-test's, and counts_supervisor maps the
+    stand-in read-only - in a test system only: the grants check refuses the
+    supervisor any memory in a demo or product system (supervisor-no-memory).
+
+    Every grant above is also listed in supervisor-counts.grants, which
+    tools/check-system compares with this file and with the kernel objects the
+    Microkit tool generates (make image, make qemu-test).
+-->
+<system>
+    <memory_region name="counts" prefill_path="test-counts-1-0.bin" />
+    <memory_region name="marker" size="0x1000" />
+    <memory_region name="read_only_page" size="0x1000" />
+
+    <protection_domain name="counts_supervisor" priority="254" stack_size="0x10000" smc="true">
+        <program_image path="nowayos-supervisor.elf" />
+        <map mr="counts" vaddr="0x4000_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_1_vaddr" setvar_size="nowayos_ro_region_1_size" />
+
+        <protection_domain name="faulter" id="0" priority="100" stack_size="0x10000">
+            <program_image path="nowayos-isolation-probe.elf" />
+            <map mr="marker" vaddr="0x4000_0000" perms="rw"
+                 setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+            <map mr="read_only_page" vaddr="0x4000_1000" perms="r"
+                 setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+        </protection_domain>
+
+        <protection_domain name="trigger" id="1" priority="50" stack_size="0x10000">
+            <program_image path="nowayos-isolation-probe.elf" />
+        </protection_domain>
+    </protection_domain>
+
+    <!-- The trigger: only trigger notifies. -->
+    <channel>
+        <end pd="trigger" id="0" />
+        <end pd="faulter" id="0" notify="false" />
+    </channel>
+</system>

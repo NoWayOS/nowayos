@@ -1,0 +1,13 @@
+# Lines NoWayOS's tools/qemu-test must see, in this order: with the
+# looper's budget widened to its period, the heartbeat beats until the looper
+# starts after the third beat, and then stops - a fourth beat is forbidden,
+# from then until the end of the settle period.
+NOWAYOS: budget-probe: heartbeat: beating every 100 ms
+NOWAYOS: budget-probe: heartbeat: beat 3: on time
+NOWAYOS: budget-probe: looper: looping from now on
+
+!MON|ERROR
+!seL4(CPU
+!panicked
+!gave up
+!beat 4:

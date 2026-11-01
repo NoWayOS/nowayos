@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    smp-test for the Raspberry Pi 5: ../smp-test.system, with the
+    timer PD woken by BCM2712's system timer instead of the CPU's EL1
+    physical timer, which Microkit 2.3.1 does not export to user level on
+    this board, exactly as rpi5b_2gb/timer-demo.system does: the
+    timer maps the system timer's register page uncached, bound as device
+    0, and holds channel 1's interrupt (INTID 97), on core 0. Everything
+    else - the PDs, their cores, priorities and budgets, the channels and
+    the expect file - is ../smp-test.system's (make tools-test checks).
+    make pi-run SYSTEM=smp-test MICROKIT_CONFIG=smp-debug runs it.
+-->
+<system>
+    <memory_region name="system_timer_regs" size="@system_timer" phys_addr="@system_timer" />
+
+    <protection_domain name="timer" priority="200" stack_size="0x10000" cpu="0">
+        <program_image path="nowayos-timer.elf" />
+        <map mr="system_timer_regs" vaddr="0x200_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_device_0_vaddr" setvar_size="nowayos_device_0_size" />
+        <irq irq="@system_timer[1]" id="0" trigger="@system_timer" />
+    </protection_domain>
+
+    <protection_domain name="smp_heartbeat" priority="100" stack_size="0x10000" cpu="0">
+        <program_image path="nowayos-budget-probe.elf" />
+    </protection_domain>
+
+    <protection_domain name="spinner_1" priority="150" stack_size="0x10000" cpu="1">
+        <program_image path="nowayos-budget-probe.elf" />
+    </protection_domain>
+
+    <protection_domain name="spinner_2" priority="150" stack_size="0x10000" cpu="2">
+        <program_image path="nowayos-budget-probe.elf" />
+    </protection_domain>
+
+    <protection_domain name="spinner_3" priority="150" stack_size="0x10000" cpu="3">
+        <program_image path="nowayos-budget-probe.elf" />
+    </protection_domain>
+
+    <!-- The heartbeat calls the timer; the timer notifies it of expiries. -->
+    <channel>
+        <end pd="smp_heartbeat" id="0" pp="true" notify="false" />
+        <end pd="timer" id="1" />
+    </channel>
+
+    <!-- The ring: each PD's channel 1 notifies the next one's channel 0
+         (the heartbeat's channel 2). -->
+    <channel>
+        <end pd="smp_heartbeat" id="1" />
+        <end pd="spinner_1" id="0" notify="false" />
+    </channel>
+    <channel>
+        <end pd="spinner_1" id="1" />
+        <end pd="spinner_2" id="0" notify="false" />
+    </channel>
+    <channel>
+        <end pd="spinner_2" id="1" />
+        <end pd="spinner_3" id="0" notify="false" />
+    </channel>
+    <channel>
+        <end pd="spinner_3" id="1" />
+        <end pd="smp_heartbeat" id="2" notify="false" />
+    </channel>
+</system>

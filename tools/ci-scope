@@ -1,0 +1,165 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT OR Apache-2.0
+"""Which of Kani's crates, its mutants or the fuzz targets a change can reach.
+
+    ci-scope --base REF kani CRATE...
+    ci-scope --base REF mutations NAME...
+    ci-scope --base REF fuzz TARGET...
+
+Prints, space-separated, the items `make ci` (CI_SCOPE=changed) still runs:
+those a file changed since REF can reach - committed since REF, staged,
+unstaged or untracked. The repo's crates are those under crates/ and pds/
+and those its root workspace's `members` names (a product repo's
+kiosk/*). A crate is reached when a file under it changed, or a crate of the
+repo's it depends on (in any section of its Cargo.toml, `.workspace = true`
+too, transitively) is reached. A mutant is reached when its crate is
+(tools/kani-mutation --list). A fuzz target is reached when its file or the
+harness's own library (fuzz/src/) changed, or a crate of the repo's it names
+(`nowayos_ipc`) is reached. A change to what builds everything - the
+toolchain, a lock file, a workspace manifest, the Makefile, the make
+fragments, the dev container, a product repo's NoWayOS commit (nowayos.rev),
+this tool or the mutation tool - reaches every item, and so does a REF git
+cannot find: the run is then full. --root is the repo (NoWayOS by default).
+Python standard library only.
+"""
+import argparse
+import os
+import re
+import subprocess
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+NOWAYOS = os.path.dirname(HERE)
+EVERYTHING = (
+    "rust-toolchain.toml", "Cargo.toml", "Cargo.lock", "Makefile", "deny.toml",
+    "tools/make/", "tools/container/", "tools/ci-scope", "tools/kani-mutation",
+    "fuzz/Cargo.toml", "fuzz/Cargo.lock", "fuzz/rust-toolchain.toml",
+    "pds/Cargo.toml", "pds/Cargo.lock", "pds/rust-toolchain.toml", "nowayos.rev",
+)
+
+
+def read_text(path):
+    with open(path, encoding="utf-8") as handle:
+        return handle.read()
+
+
+def changed_files(root, base):
+    """The paths changed since `base`, or None when git cannot tell."""
+    def git(*args):
+        return subprocess.run(["git", "-C", root, *args], capture_output=True, text=True, check=False)
+    diff = git("diff", "--name-only", base, "--")
+    if diff.returncode != 0:
+        return None
+    others = git("ls-files", "--others", "--exclude-standard")
+    return {line for line in (diff.stdout + others.stdout).splitlines() if line}
+
+
+def crate_dirs(root):
+    """The directories, relative to `root`, that may hold one of its crates:
+    those under crates/ and pds/, and those its root workspace's `members`
+    names, a directory or every one under a parent (`kiosk/*`)."""
+    parents, dirs = {"crates", "pds"}, set()
+    try:
+        text = read_text(os.path.join(root, "Cargo.toml"))
+    except OSError:
+        text = ""
+    listed = re.search(r"^members\s*=\s*\[(.*?)\]", text, re.M | re.S)
+    for member in re.findall(r'"([^"]+)"', listed.group(1) if listed else ""):
+        member = member.rstrip("/")
+        if member.endswith("/*"):
+            parents.add(member[:-2])
+        elif member not in ("", "."):
+            dirs.add(member)
+    for parent in parents:
+        top = os.path.join(root, parent)
+        if os.path.isdir(top):
+            dirs.update(f"{parent}/{entry}" for entry in os.listdir(top))
+    return sorted(dirs)
+
+
+def dependency_names(text):
+    """Every name a manifest's text could depend on, in any section: a key
+    (`nowayos-ipc.workspace = true`), a renamed package, a table header.
+    Callers keep only the names that are crates they know."""
+    keys = set(re.findall(r"^([\w-]+)(?:\.workspace)?\s*=", text, re.M))
+    keys |= set(re.findall(r'package\s*=\s*"([\w-]+)"', text))
+    keys |= set(re.findall(r"dependencies\.([\w-]+)\]", text))
+    return keys
+
+
+def crates(root):
+    """{name: (directory relative to root, set of the repo's crates it depends on)}."""
+    manifests = {}
+    for directory in crate_dirs(root):
+        manifest = os.path.join(root, directory, "Cargo.toml")
+        if not os.path.isfile(manifest):
+            continue
+        text = read_text(manifest)
+        name = re.search(r'^name\s*=\s*"([^"]+)"', text, re.M)
+        if name:
+            manifests[name.group(1)] = (f"{directory}/", text)
+    found = {}
+    for name, (path, text) in manifests.items():
+        found[name] = (path, (dependency_names(text) & manifests.keys()) - {name})
+    return found
+
+
+def reached_crates(all_crates, changed):
+    reached = {name for name, (path, _) in all_crates.items()
+               if any(f.startswith(path) for f in changed)}
+    while True:
+        more = {name for name, (_, deps) in all_crates.items() if name not in reached and deps & reached}
+        if not more:
+            return reached
+        reached |= more
+
+
+def mutation_crates(root):
+    listing = subprocess.run([sys.executable, os.path.join(root, "tools", "kani-mutation"), "--list"],
+                             capture_output=True, text=True, check=True).stdout
+    return {m.group(1): m.group(2) for m in re.finditer(r"^([\w-]+) \([^)]*\): ([\w-]+),", listing, re.M)}
+
+
+def fuzz_crates(root, target, names):
+    """The crates of `names` that fuzz target `target` names (`nowayos_ipc`)."""
+    path = os.path.join(root, "fuzz", "fuzz_targets", f"{target}.rs")
+    if not os.path.isfile(path):
+        return set()
+    text = read_text(path)
+    return {name for name in names if re.search(rf"\b{name.replace('-', '_')}\b", text)}
+
+
+def scope(root, base, kind, items):
+    changed = changed_files(root, base)
+    every = list(items) if items or kind != "mutations" else list(mutation_crates(root))
+    if changed is None:
+        print(f"ci-scope: cannot compare with {base}: running every {kind} item", file=sys.stderr)
+        return every
+    if any(f == e or (e.endswith("/") and f.startswith(e)) for f in changed for e in EVERYTHING):
+        return every
+    all_crates = crates(root)
+    reached = reached_crates(all_crates, changed)
+    if kind == "kani":
+        return [item for item in items if item in reached]
+    if kind == "mutations":
+        owner = mutation_crates(root)
+        return [item for item in (items or list(owner)) if owner.get(item) in reached or item not in owner]
+    harness = any(f.startswith("fuzz/src/") for f in changed)
+    return [item for item in items
+            if harness or f"fuzz/fuzz_targets/{item}.rs" in changed
+            or fuzz_crates(root, item, all_crates) & reached]
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--base", required=True)
+    parser.add_argument("--root", default=NOWAYOS)
+    parser.add_argument("kind", choices=("kani", "mutations", "fuzz"))
+    parser.add_argument("items", nargs="*")
+    args = parser.parse_args(argv)
+    print(" ".join(scope(args.root, args.base, args.kind, args.items)))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

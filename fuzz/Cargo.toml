@@ -1,0 +1,259 @@
+# NoWayOS's fuzz harness: libFuzzer targets for the decoders of
+# untrusted input, built and run by `make fuzz` in the dev container. A new
+# parser of untrusted input gets its target here:
+# a file in fuzz_targets/ and a [[bin]] below.
+#
+# A workspace of its own, so that libfuzzer-sys is in no other Cargo.lock: it
+# and the libFuzzer sources it compiles are signed off for development and CI
+# fuzzing only - never in
+# a device image, a shipped crate or a product's Cargo.lock. The layout is the
+# one cargo-fuzz expects; `make fuzz` passes cargo the same instrumentation
+# flags, so the dev image needs no cargo-fuzz.
+
+[package]
+name = "nowayos-fuzz"
+description = "libFuzzer targets for NoWayOS's decoders of untrusted input (make fuzz)"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+rust-version = "1.93"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+nowayos-audio = { path = "../crates/nowayos-audio" }
+nowayos-input = { path = "../crates/nowayos-input" }
+nowayos-gem = { path = "../crates/nowayos-gem" }
+nowayos-ip = { path = "../crates/nowayos-ip" }
+nowayos-ipc = { path = "../crates/nowayos-ipc" }
+nowayos-net = { path = "../crates/nowayos-net" }
+nowayos-seed = { path = "../crates/nowayos-seed" }
+nowayos-signature = { path = "../crates/nowayos-signature" }
+nowayos-signing = { path = "../crates/nowayos-signing" }
+nowayos-socket = { path = "../crates/nowayos-socket" }
+nowayos-time = { path = "../crates/nowayos-time" }
+nowayos-tls-crypto = { path = "../crates/nowayos-tls-crypto" }
+nowayos-update = { path = "../crates/nowayos-update" }
+nowayos-usb = { path = "../crates/nowayos-usb" }
+# The libFuzzer runtime, compiled from the C++ sources the crate bundles:
+# development and CI fuzzing only (its licence: deny.toml).
+libfuzzer-sys = "=0.4.13"
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "audio_records"
+path = "fuzz_targets/audio_records.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ipc_decode"
+path = "fuzz_targets/ipc_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ipc_ring_consumer"
+path = "fuzz_targets/ipc_ring_consumer.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "input_decode"
+path = "fuzz_targets/input_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "input_evdev"
+path = "fuzz_targets/input_evdev.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "input_terminal"
+path = "fuzz_targets/input_terminal.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "net_arp"
+path = "fuzz_targets/net_arp.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "net_queue"
+path = "fuzz_targets/net_queue.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "net_stack_receive"
+path = "fuzz_targets/net_stack_receive.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "net_stack_tcp"
+path = "fuzz_targets/net_stack_tcp.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "seed_record"
+path = "fuzz_targets/seed_record.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "signature_check"
+path = "fuzz_targets/signature_check.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "signing_records"
+path = "fuzz_targets/signing_records.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "socket_records"
+path = "fuzz_targets/socket_records.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "time_decode"
+path = "fuzz_targets/time_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "update_chunk"
+path = "fuzz_targets/update_chunk.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "update_manifest"
+path = "fuzz_targets/update_manifest.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "update_state"
+path = "fuzz_targets/update_state.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "update_trust_list"
+path = "fuzz_targets/update_trust_list.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "usb_descriptors"
+path = "fuzz_targets/usb_descriptors.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "usb_hid_reports"
+path = "fuzz_targets/usb_hid_reports.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "usb_report_descriptors"
+path = "fuzz_targets/usb_report_descriptors.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "usb_xhci_records"
+path = "fuzz_targets/usb_xhci_records.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "usb_video"
+path = "fuzz_targets/usb_video.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tls_verify"
+path = "fuzz_targets/tls_verify.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "gem_rings"
+path = "fuzz_targets/gem_rings.rs"
+test = false
+doc = false
+bench = false
+
+[workspace]
+members = ["."]
+
+# The NoWayOS baseline (tools/baseline.toml), as in NoWayOS's other two
+# workspaces.
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+unreachable = "deny"
+panic_in_result_fn = "deny"
+allow_attributes_without_reason = "deny"
+indexing_slicing = "deny"
+arithmetic_side_effects = "deny"
+undocumented_unsafe_blocks = "deny"
+
+[profile.dev]
+panic = "abort"
+
+# make fuzz builds this profile: overflow checks on, as in every shipped
+# build, and line tables for a crash's backtrace.
+[profile.release]
+overflow-checks = true
+panic = "abort"
+debug = "line-tables-only"

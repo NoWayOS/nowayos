@@ -1,0 +1,10 @@
+# QEMU devices virtio-console-test's PDs drive (tools/make/system.mk): the
+# virtio transports on the modern interface (virtio 1.x), and a virtio serial
+# device whose one port, a console, QEMU joins to a UDP socket that sends to
+# itself on the container's loopback interface - so whatever the guest sends
+# comes back to it, and the client sees both directions. QEMU puts the device
+# on transport 31.
+-global virtio-mmio.force-legacy=false
+-device virtio-serial-device
+-chardev udp,id=link,host=127.0.0.1,port=4555,localaddr=127.0.0.1,localport=4555
+-device virtconsole,chardev=link

@@ -1,0 +1,3 @@
+# QEMU devices display-test's PDs drive (tools/make/system.mk). A display
+# device makes make qemu-test compare the screen with display-test.screen.png.
+-device ramfb

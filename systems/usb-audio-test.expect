@@ -1,0 +1,27 @@
+# Lines tools/qemu-test must see, in this order, as whole serial lines.
+# In QEMU: usb0 identifies and runs its controller as usb-test's
+# does, enumerates QEMU's USB audio device on root port 5, starts its
+# isochronous OUT endpoint with a 440 Hz tone and reports its first 10 s with
+# no interval missed. With QEMU_SETTLE=600 the test runs ten minutes more,
+# and a missed interval at any time fails it.
+NOWAYOS: usb0: starting
+NOWAYOS: usb0: controller identified
+NOWAYOS: usb0: halted and reset
+NOWAYOS: usb0: running: a No Op command came back through DMA
+NOWAYOS: usb0: ready
+NOWAYOS: usb0: port 5: device 46f4:0002, class 0/0/0, USB 1.0, full-speed
+NOWAYOS: usb0: port 5: endpoint 0x01 out: interface 1, alternate 1: 48000 Hz, 2 channels of 16 bits, up to 192 bytes every 1000 us, 48 transfers ahead: a 440 Hz tone
+NOWAYOS: usb0: port 5: endpoint 0x01 out: 10 s, no interval missed
+
+# Output that fails the test at once if it appears anywhere (substring match):
+# a fault reported by the Microkit monitor, a kernel error message, a panic,
+# a PD giving up, an event refused, a device left alone, a stream not
+# streamed, or an interval missed.
+!MON|ERROR
+!seL4(CPU
+!panicked
+!gave up
+!refused
+!left alone
+!not streamed
+!missed so far

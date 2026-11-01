@@ -1,0 +1,588 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT OR Apache-2.0
+"""Write one board's system description from a system in systems/.
+
+Usage: board-system --board BOARD [--platforms DIR]
+                    [--source-date-epoch SECONDS] [--commit-repo DIR]...
+                    SOURCE.system OUT.system
+
+The Microkit tool has no include mechanism, so a system description in
+systems/ never states a board fact: it names each device, and this tool fills
+in the board's facts from the board file, DIR/BOARD.toml (default DIR: the
+platforms/ folder beside tools/), and writes the description `make image`
+builds for that board. In a source system:
+
+    phys_addr="@DEVICE"     the address of DEVICE's register window
+    size="@DEVICE"          its size (on the memory_region that maps it)
+    irq="@DEVICE"           DEVICE's interrupt (an INTID); "@DEVICE[N]"
+                            picks the Nth (from 0) when it has several
+    trigger="@DEVICE"       DEVICE's trigger, level or edge
+
+Devices are named, never addressed: a memory_region with a literal
+phys_addr, or an <irq> with a literal number, is refused - so one source
+serves every board, and a board without the device refuses the system,
+naming it. Other sizes and triggers may be literal. Comments are copied as
+they are and never read.
+
+A memory_region may be prefilled with configuration. The Microkit
+tool reads a prefill_path file from its search path, which is the folder
+OUT.system is written to, so this tool writes each one there. The name is
+the configuration, so the file needs no review of its own:
+
+    prefill_path="screen-WxH.bin"   the screen's size: width W and height H
+                                    (1 to 99999), as two 32-bit
+                                    little-endian words - what
+                                    nowayos_region::screen() reads
+    prefill_path="restart-PD.bin" PD's restart image: made from
+                                    PD's program once it is built, so
+                                    tools/restart-image writes it, not
+                                    this tool
+    prefill_path="build-time.bin"   the image's build time, the floor for
+                                    wall-clock time: a 64-bit little-endian count
+                                    of seconds since 1970-01-01T00:00:00Z
+                                    - what nowayos_region::build_time()
+                                    reads
+    prefill_path="device-NAME.bin"  the board's facts about its device NAME
+                                    , for the driver that holds it:
+                                    32-bit little-endian words - the
+                                    record's version (1), the bytes of
+                                    NAME's window that are registers (its
+                                    `registers`, or else its size), the
+                                    length of its compatible string - then
+                                    that string, zero-padded to a word:
+                                    what nowayos_region::device_facts()
+                                    reads. For a framebuffer the firmware
+                                    set up, version 2: the string
+                                    zero-padded to 64 bytes, then its
+                                    mode's width, height, stride, format
+                                    (1: r5g6b5) and first row. For a device
+                                    on a bus - `pci_bar0` or
+                                    `dma_offset` in the board file -
+                                    version 3: the string padded to 64
+                                    bytes, then those two, 64 bits each (0
+                                    for one not given). Refused for a device
+                                    the board lacks, or one without a
+                                    register window or a compatible string
+    prefill_path="tcp-allow-A.B.C.D-PORT.bin"
+                                    the destinations a network stack PD may
+                                    open TCP connections to for its socket
+                                    client, more joined by `+`
+                                    (tcp-allow-10.0.2.100-7+10.0.2.101-22.bin),
+                                    1 to 8, each a unicast address not in
+                                    0/8, 127/8 or 224/3 and a port 1 to
+                                    65535, written without leading zeros,
+                                    none twice: 32-bit little-endian words -
+                                    the list's version (1), the count, then
+                                    per destination its address's four
+                                    bytes in order and its port - what
+                                    nowayos_socket::AllowList::decode reads
+    prefill_path="tls-pin-HEX.bin"  a TLS client's one accepted server key
+                                    : HEX, 64 lower-case hex digits,
+                                    is SHA-256 of the server certificate's
+                                    SubjectPublicKeyInfo, written as its 32
+                                    bytes. All zeros means no pin: the client
+                                    asks for one (a lab-only system is
+                                    written with its lab host's pin)
+    prefill_path="test-run-length-N.bin"
+                                    a test system's run length on the Pi 5
+                                    : N seconds, 1 to 86400, without
+                                    leading zeros, as one little-endian
+                                    32-bit word - read by the watchdog
+                                    stand-in's ticker, which stops ticking
+                                    then, so the PM watchdog resets the
+                                    board (tools/pi-run waits for it)
+    prefill_path="test-counts-R-S.bin"
+                                    a supervisor's stand-in counts:
+                                    restart count R and sensitive count S
+                                    (0 to 255), as a read of a store
+                                    would return them - a
+                                    little-endian 32-bit count of the
+                                    bytes read, then the counts' record
+                                    (nowayos_fault_policy::stand_in);
+                                    test-counts-missing.bin (no record),
+                                    -cut-short.bin (4 of its 7 bytes),
+                                    -unknown-version.bin (version 2) and
+                                    -bad-check.bin (a check that does not
+                                    match) give counts that cannot be read
+
+    prefill_path="test-trust-anchors.bin"
+                                    the update PD's trust anchors in a test
+                                    system: a 32-bit little-endian
+                                    count of keys (1 to 4), then each root
+                                    key's coordinates, x then y (64 bytes) -
+                                    from --update-bundles DIR's anchors.bin,
+                                    which tools/update-bundles writes
+    prefill_path="test-update-state.bin"
+                                    the update state a test system's storage
+                                    stand-in starts with: one copy, as
+                                    nowayos-update's state module lays it
+                                    out - from DIR's state-initial.bin
+    prefill_path="test-release-N.bin"
+                                    the release a test image says it is
+                                    : N, 1 to 9999, as a 32-bit
+                                    little-endian number - so that two
+                                    builds of update-trial differ, as two
+                                    releases do
+
+Any other prefill_path is refused. The facts' file is named for the device
+and filled from the reviewed board file, so it too needs no review of its
+own; check-system's rule 12 lets only the PD that maps the device's window
+map it. A prefill whose name starts with
+"test-" is a test-only stand-in: check-system's rule 12 refuses it outside a
+test system, as it keeps every map of a prefilled region read-only; its rule
+13 says who may map a restart image.
+
+The build time is --source-date-epoch when it is given and not empty (make
+passes SOURCE_DATE_EPOCH, the reproducible-builds convention), and
+otherwise the latest commit time of the --commit-repo clones - the repo
+whose systems are built and the NoWayOS it is built against, so a product's
+image is never older than either. The same commit always gives the same
+bytes. It must be no later than this machine's clock: a later one is
+refused, naming both times, since a floor in the future would refuse every
+true time the device is ever given. It must not be 0 either: that is what a
+region nothing was written to holds, which nowayos_region::build_time()
+refuses. It is read only for a system that prefills build-time.bin.
+
+Exit status: 0 written, 1 refused (each reason on standard error), 2 usage,
+input or I/O error.
+"""
+
+import argparse
+import datetime
+import importlib.machinery
+import importlib.util
+import os
+import re
+import subprocess
+import sys
+import time
+import zlib
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_PLATFORMS = os.path.join(HERE, os.pardir, "platforms")
+EXIT_PASS, EXIT_FAIL, EXIT_ERROR = 0, 1, 2
+
+COMMENT = re.compile(r"<!--.*?-->", re.DOTALL)
+ATTRIBUTE = re.compile(r'\b(phys_addr|size|irq|trigger)="([^"]*)"')
+PREFILL = re.compile(r'\bprefill_path="([^"]*)"')
+SCREEN = re.compile(r"screen-([1-9][0-9]{0,4})x([1-9][0-9]{0,4})\.bin")
+RESTART = re.compile(r"restart-[A-Za-z_][A-Za-z0-9_]*\.bin")
+TEST_COUNTS = re.compile(r"test-counts-(?:(0|[1-9][0-9]{0,2})-(0|[1-9][0-9]{0,2})"
+                         r"|(missing|cut-short|unknown-version|bad-check))\.bin")
+COUNTS_VERSION = 1
+DEVICE_FACTS = re.compile(r"device-([A-Za-z_][A-Za-z0-9_]*)\.bin")
+# A network stack's allow list: destinations ADDRESS-PORT joined by
+# "+", each number without leading zeros.
+_NUMBER = r"(?:0|[1-9][0-9]*)"
+_DESTINATION = rf"{_NUMBER}\.{_NUMBER}\.{_NUMBER}\.{_NUMBER}-{_NUMBER}"
+TCP_ALLOW = re.compile(rf"tcp-allow-({_DESTINATION}(?:\+{_DESTINATION})*)\.bin")
+TCP_ALLOW_MAX = 8
+# A test system's run length on the Pi 5: seconds, 1 to a day.
+RUN_LENGTH = re.compile(r"test-run-length-([1-9][0-9]{0,4})\.bin")
+# The release a test image says it is: 1 to 9999.
+TEST_RELEASE = re.compile(r"test-release-([1-9][0-9]{0,3})\.bin")
+# A TLS client's pinned server key: SHA-256, 64 lower-case hex digits.
+TLS_PIN = re.compile(r"tls-pin-([0-9a-f]{64})\.bin")
+RUN_LENGTH_MAX = 86_400
+FACTS_VERSION = 1
+# The facts of a framebuffer the firmware set up: version 1's words,
+# the compatible string padded to its 64 bytes, then the mode.
+FACTS_VERSION_FRAMEBUFFER = 2
+# A device on a bus: a PCI function its driver places itself, with
+# the bus address, or one that sees memory at other addresses than the CPU's.
+FACTS_VERSION_BUS = 3
+COMPATIBLE_MAX = 64
+# A framebuffer's pixel format, by the simple-framebuffer binding's name, as
+# its code in the record (check-system's FRAMEBUFFER_FORMATS).
+FRAMEBUFFER_FORMAT_CODES = {"r5g6b5": 1}
+BUILD_TIME = "build-time.bin"
+# The latest build time a device can hold: nowayos_time::Utc counts
+# nanoseconds in 64 bits, which runs out in 2554.
+MAX_BUILD_TIME = (2**64 - 1) // 1_000_000_000
+# The update tests' prefills, each from a file tools/update-bundles
+# writes: the trust anchors, a count then each key's 64 bytes, and the state.
+TRUST_ANCHORS = "test-trust-anchors.bin"
+UPDATE_STATE = "test-update-state.bin"
+KEY_LEN = 64
+MAX_ANCHORS = 4
+STATE_COPY_LEN = 860
+PLACEHOLDER = re.compile(r"@([A-Za-z_][A-Za-z0-9_]*)(?:\[([0-9]+)\])?")
+
+
+def load_check_system():
+    """check-system's board-file reader, so both tools read a board alike."""
+    loader = importlib.machinery.SourceFileLoader("check_system", os.path.join(HERE, "check-system"))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module
+
+
+def fill(name, value, devices, board):
+    """The board's value for one attribute, or raise ValueError saying why
+    not."""
+    placeholder = PLACEHOLDER.fullmatch(value)
+    if placeholder is None:
+        if "@" in value:
+            raise ValueError(f'{name}="{value}": write @DEVICE or @DEVICE[N]')
+        if name == "phys_addr":
+            raise ValueError(f'phys_addr="{value}": name the device instead (phys_addr="@DEVICE"): '
+                             "devices are named, never addressed")
+        if name == "irq":
+            raise ValueError(f'irq="{value}": name the device instead (irq="@DEVICE")')
+        return value
+    device_name, index = placeholder.group(1), placeholder.group(2)
+    device = devices.get(device_name)
+    if device is None:
+        raise ValueError(f"board {board!r} has no device {device_name!r}")
+    if index is not None and name != "irq":
+        raise ValueError(f'{name}="{value}": only irq= takes an index')
+    if name in ("phys_addr", "size"):
+        if device.address is None:
+            raise ValueError(f"device {device_name!r} has no register window on board {board!r} "
+                             "(it is reached through system registers)")
+        return hex(device.address if name == "phys_addr" else device.size)
+    if name == "trigger":
+        return device.trigger
+    if not device.irqs:
+        raise ValueError(f"device {device_name!r} has no interrupt on board {board!r}")
+    if index is None:
+        if len(device.irqs) != 1:
+            raise ValueError(f"device {device_name!r} has {len(device.irqs)} interrupts on board "
+                             f"{board!r}: name one, irq=\"@{device_name}[N]\"")
+        return str(device.irqs[0])
+    if int(index) >= len(device.irqs):
+        raise ValueError(f"device {device_name!r} has {len(device.irqs)} interrupt(s) on board "
+                         f"{board!r}: no index {index}")
+    return str(device.irqs[int(index)])
+
+
+def resolve(text, devices, board):
+    """The description with every placeholder filled in, and the reasons it
+    cannot be (an empty list when it can)."""
+    problems, pieces, start = [], [], 0
+
+    def substitute(segment, offset):
+        def one(match):
+            line = text.count("\n", 0, offset + match.start()) + 1
+            try:
+                return f'{match.group(1)}="{fill(match.group(1), match.group(2), devices, board)}"'
+            except ValueError as err:
+                if f"line {line}: {err}" not in problems:
+                    problems.append(f"line {line}: {err}")
+                return match.group(0)
+        return ATTRIBUTE.sub(one, segment)
+
+    for comment in COMMENT.finditer(text):
+        pieces.append(substitute(text[start:comment.start()], start))
+        pieces.append(comment.group(0))
+        start = comment.end()
+    pieces.append(substitute(text[start:], start))
+    return "".join(pieces), problems
+
+
+def counts_record(restarts, sensitive, version=COUNTS_VERSION):
+    """The counts' record (nowayos_fault_policy::stand_in): version, the
+    restart count, the sensitive count, then the CRC-32 of those three bytes
+    as zlib computes it, little-endian."""
+    body = bytes([version, restarts, sensitive])
+    return body + zlib.crc32(body).to_bytes(4, "little")
+
+
+def tcp_allow(destinations):
+    """The allow list's bytes for "A.B.C.D-PORT+...", checked as
+    nowayos_socket::AllowList::decode checks it; ValueError says why not."""
+    entries = destinations.split("+")
+    if not 1 <= len(entries) <= TCP_ALLOW_MAX:
+        raise ValueError(f"{len(entries)} destinations, not 1 to {TCP_ALLOW_MAX}")
+    out = (1).to_bytes(4, "little") + len(entries).to_bytes(4, "little")
+    seen = set()
+    for entry in entries:
+        address, port = entry.rsplit("-", 1)
+        octets = [int(octet) for octet in address.split(".")]
+        port = int(port)
+        if any(octet > 255 for octet in octets):
+            raise ValueError(f"{address} is not an IPv4 address")
+        if octets[0] in (0, 127) or octets[0] >= 224:
+            raise ValueError(f"{address} cannot be a TCP destination")
+        if not 1 <= port <= 65535:
+            raise ValueError(f"port {port} is not 1 to 65535")
+        if (address, port) in seen:
+            raise ValueError(f"{address}:{port} is listed twice")
+        seen.add((address, port))
+        out += bytes(octets) + port.to_bytes(4, "little")
+    return out
+
+
+def test_counts(match):
+    """A supervisor's stand-in counts for test-counts-*.bin: what a
+    read of the store returned - the number of bytes read, as a 32-bit
+    little-endian word, then those bytes - or None if a count is above 255."""
+    restarts, sensitive, kind = match.groups()
+    if kind is None:
+        if int(restarts) > 255 or int(sensitive) > 255:
+            return None
+        record = counts_record(int(restarts), int(sensitive))
+    elif kind == "missing":
+        record = b""
+    elif kind == "cut-short":
+        record = counts_record(0, 0)[:4]
+    elif kind == "unknown-version":
+        record = counts_record(0, 0, version=COUNTS_VERSION + 1)
+    else:
+        good = counts_record(0, 0)
+        record = good[:-1] + bytes([good[-1] ^ 0xFF])
+    return len(record).to_bytes(4, "little") + record
+
+
+def device_facts(name, devices, board):
+    """The facts record of device `name` on `board` (device-NAME.bin;
+    nowayos_region::device_facts reads it), or raise ValueError saying why
+    there is none."""
+    device = (devices or {}).get(name)
+    if device is None:
+        raise ValueError(f"board {board!r} has no device {name!r}")
+    if device.address is None:
+        raise ValueError(f"device {name!r} has no register window on board {board!r} (it is reached "
+                         f"through system registers): there are no registers for a driver to read")
+    if not device.compatible:
+        raise ValueError(f"device {name!r} on board {board!r} has no compatible string: add it to the "
+                         f"board file, with its source")
+    compatible = device.compatible.encode("ascii")
+    mode = getattr(device, "framebuffer", None)
+    on_bus = device.pci_bar0 is not None or device.dma_offset is not None
+    if mode is not None and on_bus:
+        raise ValueError(f"device {name!r} on board {board!r} is both a framebuffer and on a bus")
+    version = FACTS_VERSION_FRAMEBUFFER if mode is not None else FACTS_VERSION_BUS if on_bus else FACTS_VERSION
+    record = (version.to_bytes(4, "little") + device.registers.to_bytes(4, "little")
+              + len(compatible).to_bytes(4, "little") + compatible)
+    if mode is None and not on_bus:
+        return record + bytes(-len(record) % 4)
+    record += bytes(COMPATIBLE_MAX - len(compatible))
+    if on_bus:
+        # Version 3: the BAR's bus address and where the device sees memory
+        # (0 for either when none).
+        return record + (device.pci_bar0 or 0).to_bytes(8, "little") + (device.dma_offset or 0).to_bytes(8, "little")
+    code = FRAMEBUFFER_FORMAT_CODES[mode["format"]]
+    return record + b"".join(mode[key].to_bytes(4, "little") for key in ("width", "height", "stride")) \
+        + code.to_bytes(4, "little") + mode["first_row"].to_bytes(4, "little")
+
+
+def shown(seconds):
+    """A count of seconds since 1970 and the UTC time it names."""
+    try:
+        when = datetime.datetime.fromtimestamp(seconds, tz=datetime.timezone.utc)
+    except (OverflowError, OSError, ValueError):
+        return f"{seconds} s"
+    return f"{seconds} s, {when.strftime('%Y-%m-%dT%H:%M:%SZ')}"
+
+
+def commit_time(repo):
+    """The commit time of `repo`'s HEAD, in seconds since 1970, or raise
+    ValueError saying why it cannot be read."""
+    try:
+        result = subprocess.run(["git", "--no-optional-locks", "-C", repo, "log", "-1", "--format=%ct", "HEAD"],
+                                capture_output=True, text=True, check=False)
+    except OSError as err:
+        raise ValueError(f"cannot run git: {err}") from err
+    text = result.stdout.strip()
+    if result.returncode != 0 or not text.isdigit():
+        message = result.stderr.strip().splitlines()[-1:] or ["no commit"]
+        raise ValueError(f"cannot read the commit time of {repo} ({message[0]}): set SOURCE_DATE_EPOCH instead")
+    return int(text)
+
+
+def build_time(source_date_epoch, repos, now):
+    """(seconds, where they came from) for the image's build time - the
+    floor for wall-clock time - or raise ValueError saying why there is none
+    or why it is refused."""
+    if source_date_epoch:
+        if not source_date_epoch.isdigit() or not source_date_epoch.isascii():
+            raise ValueError(f"SOURCE_DATE_EPOCH={source_date_epoch!r} is not a count of seconds since 1970")
+        seconds, source = int(source_date_epoch), "SOURCE_DATE_EPOCH"
+    else:
+        if not repos:
+            raise ValueError("no build time: set SOURCE_DATE_EPOCH, or give the clones to take the commit "
+                             "time from (--commit-repo)")
+        times = {}
+        for repo in repos:
+            times.setdefault(os.path.realpath(repo), commit_time(repo))
+        latest = max(times, key=lambda repo: (times[repo], repo))
+        seconds, source = times[latest], f"the commit time of {latest}"
+    if seconds == 0:
+        raise ValueError(f"the build time, {shown(seconds)} ({source}), is no floor: 0 is what a region nothing "
+                         f"was written to holds, and the clock PD refuses it")
+    if seconds > MAX_BUILD_TIME:
+        raise ValueError(f"the build time, {shown(seconds)} ({source}), is past what a device can hold "
+                         f"({shown(MAX_BUILD_TIME)})")
+    if seconds > now:
+        raise ValueError(f"the build time, {shown(seconds)} ({source}), is later than this machine's clock, "
+                         f"{shown(int(now))}: a floor in the future would refuse every true time the "
+                         f"device is given - check the clock, or the commit's date")
+    return seconds, source
+
+
+def update_prefill(name, folder):
+    """A test system's update prefill from `folder`, tools/update-bundles'
+    output; ValueError when it cannot be made."""
+    if not folder:
+        raise ValueError("no --update-bundles folder was given to this tool")
+    source = os.path.join(folder, "anchors.bin" if name == TRUST_ANCHORS else "state-initial.bin")
+    try:
+        with open(source, "rb") as handle:
+            data = handle.read()
+    except OSError as err:
+        raise ValueError(f"{err}: run make update-bundles (tools/update-bundles) first") from err
+    if name == UPDATE_STATE:
+        if len(data) != STATE_COPY_LEN:
+            raise ValueError(f"{source} holds {len(data)} bytes, not one state copy's {STATE_COPY_LEN}")
+        return data
+    count, rest = divmod(len(data), KEY_LEN)
+    if rest or not 1 <= count <= MAX_ANCHORS:
+        raise ValueError(f"{source} holds {len(data)} bytes, not 1 to {MAX_ANCHORS} keys of {KEY_LEN}")
+    return count.to_bytes(4, "little") + data
+
+
+def prefills(text, floor=None, devices=None, board=None, update_bundles=None):
+    """The prefill files the description names outside comments, as
+    {name: contents}, and the reasons any cannot be written. `floor` is a
+    function giving the build time in seconds, called only for a
+    build-time.bin prefill; it raises ValueError when there is none.
+    `devices` are the board's ({name: Device}), for a device-NAME.bin
+    prefill, and `board` its name. `update_bundles` is the folder
+    tools/update-bundles wrote, for a test system's update prefills."""
+    files, problems = {}, []
+    for match in PREFILL.finditer(COMMENT.sub("", text)):
+        name = match.group(1)
+        if name in (TRUST_ANCHORS, UPDATE_STATE):
+            try:
+                files[name] = update_prefill(name, update_bundles)
+            except ValueError as err:
+                problems.append(f'prefill_path="{name}": {err}')
+            continue
+        if RESTART.fullmatch(name):
+            continue  # written by tools/restart-image once the PDs are built
+        if name == BUILD_TIME:
+            try:
+                if floor is None:
+                    raise ValueError("no build time was given to this tool")
+                files[name] = floor().to_bytes(8, "little")
+            except ValueError as err:
+                problems.append(f'prefill_path="{name}": {err}')
+            continue
+        facts = DEVICE_FACTS.fullmatch(name)
+        if facts is not None:
+            try:
+                files[name] = device_facts(facts.group(1), devices, board)
+            except ValueError as err:
+                problems.append(f'prefill_path="{name}": {err}')
+            continue
+        allow = TCP_ALLOW.fullmatch(name)
+        if allow is not None:
+            try:
+                files[name] = tcp_allow(allow.group(1))
+            except ValueError as err:
+                problems.append(f'prefill_path="{name}": {err}')
+            continue
+        pin = TLS_PIN.fullmatch(name)
+        if pin is not None:
+            files[name] = bytes.fromhex(pin.group(1))
+            continue
+        run = RUN_LENGTH.fullmatch(name)
+        if run is not None:
+            seconds = int(run.group(1))
+            if seconds <= RUN_LENGTH_MAX:
+                files[name] = seconds.to_bytes(4, "little")
+            else:
+                problems.append(f'prefill_path="{name}": a run length of {seconds} s, not 1 to {RUN_LENGTH_MAX}')
+            continue
+        release = TEST_RELEASE.fullmatch(name)
+        if release is not None:
+            files[name] = int(release.group(1)).to_bytes(4, "little")
+            continue
+        counts = TEST_COUNTS.fullmatch(name)
+        if counts is not None and test_counts(counts) is not None:
+            files[name] = test_counts(counts)
+            continue
+        screen = SCREEN.fullmatch(name)
+        if screen is None:
+            problems.append(f'prefill_path="{name}": the only prefills are screen-WxH.bin, the '
+                            f'screen\'s size, build-time.bin, the image\'s build time, '
+                            f'device-NAME.bin, the board\'s facts about its device NAME, '
+                            f'restart-PD.bin, a PD\'s restart image, tcp-allow-A.B.C.D-PORT.bin, '
+                            f'a network stack\'s allowed destinations, tls-pin-HEX.bin, a TLS '
+                            f'client\'s pinned server key, and, in a test '
+                            f'system, test-counts-R-S.bin (R and S 0 to 255), -missing.bin, '
+                            f'-cut-short.bin, -unknown-version.bin or -bad-check.bin, a supervisor\'s '
+                            f'stand-in counts, test-trust-anchors.bin or test-update-state.bin, '
+                            f'the update tests\' anchors and state, test-release-N.bin, the '
+                            f'release a test image says it is, or test-run-length-N.bin, a run '
+                            f'length on the Pi 5')
+            continue
+        width, height = int(screen.group(1)), int(screen.group(2))
+        files[name] = width.to_bytes(4, "little") + height.to_bytes(4, "little")
+    return files, problems
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n", 1)[0])
+    parser.add_argument("--board", required=True, help="Microkit board, for its device facts (BOARD.toml)")
+    parser.add_argument("--platforms", default=DEFAULT_PLATFORMS,
+                        help="folder of board files (default: platforms/ beside tools/)")
+    parser.add_argument("--source-date-epoch", default="",
+                        help="the build time, in seconds since 1970 (SOURCE_DATE_EPOCH); empty: the commit time")
+    parser.add_argument("--commit-repo", action="append", default=[], metavar="DIR",
+                        help="a clone whose HEAD's commit time may be the build time (the latest one is)")
+    parser.add_argument("--update-bundles", default="", metavar="DIR",
+                        help="tools/update-bundles' output, for a test system's update prefills")
+    parser.add_argument("source", help="system description in systems/ (.system)")
+    parser.add_argument("output", help="the board's system description to write")
+    args = parser.parse_args()
+
+    check_system = load_check_system()
+    try:
+        with open(args.source, encoding="utf-8") as handle:
+            text = handle.read()
+        devices = check_system.read_board(os.path.join(args.platforms, f"{args.board}.toml"), args.board)
+    except (OSError, check_system.InputError) as err:
+        print(f"board-system: {err}", file=sys.stderr)
+        return EXIT_ERROR
+
+    resolved, problems = resolve(text, devices, args.board)
+    files, refused = prefills(text, lambda: build_time(args.source_date_epoch, args.commit_repo, time.time())[0],
+                              devices, args.board, args.update_bundles)
+    problems += refused
+    if problems:
+        print(f"board-system: FAIL - {args.source} cannot be built for board {args.board!r}:",
+              file=sys.stderr)
+        for problem in problems:
+            print(f"    {problem}", file=sys.stderr)
+        return EXIT_FAIL
+
+    # A board's own variant (systems/BOARD/SYSTEM.system) is named with its folder.
+    source = os.path.basename(args.source)
+    folder = os.path.basename(os.path.dirname(os.path.abspath(args.source)))
+    if folder == args.board:
+        source = f"{folder}/{source}"
+    note = (f"<!-- Written by tools/board-system for board {args.board} from "
+            f"{source}: edit that file, not this one. -->\n")
+    if resolved.startswith("<?xml"):
+        declaration, _, rest = resolved.partition("\n")
+        resolved = f"{declaration}\n{note}{rest}"
+    else:
+        resolved = note + resolved
+    try:
+        os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
+        with open(args.output, "w", encoding="utf-8") as handle:
+            handle.write(resolved)
+        for name, contents in files.items():
+            with open(os.path.join(os.path.dirname(os.path.abspath(args.output)), name), "wb") as handle:
+                handle.write(contents)
+    except OSError as err:
+        print(f"board-system: {err}", file=sys.stderr)
+        return EXIT_ERROR
+    return EXIT_PASS
+
+
+if __name__ == "__main__":
+    sys.exit(main())

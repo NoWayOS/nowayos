@@ -1,0 +1,64 @@
+# Everything systems/rpi5b_2gb/uart-input-test.system grants, one fact per
+# line: those of systems/uart-input-test.grants, with BCM2712's system timer
+# for the timer PD instead of the CPU's.
+# tools/check-system fails the build if the system description grants anything
+# not listed here, or lists anything it does not grant, and checks the map
+# rights again in the kernel objects the Microkit tool generates (format: see
+# tools/check-system). A change here is a security change: call it out in the
+# pull request.
+
+# The kind of system, and each PD's role (tools/grant-rules.toml). ui -
+# input_print, a test instrument - stands in the UI's place, so it has that
+# PD's role and its rules. uart_input runs nowayos-uart-input.elf, a
+# development-only program ([development_only]): never in a product system.
+system test
+role timer driver
+role uart_input input
+role input_broker broker
+role ui ui
+
+# Priorities: the timer above every PD, so uart_input may call it; the broker
+# above uart_input, so a press that finds the ring full is drained at once
+# when uart_input notifies it - a press is sent whole or not at all;
+# uart_input above ui, so the UART's receive FIFO (32 bytes) is read however
+# busy the UI is. Each run is bounded: uart_input takes at most 256 bytes a
+# poll and waits at most 2 ms for a sequence's next byte; the broker drains
+# at most its rings. Full budgets, as in input-broker-test and timer-demo.
+pd timer priority=4 budget=1000 period=1000
+pd input_broker priority=3 budget=1000 period=1000
+pd uart_input priority=2 budget=1000 period=1000
+pd ui priority=1 budget=1000 period=1000
+
+# Configuration: the UI's screen (800x480), read-only in the broker.
+map input_broker screen r
+
+# The timer: BCM2712's system timer, its registers uncached and channel 1's
+# interrupt, as in rpi5b_2gb/timer-demo.grants. uart_input calls it for each
+# poll, and it notifies uart_input when the poll is due.
+device timer system_timer rw
+irq timer system_timer 97
+channel uart_input timer notify=timer
+call uart_input timer
+
+# uart_input: the debug UART's registers, uncached and read-only - it only
+# reads them, and the grants check holds an input PD to that
+# (input-reads-the-debug-uart-only) - this PD only; and the board's facts
+# about it, read-only. No interrupt: it polls (the UART's does not reach a PD
+# on the Pi 5).
+device uart_input debug_uart r
+map uart_input debug_uart_facts r
+
+# Its ring to the broker: messages written by uart_input only, the broker's
+# index written by the broker only.
+map uart_input keys_messages rw
+map uart_input keys_control r
+map input_broker keys_messages r
+map input_broker keys_control rw
+channel input_broker uart_input notify=uart_input
+
+# The broker's ring to the UI, the UI's input ring.
+map input_broker ui_messages rw
+map input_broker ui_control r
+map ui ui_control rw
+map ui ui_messages r
+channel input_broker ui notify=input_broker

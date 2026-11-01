@@ -1,0 +1,133 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    In QEMU: the input broker PD between the input drivers and
+    the UI. input_broker drains three sources - the virtio-input driver's
+    pointer ring (source 1, the tablet) and keyboard ring (source 2), and the
+    ring from input_flood (source 3), a test instrument standing in for a
+    faulty or hostile driver - checks each event against the screen, holds
+    each source to its own rate, and sends what passes through the UI's input
+    ring to ui - input_print, a test instrument, run in the UI's place -
+    which prints each event.
+
+    At start-up input_flood sends a malformed record, a pointer position off
+    the screen, a button the screen does not have and a flood of key events:
+    the broker refuses the first and third, clamps the second onto the
+    screen, and drops and counts the flood beyond the rate.
+    input-broker-test.qmp then types on the keyboard and moves and clicks the
+    tablet, which must reach ui unaffected.
+
+    QEMU only: the Pi 5 has no virtio.
+
+    Capabilities: the driver's are virtio-input-test's - one page of
+    virtio-mmio transports, one DMA region per device's event queue, the two
+    devices' interrupts - with a ring to the broker for each device. Each ring
+    is two 4 KiB regions: messages read-write in the sender and read-only in
+    the receiver; control the other way round. input_broker holds no device,
+    interrupt or DMA memory: its four rings, three channels and the screen's
+    size, which the driver maps too (read-only configuration).
+    input_flood holds its ring to the broker; ui its ring from the broker,
+    the UI's input ring (64 slots; the drivers' rings have 4). Each channel
+    is one-way: the drivers notify the broker, the broker notifies ui.
+
+    Priorities: the driver above the broker, the broker above the UI, so
+    events flow downhill; input_flood lowest, so each of its batches is
+    drained by the broker, and printed by ui, before it sends the
+    next (input-broker-test.grants gives the reasons).
+
+    Every grant above is also listed in input-broker-test.grants, which
+    tools/check-system compares with this file and with the kernel objects
+    the Microkit tool generates (make image, make qemu-test).
+-->
+<system>
+    <memory_region name="virtio_regs" size="@virtio_mmio_24_31" phys_addr="@virtio_mmio_24_31" />
+    <memory_region name="tablet_events" size="0x1000" />
+    <memory_region name="keyboard_events" size="0x1000" />
+    <memory_region name="pointer_messages" size="0x1000" />
+    <memory_region name="pointer_control" size="0x1000" />
+    <memory_region name="keyboard_messages" size="0x1000" />
+    <memory_region name="keyboard_control" size="0x1000" />
+    <memory_region name="flood_messages" size="0x1000" />
+    <memory_region name="flood_control" size="0x1000" />
+    <memory_region name="ui_messages" size="0x1000" />
+    <memory_region name="ui_control" size="0x1000" />
+    <!-- Configuration: the UI's screen, 800x480 (tools/board-system writes the
+         file; read-only everywhere, rule 12). -->
+    <memory_region name="screen" prefill_path="screen-800x480.bin" />
+
+    <protection_domain name="virtio_input" priority="200" stack_size="0x10000">
+        <program_image path="nowayos-virtio-input.elf" />
+        <map mr="virtio_regs" vaddr="0x200_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_device_0_vaddr" setvar_size="nowayos_device_0_size" />
+        <map mr="tablet_events" vaddr="0x300_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_dma_0_vaddr" setvar_size="nowayos_dma_0_size" />
+        <map mr="keyboard_events" vaddr="0x300_1000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_dma_1_vaddr" setvar_size="nowayos_dma_1_size" />
+        <setvar symbol="nowayos_dma_0_paddr" region_paddr="tablet_events" />
+        <setvar symbol="nowayos_dma_1_paddr" region_paddr="keyboard_events" />
+        <map mr="pointer_messages" vaddr="0x4000_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+        <map mr="pointer_control" vaddr="0x4000_1000" perms="r"
+             setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+        <map mr="keyboard_messages" vaddr="0x4000_2000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_1_vaddr" setvar_size="nowayos_rw_region_1_size" />
+        <map mr="keyboard_control" vaddr="0x4000_3000" perms="r"
+             setvar_vaddr="nowayos_ro_region_1_vaddr" setvar_size="nowayos_ro_region_1_size" />
+        <map mr="screen" vaddr="0x5000_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_7_vaddr" setvar_size="nowayos_ro_region_7_size" />
+        <irq irq="@virtio_mmio_24_31[6]" id="1" trigger="@virtio_mmio_24_31" />
+        <irq irq="@virtio_mmio_24_31[7]" id="2" trigger="@virtio_mmio_24_31" />
+    </protection_domain>
+
+    <!-- 0x4100_0000, the pointer ring's messages: pds/isolation-probe/src/forbidden.rs,
+         Unmapped::DriverRing (systems/input-isolation.system) -->
+    <protection_domain name="input_broker" priority="150" stack_size="0x10000">
+        <program_image path="nowayos-input-broker.elf" />
+        <map mr="ui_messages" vaddr="0x4000_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+        <map mr="ui_control" vaddr="0x4000_1000" perms="r"
+             setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+        <map mr="pointer_messages" vaddr="0x4100_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_1_vaddr" setvar_size="nowayos_ro_region_1_size" />
+        <map mr="pointer_control" vaddr="0x4100_1000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_1_vaddr" setvar_size="nowayos_rw_region_1_size" />
+        <map mr="keyboard_messages" vaddr="0x4200_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_2_vaddr" setvar_size="nowayos_ro_region_2_size" />
+        <map mr="keyboard_control" vaddr="0x4200_1000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_2_vaddr" setvar_size="nowayos_rw_region_2_size" />
+        <map mr="flood_messages" vaddr="0x4300_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_3_vaddr" setvar_size="nowayos_ro_region_3_size" />
+        <map mr="flood_control" vaddr="0x4300_1000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_3_vaddr" setvar_size="nowayos_rw_region_3_size" />
+        <map mr="screen" vaddr="0x5000_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_7_vaddr" setvar_size="nowayos_ro_region_7_size" />
+    </protection_domain>
+
+    <protection_domain name="ui" priority="100" stack_size="0x10000">
+        <program_image path="nowayos-input-print.elf" />
+        <map mr="ui_control" vaddr="0x4000_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+        <map mr="ui_messages" vaddr="0x4000_1000" perms="r"
+             setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+    </protection_domain>
+
+    <protection_domain name="input_flood" priority="50" stack_size="0x10000">
+        <program_image path="nowayos-input-flood.elf" />
+        <map mr="flood_messages" vaddr="0x4000_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+        <map mr="flood_control" vaddr="0x4000_1000" perms="r"
+             setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+    </protection_domain>
+
+    <channel>
+        <end pd="virtio_input" id="0" />
+        <end pd="input_broker" id="1" notify="false" />
+    </channel>
+    <channel>
+        <end pd="input_flood" id="0" />
+        <end pd="input_broker" id="2" notify="false" />
+    </channel>
+    <channel>
+        <end pd="input_broker" id="0" />
+        <end pd="ui" id="0" notify="false" />
+    </channel>
+</system>

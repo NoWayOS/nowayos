@@ -1,0 +1,168 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT OR Apache-2.0
+"""Check the standard-library crates compiled into the protection domains.
+
+Usage:
+    check-std-crates --deps DIR --lock pds/Cargo.lock --list pds/std-crates.txt
+                     --library RUST_SRC_LIBRARY [--cargo-home DIR]
+
+The protection domains are built with build-std, which compiles core, alloc
+and compiler_builtins (and whatever they need) from the pinned nightly's
+rust-src. They are not in Cargo.lock, so cargo-deny never sees them. This
+check takes the crates the PD build actually compiled for the target (the
+`lib*.rlib` files in DIR, the target's `deps` directory), sets aside those
+that Cargo.lock accounts for - by package name, or by the library name a
+registry package's manifest gives it (rustls-webpki's is `webpki`),
+read from the sources in CARGO_HOME (--cargo-home, or the environment's) -
+and requires the rest — the standard-library
+crates — to be exactly the reviewed list (FILE), each with the licence its
+manifest in RUST_SRC_LIBRARY declares.
+
+A crate removed from Cargo.lock whose old build output is still in DIR shows
+up as an unknown crate: `make system-clean` clears the PD build output.
+
+Exit status: 0 pass; 1 the set or a licence differs; 2 usage or input error.
+Python 3.11 or later (tomllib), standard library only.
+"""
+
+import argparse
+import glob
+import os
+import re
+import sys
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python before 3.11
+    tomllib = None
+
+EXIT_PASS = 0
+EXIT_FAIL = 1
+EXIT_ERROR = 2
+
+RLIB = re.compile(r"^lib(.+)-[0-9a-f]+\.rlib$")
+
+
+class InputError(Exception):
+    """A file could not be read or parsed."""
+
+
+def crate_name(name):
+    return name.replace("-", "_")
+
+
+def load_toml(path):
+    try:
+        with open(path, "rb") as handle:
+            return tomllib.load(handle)
+    except (OSError, tomllib.TOMLDecodeError) as err:
+        raise InputError(f"cannot read {path}: {err}") from err
+
+
+def read_list(path):
+    """{crate: licence} from the reviewed list."""
+    try:
+        with open(path, encoding="utf-8") as handle:
+            lines = handle.read().splitlines()
+    except OSError as err:
+        raise InputError(f"cannot read {path}: {err}") from err
+    listed = {}
+    for number, line in enumerate(lines, start=1):
+        text = line.split("#", 1)[0].strip()
+        if not text:
+            continue
+        name, _, licence = text.partition(" ")
+        if not licence.strip():
+            raise InputError(f"{path}:{number}: expected `crate licence`")
+        listed[crate_name(name)] = " ".join(licence.split())
+    return listed
+
+
+def locked_crates(lock, cargo_home):
+    """The crate names Cargo.lock accounts for: each package's name, and the
+    [lib] name its manifest declares, for a registry package whose sources
+    are under CARGO_HOME."""
+    names = set()
+    for package in load_toml(lock).get("package", []):
+        names.add(crate_name(package["name"]))
+        if not cargo_home or not package.get("source", "").startswith("registry+"):
+            continue
+        pattern = os.path.join(cargo_home, "registry", "src", "*",
+                               f"{package['name']}-{package.get('version', '')}", "Cargo.toml")
+        for manifest in glob.glob(pattern):
+            lib = load_toml(manifest).get("lib", {}).get("name")
+            if lib:
+                names.add(crate_name(lib))
+    return names
+
+
+def library_licences(library):
+    """{crate: licence} for every package manifest under rust-src's library/."""
+    root = load_toml(os.path.join(library, "Cargo.toml"))
+    workspace_licence = root.get("workspace", {}).get("package", {}).get("license")
+    found = {}
+    for path in sorted(glob.glob(os.path.join(library, "*", "Cargo.toml"))
+                       + glob.glob(os.path.join(library, "*", "*", "Cargo.toml"))):
+        package = load_toml(path).get("package")
+        if not package or "name" not in package:
+            continue
+        licence = package.get("license")
+        if isinstance(licence, dict) and licence.get("workspace"):
+            licence = workspace_licence
+        found[crate_name(package["name"])] = licence
+    return found
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n", 1)[0])
+    parser.add_argument("--deps", required=True, help="the PD target's deps directory")
+    parser.add_argument("--lock", required=True, help="pds/Cargo.lock")
+    parser.add_argument("--list", required=True, help="the reviewed list")
+    parser.add_argument("--library", required=True, help="rust-src's library/ directory")
+    parser.add_argument("--cargo-home", default=os.environ.get("CARGO_HOME"),
+                        help="where cargo keeps the registry's sources (default: $CARGO_HOME)")
+    args = parser.parse_args()
+    if tomllib is None:
+        print("check-std-crates: needs Python 3.11 or later (tomllib); run it in the dev container", file=sys.stderr)
+        return EXIT_ERROR
+    try:
+        if not os.path.isdir(args.deps):
+            raise InputError(f"no PD build output at {args.deps}: build the PDs first (make qemu-test-all)")
+        built = {
+            crate_name(match.group(1))
+            for match in (RLIB.match(name) for name in os.listdir(args.deps))
+            if match
+        }
+        if not built:
+            raise InputError(f"no .rlib files in {args.deps}: build the PDs first")
+        locked = locked_crates(args.lock, args.cargo_home)
+        standard = built - locked
+        listed = read_list(args.list)
+        licences = library_licences(args.library)
+    except InputError as err:
+        print(f"check-std-crates: {err}", file=sys.stderr)
+        return EXIT_ERROR
+
+    problems = []
+    for name in sorted(standard - set(listed)):
+        problems.append(f"{name}: built into the PDs but not on {args.list} - review its licence and add it")
+    for name in sorted(set(listed) - standard):
+        problems.append(f"{name}: on {args.list} but no longer built into the PDs - remove it")
+    for name in sorted(standard & set(listed)):
+        actual = licences.get(name)
+        if actual is None:
+            problems.append(f"{name}: no manifest for it under {args.library}")
+        elif " ".join(actual.split()) != listed[name]:
+            problems.append(f"{name}: rust-src declares {actual!r}, the list says {listed[name]!r}")
+    if problems:
+        print("check-std-crates: FAIL", file=sys.stderr)
+        for problem in problems:
+            print(f"    {problem}", file=sys.stderr)
+        return EXIT_FAIL
+    print(f"check-std-crates: PASS - standard-library crates in the PDs: "
+          f"{', '.join(f'{name} ({listed[name]})' for name in sorted(standard))}")
+    return EXIT_PASS
+
+
+if __name__ == "__main__":
+    sys.exit(main())

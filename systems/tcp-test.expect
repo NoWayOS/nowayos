@@ -1,0 +1,51 @@
+# Lines tools/qemu-test must see, in this order, as whole serial lines.
+# In QEMU: the network stack PD carries a TCP connection for
+# its socket client to a host-side echo service, and refuses destinations
+# its allow list does not hold. The PDs start in priority order: the timer,
+# the driver, seed_source, the stack, then socket_test, whose first request
+# waits at the stack until the lease (its own first lines are not checked:
+# they may come before the lease or after).
+NOWAYOS: timer: starting
+NOWAYOS: virtio-net: starting
+NOWAYOS: virtio-net: ready on transport 7, MAC 52:54:00:12:34:56
+NOWAYOS: net-stack-test seed_source: starting
+NOWAYOS: net-stack-test seed_source: a fixed test seed sent on the stack's seed ring
+NOWAYOS: net-stack: starting
+NOWAYOS: net-stack: socket client: may connect to 10.0.2.100:7
+NOWAYOS: net-stack: seeded; interface up at 52:54:00:12:34:56: asking for a DHCP lease
+NOWAYOS: net-stack: DHCP lease 10.0.2.15/24, gateway 10.0.2.2
+# AC 1: a connection to the configured address and port, bytes both ways,
+# and a close.
+NOWAYOS: net-stack: socket client: connection 1 to 10.0.2.100:7 open
+NOWAYOS: socket-test: connected to 10.0.2.100:7
+NOWAYOS: socket-test: 49 bytes echoed back, byte for byte
+NOWAYOS: net-stack: socket client: connection 1 closed
+NOWAYOS: socket-test: connection closed cleanly
+# AC 2: a port and an address the system does not list, refused, and the
+# stack says why.
+NOWAYOS: socket-test: asking for a connection to 10.0.2.100:8
+NOWAYOS: net-stack: socket client: refused connection 2 to 10.0.2.100:8: not in the system's allow list
+NOWAYOS: socket-test: 10.0.2.100:8 refused: not a host this system may reach
+NOWAYOS: socket-test: asking for a connection to 10.0.2.2:7
+NOWAYOS: net-stack: socket client: refused connection 3 to 10.0.2.2:7: not in the system's allow list
+NOWAYOS: socket-test: 10.0.2.2:7 refused: not a host this system may reach
+NOWAYOS: socket-test: done
+
+# Output that fails the test at once if it appears anywhere (substring match):
+# as in net-stack-test, and the client failing, a request dropped, a
+# connection failing or the client not served.
+!MON|ERROR
+!seL4(CPU
+!panicked
+!gave up
+!not ready
+!a seed refused
+!lease lost
+!net-stack: dropped so far
+!could not
+!queue:
+!FAILED
+!a request dropped
+!failed:
+!not served
+!no destination allowed

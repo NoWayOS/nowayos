@@ -1,0 +1,163 @@
+# cargo-deny configuration for the fuzz workspace. Run: make deny
+# (NoWayOS's other two workspaces have their own deny.toml.)
+#
+# House licence list: MIT, Apache-2.0,
+# BSD-2-Clause, BSD-3-Clause, ISC. Anything else the dependency tree needs
+# gets a per-crate exception below and needs the project owner's written
+# sign-off before it is relied on.
+
+[graph]
+# Every platform: stricter than checking only the platforms we build for.
+targets = []
+all-features = false
+no-default-features = false
+
+[advisories]
+# Every vulnerability, unsound and unmaintained advisory is an error, and so
+# is a yanked crate version, unless listed in `ignore` with the reason it
+# does not apply. The NoWayOS baseline: tools/baseline.toml.
+unmaintained = "all"
+unsound = "all"
+yanked = "deny"
+ignore = [
+    # rsa 0.9.10's Marvin attack: timing that can recover an RSA private key
+    # from its decryption or signing (no patched release). nowayos-tls-crypto
+    # only verifies signatures, with public keys, and its key provider loads
+    # no private key.
+    { id = "RUSTSEC-2023-0071", reason = "no RSA private key is used: rsa only verifies signatures, with public keys" },
+]
+
+[licenses]
+allow = ["MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "ISC"]
+confidence-threshold = 0.93
+include-dev = true
+unused-allowed-license = "allow"
+exceptions = [
+    # outside house list - signed off 2026-10-04: smoltcp 0.14.0, the IP stack NoWayOS's network stack PD runs, and its
+    # dependency managed 0.8.0, at those versions. 0BSD asks less than MIT.
+    # The only 0BSD crates allowed: any other fails here.
+    { crate = "smoltcp@0.14.0", allow = ["0BSD"] },
+    { crate = "managed@0.8.0", allow = ["0BSD"] },
+    # outside house list - signed off 2026-10-04 for development and CI
+    # fuzzing only: the libFuzzer sources
+    # libfuzzer-sys compiles into each fuzz target. Never in a device image,
+    # a shipped crate or a product's Cargo.lock.
+    { crate = "libfuzzer-sys", allow = ["Apache-2.0 WITH LLVM-exception"] },
+    # outside house list - signed off 2026-10-01 for every repo:
+    # Unicode-3.0, in unicode-ident's "(MIT OR Apache-2.0) AND Unicode-3.0".
+    # Build time only: proc-macro2 reaches it from curve25519-dalek-derive
+    # (curve25519-dalek's x86_64 SIMD back end, never built for a PD) and
+    # zeroize_derive, both through nowayos-tls-crypto.
+    { crate = "unicode-ident", allow = ["Unicode-3.0"] },
+]
+
+# libfuzzer-sys 0.4.13 declares "(MIT OR Apache-2.0) AND NCSA", and its README
+# says the libFuzzer sources it bundles (libfuzzer/) are NCSA - the licence
+# LLVM had before 2019. Every one of those source files now carries
+# "SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception", which the maintainer signed
+# off, so this states that instead. Pinned to this version: a new one is
+# checked again before it is used.
+[[licenses.clarify]]
+crate = "libfuzzer-sys@0.4.13"
+expression = "(MIT OR Apache-2.0) AND Apache-2.0 WITH LLVM-exception"
+license-files = []
+
+[licenses.private]
+# Our own crates declare their licence (MIT OR Apache-2.0, nowayos-glyphs
+# OFL-1.1, nowayos-icons ISC) and are checked like any other crate.
+ignore = false
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# Our crates are path dependencies; that is not a wildcard risk.
+allow-wildcard-paths = true
+# As in every workspace: the trusted path's banned crates, the NoWayOS
+# baseline's list (tools/baseline.toml), which make deny requires.
+deny = [
+    { crate = "wry", reason = "trusted-path non-negotiable: no WebView" },
+    { crate = "webkit2gtk", reason = "trusted-path non-negotiable: no browser engine" },
+    { crate = "webkit2gtk-sys", reason = "trusted-path non-negotiable: no browser engine" },
+    { crate = "webview2-com", reason = "trusted-path non-negotiable: no WebView" },
+    { crate = "servo", reason = "trusted-path non-negotiable: no browser engine" },
+    { crate = "tao", reason = "trusted-path non-negotiable: no window system" },
+    { crate = "winit", reason = "trusted-path non-negotiable: no window system" },
+    { crate = "x11", reason = "trusted-path non-negotiable: no window system" },
+    { crate = "x11-dl", reason = "trusted-path non-negotiable: no window system" },
+    { crate = "x11rb", reason = "trusted-path non-negotiable: no window system" },
+    { crate = "wayland-client", reason = "trusted-path non-negotiable: no window system" },
+    { crate = "wayland-sys", reason = "trusted-path non-negotiable: no window system" },
+    { crate = "gtk", reason = "trusted-path non-negotiable: no C GUI runtime" },
+    { crate = "gtk4", reason = "trusted-path non-negotiable: no C GUI runtime" },
+    { crate = "gtk-sys", reason = "trusted-path non-negotiable: no C GUI runtime" },
+    { crate = "sdl2", reason = "trusted-path non-negotiable: no C GUI runtime" },
+    { crate = "sdl2-sys", reason = "trusted-path non-negotiable: no C GUI runtime" },
+    { crate = "minifb", reason = "trusted-path non-negotiable: no window system" },
+    # No C or assembly cryptography in a PD, and no HPKE (MPL-2.0): rustls's
+    # provider is pure Rust, from RustCrypto crates. rustls-webpki names ring as an optional dependency, so the
+    # Cargo.lock lists it; it is never built, and fails here if it ever is.
+    { crate = "ring", reason = "rustls's provider is pure Rust (RustCrypto); ring brings C and assembly" },
+    { crate = "aws-lc-rs", reason = "rustls's provider is pure Rust (RustCrypto); aws-lc-rs brings C and needs std" },
+    { crate = "aws-lc-sys", reason = "rustls's provider is pure Rust (RustCrypto); aws-lc-sys is C" },
+    { crate = "aws-lc-fips-sys", reason = "rustls's provider is pure Rust (RustCrypto); aws-lc-fips-sys is C" },
+    { crate = "hpke-rs", reason = "no HPKE (MPL-2.0) in rustls's provider" },
+    { crate = "hpke-rs-crypto", reason = "no HPKE (MPL-2.0) in rustls's provider" },
+    { crate = "hpke-rs-rust-crypto", reason = "no HPKE (MPL-2.0) in rustls's provider" },
+]
+
+# Two generations of RustCrypto crates, on purpose: nowayos-tls-crypto
+# is on the digest 0.10 generation, because rsa 0.9.10 - the only stable rsa
+# - is, and the rest of rustls's provider must share its digest and
+# signature traits; nowayos-signature is on the digest 0.11 generation (p256
+# 0.14, sha2 0.11). These are the 0.10 generation's copies. One generation
+# again once a stable rsa moves to digest 0.11.
+skip = [
+    { crate = "base16ct@0.2.0", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
+    { crate = "block-buffer@0.10.4", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
+    { crate = "const-oid@0.9.6", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
+    { crate = "cpufeatures@0.2.17", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
+    { crate = "crypto-bigint@0.5.5", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
+    { crate = "crypto-common@0.1.7", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
+    { crate = "der@0.7.10", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
+    { crate = "digest@0.10.7", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
+    { crate = "ecdsa@0.16.9", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
+    { crate = "elliptic-curve@0.13.8", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
+    { crate = "ff@0.13.1", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
+    { crate = "group@0.13.0", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
+    { crate = "hmac@0.12.1", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
+    { crate = "p256@0.13.2", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
+    { crate = "primeorder@0.13.6", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
+    { crate = "rand_core@0.6.4", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
+    { crate = "rfc6979@0.4.0", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
+    { crate = "sec1@0.7.3", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
+    { crate = "sha2@0.10.9", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
+    { crate = "signature@2.2.0", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
+]
+
+# smoltcp is built with exactly the features the network stack PD needs:
+# a DHCP lease over Ethernet - medium-ethernet, proto-ipv4,
+# proto-dhcpv4 and socket-dhcpv4 - and TCP connections for its socket client
+# over `nowayos-socket`'s records (socket-tcp), `socket`, which they turn on,
+# and auto-icmp-echo-reply, the answer to ping (no code of its own
+# beyond smoltcp's ICMP reply, no crate).
+# Any other feature - std, alloc, log, UDP, IPv6, a raw socket - fails here
+# until it is added, in a reviewed change, and
+# managed keeps to `map`, with no allocation. The same in every workspace
+# that builds it (root, pds/, fuzz/).
+[[bans.features]]
+crate = "smoltcp"
+exact = true
+allow = ["medium-ethernet", "proto-ipv4", "proto-dhcpv4", "socket-dhcpv4", "socket-tcp", "socket", "auto-icmp-echo-reply"]
+reason = "only what the network stack PD needs: a DHCP lease over Ethernet, TCP connections for its one socket client, and an answer to ping, so a person can see it on the LAN"
+
+[[bans.features]]
+crate = "managed"
+exact = true
+allow = ["map"]
+reason = "no allocation in a PD: smoltcp's default `map` only"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+unused-allowed-source = "allow"

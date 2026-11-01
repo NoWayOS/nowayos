@@ -1,0 +1,16 @@
+# Input input-broker-test's QEMU receives over QMP (tools/qemu-test,
+# --qmp-script): each step waits for a serial line, then sends. The flood from
+# source 3 is over by the first step; the keyboard (source 2) and the tablet
+# (source 1) must be unaffected by it.
+wait NOWAYOS: input-flood: done
+# Type "a" on the keyboard.
+send {"execute": "input-send-event", "arguments": {"events": [{"type": "key", "data": {"down": true, "key": {"type": "qcode", "data": "a"}}}]}}
+wait NOWAYOS: input-print: key down 0x04
+send {"execute": "input-send-event", "arguments": {"events": [{"type": "key", "data": {"down": false, "key": {"type": "qcode", "data": "a"}}}]}}
+wait NOWAYOS: input-print: key up 0x04
+# Move the tablet to the middle of the screen, then click.
+send {"execute": "input-send-event", "arguments": {"events": [{"type": "abs", "data": {"axis": "x", "value": 16384}}, {"type": "abs", "data": {"axis": "y", "value": 16384}}]}}
+wait NOWAYOS: input-print: pointer at (400, 240)
+send {"execute": "input-send-event", "arguments": {"events": [{"type": "btn", "data": {"down": true, "button": "left"}}]}}
+wait NOWAYOS: input-print: button 0 down
+send {"execute": "input-send-event", "arguments": {"events": [{"type": "btn", "data": {"down": false, "button": "left"}}]}}

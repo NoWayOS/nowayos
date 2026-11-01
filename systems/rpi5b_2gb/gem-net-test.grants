@@ -1,0 +1,64 @@
+# Everything systems/rpi5b_2gb/gem-net-test.system grants, one fact per line.
+# tools/check-system fails the build if the system description grants
+# anything not listed here, or lists anything it does not grant (format: see
+# tools/check-system). A change here is a security change: call it out in the
+# pull request.
+
+# The kind of system, and each PD's role (tools/grant-rules.toml).
+system test
+role timer driver
+role gem_net driver
+role seed_source test
+role net_stack network
+role run_watchdog watchdog
+role ticker test
+
+pd timer priority=220 budget=1000 period=1000
+pd gem_net priority=200 budget=1000 period=1000
+pd seed_source priority=150 budget=1000 period=1000
+pd net_stack priority=100 budget=1000 period=1000
+pd run_watchdog priority=250 budget=1000 period=1000
+pd ticker priority=210 budget=1000 period=1000
+
+device timer system_timer rw
+irq timer system_timer 97
+device gem_net rp1_eth rw
+device gem_net rp1_gpio_bank1 rw
+device gem_net rp1_pads_bank1 rw
+map gem_net eth_rings rw
+paddr gem_net eth_rings
+map gem_net eth_scratch rw
+paddr gem_net eth_scratch
+paddr gem_net rx_buffers
+paddr gem_net tx_buffers
+map gem_net rx_free rw
+map gem_net rx_active rw
+map gem_net tx_free rw
+map gem_net tx_active rw
+map gem_net eth_facts r
+map net_stack rx_free rw
+map net_stack rx_active rw
+map net_stack tx_free rw
+map net_stack tx_active rw
+map net_stack rx_buffers r
+map net_stack tx_buffers rw
+map seed_source seed_ring rw
+map seed_source seed_ring_control r
+map net_stack seed_ring r
+map net_stack seed_ring_control rw
+channel gem_net net_stack
+channel gem_net timer notify=timer
+call gem_net timer
+channel net_stack timer notify=timer
+call net_stack timer
+channel seed_source net_stack notify=seed_source
+
+# The run's length: the watchdog holds the PM block's page - only a
+# watchdog PD may - and keeps the PM watchdog armed while the ticker ticks;
+# the ticker reads its run length, a test-only prefill (rule 12), and calls
+# the timer.
+device run_watchdog pm_watchdog rw
+map ticker run_length r
+channel ticker run_watchdog notify=ticker
+channel ticker timer notify=timer
+call ticker timer

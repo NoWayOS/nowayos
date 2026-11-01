@@ -1,0 +1,39 @@
+# Lines tools/qemu-test must see, in this order, as whole serial lines.
+# The watchdog PD services the hardware watchdog's
+# stand-in for ten rounds, each ended by the stand-in's 200 ms tick, while
+# the supervisor and three probes answer their heartbeats; then looper loops
+# and starves lower, and at round 11 the watchdog names both, highest
+# priority first, and stops servicing; three ticks later the stand-in says
+# the hardware would now reset the board.
+NOWAYOS: supervisor: starting; children watchdog (0), timer (1), stand_in (2), upper (3), looper (4) and lower (5)
+NOWAYOS: watchdog: watching 4 PDs, highest priority first: watchdog_supervisor, upper, looper, lower
+NOWAYOS: watchdog-stand-in: a tick to the watchdog every 200 ms; unserviced for 3 ticks, the hardware would reset the board
+NOWAYOS: heartbeat-probe: upper answering its heartbeat
+NOWAYOS: heartbeat-probe: looper answering its heartbeat
+NOWAYOS: heartbeat-probe: lower answering its heartbeat
+NOWAYOS: watchdog: round 1: every PD answered; hardware watchdog serviced
+NOWAYOS: watchdog: round 2: every PD answered; hardware watchdog serviced
+NOWAYOS: watchdog: round 3: every PD answered; hardware watchdog serviced
+NOWAYOS: watchdog: round 4: every PD answered; hardware watchdog serviced
+NOWAYOS: watchdog: round 5: every PD answered; hardware watchdog serviced
+NOWAYOS: watchdog: round 6: every PD answered; hardware watchdog serviced
+NOWAYOS: watchdog: round 7: every PD answered; hardware watchdog serviced
+NOWAYOS: watchdog: round 8: every PD answered; hardware watchdog serviced
+NOWAYOS: watchdog: round 9: every PD answered; hardware watchdog serviced
+NOWAYOS: watchdog: round 10: every PD answered; hardware watchdog serviced
+NOWAYOS: heartbeat-probe: looper: looping from now on, after 10 answers, starving every PD below it
+NOWAYOS: watchdog: round 11: no answer from looper, lower (highest priority first); the hardware watchdog is no longer serviced and will reset the board
+NOWAYOS: watchdog-stand-in: serviced 10 times, then not for 3 ticks (600 ms): the hardware would now reset the board
+
+# Output that fails the test at once if it appears anywhere (substring match):
+# a fault the monitor or the supervisor saw, a kernel error message, a PD
+# giving up, the watchdog unable to watch, servicing after a miss, or the
+# reset coming before looper loops.
+!MON|ERROR
+!seL4(CPU
+!stopped:
+!NOT stopped
+!gave up
+!cannot watch
+!round 12
+!panicked

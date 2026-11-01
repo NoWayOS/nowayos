@@ -1,0 +1,573 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT OR Apache-2.0
+"""Write a CycloneDX 1.5 SBOM for one Cargo workspace.
+
+Usage:
+    sbom --workspace DIR --name NAME --out FILE [--target TRIPLE]
+         [--kind library|application] [--all-features]
+         [--host-only CRATE]... [--host-only-workspace]
+         [--std-crates FILE --std-library DIR --toolchain CHANNEL]
+         [--cargo CARGO] [--metadata FILE --metadata-target FILE]
+
+Every NoWayOS repo's `make sbom` runs this for each of its Cargo
+workspaces. It reads `cargo metadata` (run in DIR, --locked) and DIR's
+Cargo.lock, and lists every crate in the workspace's resolved graph - name,
+version, source, licence (the manifest's SPDX expression) and, for crates
+from a registry, the sha256 Cargo.lock pins - with the dependency graph.
+
+The same rule marks components in every repo. `scope: required` is what the
+workspace's product is built from: the members (but --host-only ones) and
+everything they reach through normal dependencies, for --target when it is
+given (cargo metadata --filter-platform), stopping at proc macros. Every
+other crate is `scope: excluded`, with a `nowayos:excluded` property
+saying why: a test-only (dev-) dependency, a build-time tool (a build
+script's or proc macro's), a host-only crate, or a dependency for another
+platform only. The standard-library crates that build-std compiles into the
+protection domains (--std-crates, the reviewed pds/std-crates.txt, with
+their versions from rust-src under --std-library) are listed as required.
+
+The output is a pure function of its inputs: no timestamp, serial number or
+absolute path, and everything sorted, so two runs on one commit give the
+same bytes. Each SBOM is checked against the CycloneDX 1.5 structure this
+tool writes (validate) before it is written.
+
+--metadata and --metadata-target read cargo metadata's output from files
+instead of running cargo (the tests use them).
+
+Exit status: 0 written; 1 the SBOM failed its own validation; 2 usage or
+input error. Python 3.11 or later (tomllib), standard library only.
+"""
+
+import argparse
+import json
+import os
+import re
+import subprocess
+import sys
+import urllib.parse
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python before 3.11
+    tomllib = None
+
+EXIT_PASS = 0
+EXIT_FAIL = 1
+EXIT_ERROR = 2
+
+SPEC_VERSION = "1.5"
+TOOL_NAME = "nowayos-sbom"
+CRATES_IO = "registry+https://github.com/rust-lang/crates.io-index"
+UNDECLARED = "Not declared: an unpublished NoWayOS crate (its repository states its licence)"
+REASONS = {
+    "dev": "test only: a dev-dependency",
+    "build": "build time only: a build script's or proc macro's dependency",
+    "host": "host only: a workspace crate that never ships, or its dependency",
+    "platform": "not built for the target: another platform's dependency",
+    "unused": "not built: in the lock file, but no enabled feature uses it",
+}
+
+# CycloneDX 1.5: the enumerations and patterns of the fields this tool writes.
+COMPONENT_TYPES = {"application", "framework", "library", "container", "platform", "operating-system",
+                   "device", "device-driver", "firmware", "file", "machine-learning-model", "data"}
+SCOPES = {"required", "optional", "excluded"}
+HASH_ALGS = {"MD5", "SHA-1", "SHA-256", "SHA-384", "SHA-512", "SHA3-256", "SHA3-384", "SHA3-512",
+             "BLAKE2b-256", "BLAKE2b-384", "BLAKE2b-512", "BLAKE3"}
+HASH_CONTENT = re.compile(r"^([a-fA-F0-9]{32}|[a-fA-F0-9]{40}|[a-fA-F0-9]{64}|[a-fA-F0-9]{96}|[a-fA-F0-9]{128})$")
+# compositions[].aggregate: how complete the list of an assembly's parts is.
+AGGREGATES = {"complete", "incomplete", "incomplete_first_party_only", "incomplete_first_party_proprietary_only",
+              "incomplete_first_party_opensource_only", "incomplete_third_party_only",
+              "incomplete_third_party_proprietary_only", "incomplete_third_party_opensource_only", "unknown",
+              "not_specified"}
+EXTERNAL_REFERENCE_TYPES = {"vcs", "issue-tracker", "website", "advisories", "bom", "mailing-list", "social",
+                            "chat", "documentation", "support", "distribution", "distribution-intake",
+                            "license", "build-meta", "build-system", "release-notes", "security-contact",
+                            "model-card", "log", "configuration", "evidence", "formulation",
+                            "attestation", "threat-model", "adversary-model", "risk-assessment",
+                            "vulnerability-assertion", "exploitability-statement", "pentest-report",
+                            "static-analysis-report", "dynamic-analysis-report", "runtime-analysis-report",
+                            "component-analysis-report", "maturity-report", "certification-report",
+                            "codified-infrastructure", "quality-metrics", "poam", "other"}
+
+
+class InputError(Exception):
+    """An input could not be read or does not have the expected shape."""
+
+
+def load_json(path):
+    try:
+        with open(path, encoding="utf-8") as handle:
+            return json.load(handle)
+    except (OSError, json.JSONDecodeError) as err:
+        raise InputError(f"cannot read {path}: {err}") from err
+
+
+def load_toml(path):
+    try:
+        with open(path, "rb") as handle:
+            return tomllib.load(handle)
+    except (OSError, tomllib.TOMLDecodeError) as err:
+        raise InputError(f"cannot read {path}: {err}") from err
+
+
+def cargo_metadata(cargo, workspace, target, all_features):
+    command = [cargo, "metadata", "--format-version", "1", "--locked"]
+    if target:
+        command += ["--filter-platform", target]
+    if all_features:
+        command.append("--all-features")
+    try:
+        result = subprocess.run(command, cwd=workspace, capture_output=True, text=True, check=False)
+    except OSError as err:
+        raise InputError(f"cannot run {cargo}: {err}") from err
+    if result.returncode != 0:
+        raise InputError(f"'{' '.join(command)}' in {workspace} failed:\n{result.stderr.strip()}")
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError as err:
+        raise InputError(f"cargo metadata in {workspace} printed no JSON: {err}") from err
+
+
+def read_std_crates(path):
+    """[(crate, licence)] from the reviewed list (pds/std-crates.txt)."""
+    try:
+        with open(path, encoding="utf-8") as handle:
+            lines = handle.read().splitlines()
+    except OSError as err:
+        raise InputError(f"cannot read {path}: {err}") from err
+    listed = []
+    for number, line in enumerate(lines, start=1):
+        text = line.split("#", 1)[0].strip()
+        if not text:
+            continue
+        name, _, licence = text.partition(" ")
+        if not licence.strip():
+            raise InputError(f"{path}:{number}: expected `crate licence`")
+        listed.append((name.replace("-", "_"), " ".join(licence.split())))
+    return listed
+
+
+def std_versions(library):
+    """{crate: version} for the package manifests under rust-src's library/."""
+    found = {}
+    for root, _dirs, files in os.walk(library):
+        if "Cargo.toml" not in files or root.count(os.sep) - library.count(os.sep) > 2:
+            continue
+        package = load_toml(os.path.join(root, "Cargo.toml")).get("package")
+        if isinstance(package, dict) and isinstance(package.get("name"), str):
+            version = package.get("version")
+            found[package["name"].replace("-", "_")] = version if isinstance(version, str) else None
+    return found
+
+
+def licence_of(package):
+    """The CycloneDX licences of a cargo package."""
+    expression = package.get("license")
+    if isinstance(expression, str) and expression.strip():
+        # Cargo's legacy separator: "MIT/Apache-2.0" means MIT OR Apache-2.0.
+        expression = " OR ".join(part.strip() for part in expression.split("/")) if "/" in expression else expression
+        return [{"expression": " ".join(expression.split())}]
+    if package.get("license_file"):
+        return [{"license": {"name": f"See {os.path.basename(package['license_file'])} in the crate (no SPDX expression)"}}]
+    return [{"license": {"name": UNDECLARED}}]
+
+
+class Workspace:
+    """One workspace's packages, graph and component identities."""
+
+    def __init__(self, metadata, target_metadata, workspace_dir):
+        self.root = os.path.realpath(metadata.get("workspace_root") or workspace_dir)
+        self.packages = {p["id"]: p for p in metadata.get("packages", [])}
+        self.members = list(metadata.get("workspace_members", []))
+        if not self.members or metadata.get("resolve") is None:
+            raise InputError("cargo metadata has no workspace members or no resolve graph")
+        self.edges = self.graph(metadata)
+        self.target_edges = self.graph(target_metadata) if target_metadata is not None else self.edges
+        self.refs = {pid: self.ref_of(package) for pid, package in self.packages.items()}
+
+    @staticmethod
+    def graph(metadata):
+        """{package id: [(dependency id, {kinds})]}, kinds among normal/dev/build."""
+        edges = {}
+        for node in metadata["resolve"]["nodes"]:
+            out = []
+            for dep in node.get("deps", []):
+                kinds = {kind.get("kind") or "normal" for kind in dep.get("dep_kinds", [])} or {"normal"}
+                out.append((dep["pkg"], kinds))
+            edges[node["id"]] = out
+        return edges
+
+    def relative(self, manifest_path):
+        directory = os.path.dirname(os.path.realpath(manifest_path))
+        return os.path.relpath(directory, self.root).replace(os.sep, "/")
+
+    def ref_of(self, package):
+        source = package.get("source")
+        name, version = package["name"], package["version"]
+        if source is None:
+            return f"path:{self.relative(package['manifest_path'])}@{version}"
+        if source == CRATES_IO:
+            return f"pkg:cargo/{name}@{version}"
+        if source.startswith("git+"):
+            url = source[len("git+"):].split("#", 1)[0]
+            commit = source.split("#", 1)[1] if "#" in source else ""
+            vcs = urllib.parse.quote(f"git+{url.split('?', 1)[0]}@{commit}", safe="")
+            return f"pkg:cargo/{name}@{version}?vcs_url={vcs}"
+        return f"cargo:{source}#{name}@{version}"
+
+    def is_proc_macro(self, pid):
+        package = self.packages.get(pid, {})
+        return any("proc-macro" in target.get("kind", []) for target in package.get("targets", []))
+
+    def required(self, host_only):
+        """Package ids built into the product: normal edges from the shipped members."""
+        seen = set()
+        stack = [pid for pid in self.members if self.packages[pid]["name"] not in host_only]
+        while stack:
+            pid = stack.pop()
+            if pid in seen or self.is_proc_macro(pid):
+                continue
+            seen.add(pid)
+            stack.extend(dep for dep, kinds in self.target_edges.get(pid, []) if "normal" in kinds)
+        return seen
+
+    def reasons(self, host_only):
+        """{package id: {reason keys}}: how each package is reached from the members."""
+        reached = {}
+        stack = [(pid, "host" if self.packages[pid]["name"] in host_only else "normal") for pid in self.members]
+        while stack:
+            pid, how = stack.pop()
+            if how == "normal" and self.is_proc_macro(pid):
+                how = "build"
+            if how in reached.setdefault(pid, set()):
+                continue
+            reached[pid].add(how)
+            for dep, kinds in self.edges.get(pid, []):
+                for kind in kinds:
+                    stack.append((dep, kind if how == "normal" else how))
+        return reached
+
+
+def component(workspace, pid, scope, reasons, checksums):
+    package = workspace.packages[pid]
+    ref = workspace.refs[pid]
+    source = package.get("source")
+    entry = {"type": "library", "bom-ref": ref, "name": package["name"], "version": package["version"]}
+    if package.get("description"):
+        entry["description"] = " ".join(package["description"].split())
+    entry["scope"] = scope
+    checksum = checksums.get((package["name"], package["version"], source))
+    if checksum:
+        entry["hashes"] = [{"alg": "SHA-256", "content": checksum}]
+    entry["licenses"] = licence_of(package)
+    if ref.startswith("pkg:"):
+        entry["purl"] = ref
+    if source is None:
+        where = f"path {workspace.relative(package['manifest_path'])}"
+    elif source == CRATES_IO:
+        where = "crates.io"
+    else:
+        where = source.split("#", 1)[0]
+    if source and source.startswith("git+"):
+        url = source[len("git+"):].split("?", 1)[0].split("#", 1)[0]
+        entry["externalReferences"] = [{"type": "vcs", "url": url}]
+    properties = [{"name": "nowayos:source", "value": where}]
+    if scope == "excluded":
+        why = sorted(reasons)
+        properties.append({"name": "nowayos:excluded", "value": "; ".join(REASONS[key] for key in why)})
+    entry["properties"] = properties
+    return entry
+
+
+def build_sbom(args, metadata, target_metadata, lock):
+    workspace = Workspace(metadata, target_metadata, args.workspace)
+    host_only = set(args.host_only)
+    if args.host_only_workspace:
+        host_only |= {workspace.packages[pid]["name"] for pid in workspace.members}
+    names = {workspace.packages[pid]["name"] for pid in workspace.members}
+    unknown = sorted(host_only - names)
+    if unknown:
+        raise InputError(f"--host-only names {', '.join(unknown)}, which is not a member of the workspace")
+    checksums = {
+        (p.get("name"), p.get("version"), p.get("source")): p.get("checksum")
+        for p in lock.get("package", []) if p.get("checksum")
+    }
+    required = workspace.required(host_only)
+    reached = workspace.reasons(host_only)
+    components = []
+    for pid in workspace.packages:
+        if pid in required:
+            components.append(component(workspace, pid, "required", set(), checksums))
+        else:
+            why = {how if how != "normal" else "platform" for how in reached.get(pid, set())} or {"unused"}
+            components.append(component(workspace, pid, "excluded", why, checksums))
+    root_ref = f"workspace:{args.name}"
+    dependencies = [{"ref": root_ref, "dependsOn": sorted(workspace.refs[pid] for pid in workspace.members)}] + [
+        {"ref": workspace.refs[pid],
+         "dependsOn": sorted({workspace.refs[dep] for dep, _kinds in workspace.edges.get(pid, []) if dep in workspace.refs})}
+        for pid in workspace.packages
+    ]
+    if args.std_crates:
+        versions = std_versions(args.std_library) if args.std_library else {}
+        for name, licence in read_std_crates(args.std_crates):
+            version = versions.get(name)
+            if not version:
+                raise InputError(f"no version for the standard-library crate {name} under {args.std_library}")
+            ref = f"rust-std:{name}@{version}"
+            components.append({
+                "type": "library", "bom-ref": ref, "name": name, "version": version,
+                "description": f"Rust standard-library crate compiled into the protection domains by build-std, from the rust-src of {args.toolchain}",
+                "scope": "required",
+                "licenses": [{"expression": licence}],
+                "properties": [{"name": "nowayos:source", "value": f"rust-src of {args.toolchain} (build-std)"}],
+            })
+            dependencies.append({"ref": ref, "dependsOn": []})
+    components.sort(key=lambda entry: entry["bom-ref"])
+    dependencies.sort(key=lambda entry: entry["ref"])
+    if args.target:
+        runs_on = f"the device: built for {args.target}"
+    elif args.host_only_workspace:
+        runs_on = "nowhere: a host-only workspace (tests and tools); nothing in it ships"
+    else:
+        runs_on = "the build host: a tool that never ships on a device"
+    properties = [
+        {"name": "nowayos:workspace", "value": args.name},
+        {"name": "nowayos:runs-on", "value": runs_on},
+        {"name": "nowayos:features", "value": "all features" if args.all_features else "default features"},
+        {"name": "nowayos:scope-rule", "value": (
+            "required: what the workspace's product is built from - its members, but host-only ones, and their "
+            "normal dependencies for the target, stopping at proc macros; excluded: everything else in the "
+            "resolved graph, with the reason in nowayos:excluded")},
+    ]
+    if args.std_crates:
+        properties.append({"name": "nowayos:toolchain", "value": args.toolchain})
+    return {
+        "bomFormat": "CycloneDX",
+        "specVersion": SPEC_VERSION,
+        "version": 1,
+        "metadata": {
+            "tools": {"components": [{
+                "type": "application", "name": TOOL_NAME,
+                "description": "nowayos/tools/sbom: CycloneDX from cargo metadata and Cargo.lock, Python standard library only",
+            }]},
+            "component": {"type": args.kind, "bom-ref": root_ref, "name": args.name},
+            "properties": properties,
+        },
+        "components": components,
+        "dependencies": dependencies,
+    }
+
+
+def validate(document):
+    """Problems with `document` as a CycloneDX 1.5 BOM, for the fields this
+    tool and tools/image-sbom write. A top-level component may hold the parts
+    it is made of as nested components, one level deep (image-sbom's audited
+    capDL initialiser); their bom-refs share the document's namespace."""
+    problems = []
+
+    def need(condition, message):
+        if not condition:
+            problems.append(message)
+
+    def is_text(value):
+        return isinstance(value, str) and value != ""
+
+    def check_properties(where, properties):
+        need(isinstance(properties, list), f"{where}.properties must be an array")
+        for index, prop in enumerate(properties if isinstance(properties, list) else []):
+            need(isinstance(prop, dict) and is_text(prop.get("name")) and isinstance(prop.get("value"), str),
+                 f"{where}.properties[{index}] needs a name and a string value")
+
+    def check_hashes(where, hashes):
+        need(isinstance(hashes, list), f"{where}.hashes must be an array")
+        for index, digest in enumerate(hashes if isinstance(hashes, list) else []):
+            need(isinstance(digest, dict) and digest.get("alg") in HASH_ALGS
+                 and isinstance(digest.get("content"), str) and HASH_CONTENT.match(digest["content"]) is not None,
+                 f"{where}.hashes[{index}] needs a CycloneDX alg and a hex digest")
+
+    def check_component(where, entry, nested_ok=False):
+        if not isinstance(entry, dict):
+            problems.append(f"{where} must be an object")
+            return
+        need(entry.get("type") in COMPONENT_TYPES, f"{where}.type {entry.get('type')!r} is not a CycloneDX component type")
+        need(is_text(entry.get("name")), f"{where}.name is required")
+        for key in ("version", "bom-ref", "description", "purl"):
+            if key in entry:
+                need(is_text(entry[key]), f"{where}.{key} must be a non-empty string")
+        if "purl" in entry:
+            need(str(entry["purl"]).startswith("pkg:"), f"{where}.purl must be a package URL (pkg:...)")
+        if "scope" in entry:
+            need(entry["scope"] in SCOPES, f"{where}.scope {entry['scope']!r} is not required, optional or excluded")
+        check_hashes(where, entry.get("hashes", []))
+        if "licenses" in entry:
+            licences = entry["licenses"]
+            need(isinstance(licences, list) and licences, f"{where}.licenses must be a non-empty array")
+            if isinstance(licences, list) and any(isinstance(c, dict) and "expression" in c for c in licences):
+                need(len(licences) == 1, f"{where}.licenses: an expression must be the only entry")
+            for index, choice in enumerate(licences if isinstance(licences, list) else []):
+                if not isinstance(choice, dict):
+                    problems.append(f"{where}.licenses[{index}] must be an object")
+                elif "expression" in choice:
+                    need(is_text(choice["expression"]) and len(choice) == 1,
+                         f"{where}.licenses[{index}]: an expression stands alone, as a string")
+                else:
+                    licence = choice.get("license")
+                    need(isinstance(licence, dict) and (is_text(licence.get("id")) or is_text(licence.get("name")))
+                         and not ("id" in licence and "name" in licence),
+                         f"{where}.licenses[{index}].license needs exactly one of id or name")
+        for index, ref in enumerate(entry.get("externalReferences", [])):
+            need(isinstance(ref, dict) and ref.get("type") in EXTERNAL_REFERENCE_TYPES and is_text(ref.get("url")),
+                 f"{where}.externalReferences[{index}] needs a CycloneDX type and a url")
+            if isinstance(ref, dict):
+                check_hashes(f"{where}.externalReferences[{index}]", ref.get("hashes", []))
+        if "properties" in entry:
+            check_properties(where, entry["properties"])
+        if "components" in entry and not nested_ok:
+            problems.append(f"{where} must not nest components")
+        elif "components" in entry:
+            nested = entry["components"]
+            need(isinstance(nested, list) and nested, f"{where}.components must be a non-empty array")
+            for index, part in enumerate(nested if isinstance(nested, list) else []):
+                check_component(f"{where}.components[{index}]", part)
+
+    if not isinstance(document, dict):
+        return ["the SBOM must be a JSON object"]
+    need(document.get("bomFormat") == "CycloneDX", "bomFormat must be \"CycloneDX\"")
+    need(document.get("specVersion") == SPEC_VERSION, f"specVersion must be \"{SPEC_VERSION}\"")
+    need(isinstance(document.get("version"), int) and not isinstance(document.get("version"), bool)
+         and document.get("version", 0) >= 1, "version must be an integer, 1 or more")
+    allowed = {"$schema", "bomFormat", "specVersion", "serialNumber", "version", "metadata", "components",
+               "services", "externalReferences", "dependencies", "compositions", "properties",
+               "vulnerabilities", "annotations", "formulation", "signature"}
+    need(set(document) <= allowed, f"fields CycloneDX {SPEC_VERSION} does not have: {sorted(set(document) - allowed)}")
+    metadata = document.get("metadata")
+    if isinstance(metadata, dict):
+        tools = metadata.get("tools")
+        need(isinstance(tools, dict) and isinstance(tools.get("components"), list) and tools["components"],
+             "metadata.tools must be an object with a non-empty components array (CycloneDX 1.5)")
+        for index, tool in enumerate(tools.get("components", []) if isinstance(tools, dict) else []):
+            check_component(f"metadata.tools.components[{index}]", tool)
+        check_component("metadata.component", metadata.get("component"))
+        if "properties" in metadata:
+            check_properties("metadata", metadata["properties"])
+    else:
+        problems.append("metadata must be an object")
+    components = document.get("components")
+    refs = set()
+    if isinstance(components, list):
+        for index, entry in enumerate(components):
+            check_component(f"components[{index}]", entry, nested_ok=True)
+            nested = entry.get("components") if isinstance(entry, dict) else None
+            parts = [(f"components[{index}]", entry)] + [
+                (f"components[{index}].components[{inner}]", part)
+                for inner, part in enumerate(nested if isinstance(nested, list) else [])]
+            for where, part in parts:
+                ref = part.get("bom-ref") if isinstance(part, dict) else None
+                need(is_text(ref), f"{where} needs a bom-ref")
+                need(ref not in refs, f"{where}: bom-ref {ref!r} is not unique")
+                refs.add(ref)
+    else:
+        problems.append("components must be an array")
+    if isinstance(metadata, dict) and isinstance(metadata.get("component"), dict):
+        root = metadata["component"].get("bom-ref")
+        need(root not in refs, "metadata.component's bom-ref must differ from every component's")
+        if is_text(root):
+            refs.add(root)
+    dependencies = document.get("dependencies")
+    if isinstance(dependencies, list):
+        seen = set()
+        for index, dependency in enumerate(dependencies):
+            if not isinstance(dependency, dict):
+                problems.append(f"dependencies[{index}] must be an object")
+                continue
+            ref = dependency.get("ref")
+            need(ref in refs, f"dependencies[{index}].ref {ref!r} names no component")
+            need(ref not in seen, f"dependencies[{index}].ref {ref!r} appears twice")
+            seen.add(ref)
+            depends_on = dependency.get("dependsOn", [])
+            need(isinstance(depends_on, list) and len(set(depends_on)) == len(depends_on),
+                 f"dependencies[{index}].dependsOn must be an array of unique refs")
+            for other in depends_on if isinstance(depends_on, list) else []:
+                need(other in refs, f"dependencies[{index}]: {other!r} names no component")
+    else:
+        problems.append("dependencies must be an array")
+    compositions = document.get("compositions", [])
+    if isinstance(compositions, list):
+        for index, composition in enumerate(compositions):
+            if not isinstance(composition, dict):
+                problems.append(f"compositions[{index}] must be an object")
+                continue
+            need(composition.get("aggregate") in AGGREGATES,
+                 f"compositions[{index}].aggregate {composition.get('aggregate')!r} is not a CycloneDX aggregate")
+            assemblies = composition.get("assemblies", [])
+            need(isinstance(assemblies, list) and len(set(assemblies)) == len(assemblies),
+                 f"compositions[{index}].assemblies must be an array of unique refs")
+            for other in assemblies if isinstance(assemblies, list) else []:
+                need(other in refs, f"compositions[{index}]: {other!r} names no component")
+    else:
+        problems.append("compositions must be an array")
+    return problems
+
+
+def render(document):
+    """The SBOM's bytes: stable key order and indentation, one trailing newline."""
+    return json.dumps(document, indent=2, ensure_ascii=False) + "\n"
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n", 1)[0])
+    parser.add_argument("--workspace", required=True, help="the Cargo workspace's directory")
+    parser.add_argument("--name", required=True, help="the SBOM's name for the workspace, e.g. nowayos-pds")
+    parser.add_argument("--out", required=True, help="the CycloneDX JSON file to write")
+    parser.add_argument("--target", help="the device target the product is built for (cargo metadata --filter-platform)")
+    parser.add_argument("--kind", choices=["library", "application"], default="library")
+    parser.add_argument("--all-features", action="store_true", help="resolve with every feature (a product built with them)")
+    parser.add_argument("--host-only", action="append", default=[], metavar="CRATE",
+                        help="a workspace member that never ships (repeatable)")
+    parser.add_argument("--host-only-workspace", action="store_true", help="no member ships: a test harness")
+    parser.add_argument("--std-crates", help="the reviewed list of build-std crates (pds/std-crates.txt)")
+    parser.add_argument("--std-library", help="rust-src's library/ directory, for the std crates' versions")
+    parser.add_argument("--toolchain", default="", help="the toolchain the std crates come from")
+    parser.add_argument("--cargo", default="cargo")
+    parser.add_argument("--metadata", help="cargo metadata's output, instead of running cargo")
+    parser.add_argument("--metadata-target", help="cargo metadata --filter-platform's output, with --metadata")
+    args = parser.parse_args()
+    if tomllib is None:
+        print("sbom: needs Python 3.11 or later (tomllib); run it in the dev container", file=sys.stderr)
+        return EXIT_ERROR
+    if args.std_crates and not (args.std_library and args.toolchain):
+        parser.error("--std-crates needs --std-library and --toolchain")
+    try:
+        if args.metadata:
+            metadata = load_json(args.metadata)
+            target_metadata = load_json(args.metadata_target) if args.metadata_target else None
+        else:
+            metadata = cargo_metadata(args.cargo, args.workspace, None, args.all_features)
+            target_metadata = (cargo_metadata(args.cargo, args.workspace, args.target, args.all_features)
+                               if args.target else None)
+        lock = load_toml(os.path.join(args.workspace, "Cargo.lock"))
+        document = build_sbom(args, metadata, target_metadata, lock)
+    except InputError as err:
+        print(f"sbom: {err}", file=sys.stderr)
+        return EXIT_ERROR
+    problems = validate(document)
+    if problems:
+        print(f"sbom: FAIL - the SBOM for {args.name} is not valid CycloneDX {SPEC_VERSION}:", file=sys.stderr)
+        for problem in problems:
+            print(f"    {problem}", file=sys.stderr)
+        return EXIT_FAIL
+    try:
+        os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
+        with open(args.out, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write(render(document))
+    except OSError as err:
+        print(f"sbom: cannot write {args.out}: {err}", file=sys.stderr)
+        return EXIT_ERROR
+    required = sum(1 for entry in document["components"] if entry["scope"] == "required")
+    print(f"sbom: {args.out}: {len(document['components'])} components, {required} required "
+          f"(the rest marked excluded), CycloneDX {SPEC_VERSION}")
+    return EXIT_PASS
+
+
+if __name__ == "__main__":
+    sys.exit(main())

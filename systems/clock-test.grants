@@ -1,0 +1,56 @@
+# Everything systems/clock-test.system grants, one fact per line.
+# tools/check-system fails the build if the system description grants anything
+# not listed here, or lists anything it does not grant, and checks the grants
+# again in the kernel objects the Microkit tool generates (format: see
+# tools/check-system). A change here is a security change: call it out in the
+# pull request.
+
+# A test system: tls_stand_in and reader are test instruments (one program
+# image, nowayos-clock-test). The clock has the role clock: no device memory,
+# interrupt or physical address (tools/grant-rules.toml), and no SMC
+# capability, which is the supervisor's alone.
+system test
+role timer driver
+role clock clock
+role tls_stand_in test
+role reader test
+
+# Each PD that calls another runs below it, as a protected procedure call
+# must go to a strictly higher priority: the timer above the clock, the clock
+# above the PDs that read it. Every PD keeps Microkit's default budget (budget
+# = period): the timer's and the clock's work per call or notification is
+# small and bounded - the clock takes at most its ring's four samples per
+# notification - and throttling them would only delay a reading.
+pd timer priority=200 budget=1000 period=1000
+pd clock priority=150 budget=1000 period=1000
+pd tls_stand_in priority=100 budget=1000 period=1000
+pd reader priority=90 budget=1000 period=1000
+
+# Only the timer PD holds the timer interrupt.
+irq timer phys_timer
+
+# The build time, read-only everywhere (rule 12), and tls_stand_in's ring
+# into the clock: each side writes only the region it owns. tls_stand_in is
+# the one PD that can write a region the clock maps: a test PD, which only a
+# test system allows (clock-samples-only-from-network: elsewhere, only a
+# network PD may).
+map clock build_time r
+map clock clock_samples r
+map clock clock_samples_control rw
+map tls_stand_in build_time r
+map tls_stand_in clock_samples rw
+map tls_stand_in clock_samples_control r
+
+# The clock calls the timer; neither notifies the other.
+channel clock timer notify=none
+call clock timer
+# tls_stand_in calls the timer, which notifies it of its timeout.
+channel tls_stand_in timer notify=timer
+call tls_stand_in timer
+# tls_stand_in calls the clock, and notifies it when a sample waits: the only
+# channel on which the clock is notified.
+channel tls_stand_in clock notify=tls_stand_in
+call tls_stand_in clock
+# reader may only call the clock.
+channel reader clock notify=none
+call reader clock

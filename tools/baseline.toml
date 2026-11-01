@@ -1,0 +1,91 @@
+# The settings every NoWayOS Cargo workspace must have. tools/check-baseline compares each
+# workspace with this file from that repo's `make deny`, and fails naming the
+# workspace and the setting that drifted.
+#
+# A workspace may be stricter, never weaker: a lint at a higher level
+# ("forbid" for "deny"), a higher confidence threshold, fewer allowed
+# licences, more banned crates. Crate-specific licence exceptions go in
+# that workspace's [[licenses.exceptions]], with their sign-off.
+
+# [workspace.lints] in Cargo.toml. Every member takes them
+# (`[lints] workspace = true`); a crate on the approved-unsafe list may have
+# its own table instead, with the same lints except `unsafe_code = "deny"`.
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+# No panicking shortcuts on fallible operations.
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+unreachable = "deny"
+# No panic inside a function that returns Result.
+panic_in_result_fn = "deny"
+# Every #[allow] says why.
+allow_attributes_without_reason = "deny"
+# No out-of-bounds panics and no unchecked arithmetic on lengths and offsets.
+indexing_slicing = "deny"
+arithmetic_side_effects = "deny"
+# Every unsafe block states its invariants.
+undocumented_unsafe_blocks = "deny"
+
+# [profile.*] in Cargo.toml: overflow checks stay on in release builds, and
+# a panic aborts rather than unwinds.
+[profile.release]
+overflow-checks = true
+panic = "abort"
+
+[profile.dev]
+panic = "abort"
+
+# deny.toml.
+[deny.advisories]
+unmaintained = "all"
+unsound = "all"
+yanked = "deny"
+
+[deny.licenses]
+allow = ["MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "ISC"]
+confidence-threshold = 0.93
+include-dev = true
+
+[deny.bans]
+wildcards = "deny"
+# The trusted path has no browser engine, WebView, window system or C GUI
+# runtime (non-negotiables), so their usual
+# crates are banned by name in every workspace, where one can never arrive
+# as a dependency of something else. Each deny.toml bans every crate here
+# outright, in its [bans] deny - the whole crate: no version requirement, no
+# wrappers it may still come through, no deny-multiple-versions (which bans
+# only a second version) - and narrows nothing cargo-deny checks: its [graph]
+# exclude, exclude-dev, targets, no-default-features and exclude-unpublished
+# are unset, false or empty. And no workspace's Cargo.lock, which lists what
+# any feature or platform can build, holds one. A workspace may ban more of
+# its own. To extend the list, add the crate here and to every workspace's
+# deny.toml in the same change.
+deny = [
+    { crate = "wry", reason = "trusted-path non-negotiable: no WebView" },
+    { crate = "webkit2gtk", reason = "trusted-path non-negotiable: no browser engine" },
+    { crate = "webkit2gtk-sys", reason = "trusted-path non-negotiable: no browser engine" },
+    { crate = "webview2-com", reason = "trusted-path non-negotiable: no WebView" },
+    { crate = "servo", reason = "trusted-path non-negotiable: no browser engine" },
+    { crate = "tao", reason = "trusted-path non-negotiable: no window system" },
+    { crate = "winit", reason = "trusted-path non-negotiable: no window system" },
+    { crate = "x11", reason = "trusted-path non-negotiable: no window system" },
+    { crate = "x11-dl", reason = "trusted-path non-negotiable: no window system" },
+    { crate = "x11rb", reason = "trusted-path non-negotiable: no window system" },
+    { crate = "wayland-client", reason = "trusted-path non-negotiable: no window system" },
+    { crate = "wayland-sys", reason = "trusted-path non-negotiable: no window system" },
+    { crate = "gtk", reason = "trusted-path non-negotiable: no C GUI runtime" },
+    { crate = "gtk4", reason = "trusted-path non-negotiable: no C GUI runtime" },
+    { crate = "gtk-sys", reason = "trusted-path non-negotiable: no C GUI runtime" },
+    { crate = "sdl2", reason = "trusted-path non-negotiable: no C GUI runtime" },
+    { crate = "sdl2-sys", reason = "trusted-path non-negotiable: no C GUI runtime" },
+    { crate = "minifb", reason = "trusted-path non-negotiable: no window system" },
+]
+
+[deny.sources]
+unknown-registry = "deny"
+unknown-git = "deny"

@@ -1,0 +1,21 @@
+# Everything systems/dma-demo.system grants, one fact per line.
+# tools/check-system fails the build if the system description grants anything
+# not listed here, or lists anything it does not grant, and checks the map
+# rights again in the kernel objects the Microkit tool generates (format: see
+# tools/check-system). A change here is a security change: call it out in the
+# pull request.
+
+# The kind of system, and each PD's role (tools/grant-rules.toml): the PD
+# drives fw_cfg, a test-only device.
+system test
+role dma_demo test
+
+pd dma_demo priority=1 budget=1000 period=1000
+
+# fw_cfg's registers, by name from the board file: uncached, this PD only.
+device dma_demo fw_cfg rw
+
+# One page of DMA memory, and its physical address: the PD can point a
+# DMA-capable device at this region.
+map dma_demo dma_buffer rw
+paddr dma_demo dma_buffer

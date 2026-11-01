@@ -1,0 +1,28 @@
+# Lines tools/qemu-test must see, in this order, as whole serial lines.
+# Ui-isolation with one grant widened ON PURPOSE (see
+# ui-isolation-widened.system). The probe that reads display_side's private
+# page now has it mapped, so the read succeeds and the probe must report an
+# ISOLATION FAILURE - the line ui-isolation.expect forbids - and the run then
+# carries on as in ui-isolation. This passes only if the isolation test can
+# fail on this widening.
+NOWAYOS: isolation-parent: starting; children display_writes_framebuffer (0), ui_writes_display_index (1), ui_reads_display_private (2) and ui_reads_device (3)
+NOWAYOS: isolation-bystander: starting; private page at 0x60000000 holds 0x5afec0de
+NOWAYOS: isolation-parent: display_writes_framebuffer stopped: data write at 0x50000000: permission fault (the mapping does not allow it)
+NOWAYOS: isolation-parent: ui_writes_display_index stopped: data write at 0x40001000: permission fault (the mapping does not allow it)
+NOWAYOS: isolation-probe: ui_reads_display_private reading 0x60000000 (where display_side keeps its private page), which is not mapped in this PD
+NOWAYOS: isolation-probe: ISOLATION FAILURE: ui_reads_display_private read 0x5afec0de from 0x60000000
+NOWAYOS: isolation-parent: ui_reads_device stopped: data read at 0x9000000: translation fault (nothing mapped there)
+NOWAYOS: isolation-bystander: still running (check 3); private page intact
+NOWAYOS: isolation-parent: bystander answered after fault 3
+
+# Output that fails the test at once if it appears anywhere: the widening
+# must be the only thing that goes wrong.
+!MON|ERROR
+!seL4(CPU
+!panicked
+!CHANGED
+!cannot
+!unexpected
+!NOT stopped
+!no probe is defined
+!no test is defined

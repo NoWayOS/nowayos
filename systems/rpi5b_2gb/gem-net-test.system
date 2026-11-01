@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    On the Raspberry Pi 5: the network
+    stack PD of net-stack-test, unchanged, over the NIC driver PD for RP1's
+    GEM MAC, polled; on the desk's LAN it takes a DHCP lease and answers
+    ping. The Pi only: QEMU has no GEM.
+        timer         monotonic time, as in timer-demo's Pi variant: BCM2712's
+                      system timer, channel 1's interrupt
+        gem_net       the NIC driver PD: releases the PHY's reset, resets the
+                      MAC, brings the link up through the PHY's clause 22
+                      registers and reports it; polled on the timer
+        seed_source   net-stack-test's test PD: one fixed test seed on the
+                      stack's seed ring
+        net_stack     net-stack-test's, unchanged: takes its seed, brings its
+                      interface up at the driver's MAC address, asks for a
+                      lease
+        run_watchdog  the watchdog PD, watching no PD: keeps the PM watchdog
+                      armed while ticker ticks, so the run lasts its run
+                      length, 180 s - time for the link, a lease and a ping
+                      from the LAN - then the board resets
+        ticker        the watchdog's tick every 2 s, until the run length
+                      (test-run-length-180.bin, read-only region 0)
+    Capabilities. The driver (role driver): RP1's GEM register window,
+    uncached, read-write; two pages of RP1's GPIO - bank 1 and its pads -
+    for the PHY's reset line, uncached, read-write (nowayos-hw writes only
+    that line's two registers); its rings' DMA region and a page for its
+    start-up self-test, each uncached, with its physical address; the physical addresses of the stack's receive and
+    transmit buffers, never mapped here; the four queues, read-write; the
+    board's facts about the MAC (its DMA offset), read-only; a channel to the
+    stack and one to the timer, which it calls and is notified on. The
+    stack, seed_source and timer hold exactly what they hold in
+    net-stack-test (the timer the system timer's page and interrupt instead
+    of the CPU's), but for one attribute: the stack maps its receive and
+    transmit buffers uncached. RP1's DMA, across PCIe, does not see the
+    CPU's caches: cached, the frames the stack wrote went out as stale
+    memory, and the frames the MAC wrote were read stale. Each PD the stack calls or waits on first runs above it.
+    The watchdog holds the PM block's page and its channel from the ticker;
+    the ticker its run length, read-only, and a channel to the timer, which
+    it calls, below the timer and above the driver.
+    Every grant above is listed in gem-net-test.grants, which
+    tools/check-system compares with this file and with the kernel objects
+    the Microkit tool generates.
+-->
+<system>
+    <memory_region name="system_timer_regs" size="@system_timer" phys_addr="@system_timer" />
+    <memory_region name="eth_regs" size="@rp1_eth" phys_addr="@rp1_eth" />
+    <memory_region name="eth_facts" prefill_path="device-rp1_eth.bin" />
+    <memory_region name="gpio_bank1_regs" size="@rp1_gpio_bank1" phys_addr="@rp1_gpio_bank1" />
+    <memory_region name="pads_bank1_regs" size="@rp1_pads_bank1" phys_addr="@rp1_pads_bank1" />
+    <memory_region name="eth_rings" size="0x1000" />
+    <memory_region name="eth_scratch" size="0x1000" />
+    <memory_region name="rx_buffers" size="0x40000" />
+    <memory_region name="tx_buffers" size="0x40000" />
+    <memory_region name="rx_free" size="0x1000" />
+    <memory_region name="rx_active" size="0x1000" />
+    <memory_region name="tx_free" size="0x1000" />
+    <memory_region name="tx_active" size="0x1000" />
+    <!-- The stack's seed ring: the seed (seed_source's), control (the stack's). -->
+    <memory_region name="seed_ring" size="0x1000" />
+    <memory_region name="seed_ring_control" size="0x1000" />
+    <memory_region name="pm_regs" size="@pm_watchdog" phys_addr="@pm_watchdog" />
+    <memory_region name="run_length" prefill_path="test-run-length-180.bin" />
+    <protection_domain name="run_watchdog" priority="250" stack_size="0x10000">
+        <program_image path="nowayos-watchdog.elf" />
+        <map mr="pm_regs" vaddr="0x200_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_device_0_vaddr" setvar_size="nowayos_device_0_size" />
+    </protection_domain>
+    <protection_domain name="timer" priority="220" stack_size="0x10000">
+        <program_image path="nowayos-timer.elf" />
+        <map mr="system_timer_regs" vaddr="0x200_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_device_0_vaddr" setvar_size="nowayos_device_0_size" />
+        <irq irq="@system_timer[1]" id="0" trigger="@system_timer" />
+    </protection_domain>
+    <protection_domain name="ticker" priority="210" stack_size="0x10000">
+        <program_image path="nowayos-watchdog-stand-in.elf" />
+        <map mr="run_length" vaddr="0x4000_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+    </protection_domain>
+    <protection_domain name="gem_net" priority="200" stack_size="0x10000">
+        <program_image path="nowayos-gem-net.elf" />
+        <map mr="eth_regs" vaddr="0x200_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_device_0_vaddr" setvar_size="nowayos_device_0_size" />
+        <map mr="gpio_bank1_regs" vaddr="0x201_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_device_1_vaddr" setvar_size="nowayos_device_1_size" />
+        <map mr="pads_bank1_regs" vaddr="0x202_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_device_2_vaddr" setvar_size="nowayos_device_2_size" />
+        <map mr="eth_rings" vaddr="0x300_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_dma_0_vaddr" setvar_size="nowayos_dma_0_size" />
+        <setvar symbol="nowayos_dma_0_paddr" region_paddr="eth_rings" />
+        <map mr="eth_scratch" vaddr="0x300_1000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_dma_1_vaddr" setvar_size="nowayos_dma_1_size" />
+        <setvar symbol="nowayos_dma_1_paddr" region_paddr="eth_scratch" />
+        <!-- The stack's buffers, by physical address only: never mapped here. -->
+        <setvar symbol="nowayos_io_0_paddr" region_paddr="rx_buffers" />
+        <setvar symbol="nowayos_io_1_paddr" region_paddr="tx_buffers" />
+        <map mr="rx_free" vaddr="0x4000_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+        <map mr="rx_active" vaddr="0x4000_1000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_1_vaddr" setvar_size="nowayos_rw_region_1_size" />
+        <map mr="tx_free" vaddr="0x4000_2000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_2_vaddr" setvar_size="nowayos_rw_region_2_size" />
+        <map mr="tx_active" vaddr="0x4000_3000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_3_vaddr" setvar_size="nowayos_rw_region_3_size" />
+        <map mr="eth_facts" vaddr="0x4100_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_5_vaddr" setvar_size="nowayos_ro_region_5_size" />
+    </protection_domain>
+    <protection_domain name="seed_source" priority="150" stack_size="0x10000">
+        <program_image path="nowayos-net-stack-test.elf" />
+        <map mr="seed_ring" vaddr="0x4000_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+        <map mr="seed_ring_control" vaddr="0x4000_1000" perms="r"
+             setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+    </protection_domain>
+    <protection_domain name="net_stack" priority="100" stack_size="0x80000">
+        <program_image path="nowayos-net-stack.elf" />
+        <map mr="rx_free" vaddr="0x4000_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+        <map mr="rx_active" vaddr="0x4000_1000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_1_vaddr" setvar_size="nowayos_rw_region_1_size" />
+        <map mr="tx_free" vaddr="0x4000_2000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_2_vaddr" setvar_size="nowayos_rw_region_2_size" />
+        <map mr="tx_active" vaddr="0x4000_3000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_3_vaddr" setvar_size="nowayos_rw_region_3_size" />
+        <map mr="rx_buffers" vaddr="0x5000_0000" perms="r" cached="false"
+             setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+        <map mr="tx_buffers" vaddr="0x5100_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_rw_region_4_vaddr" setvar_size="nowayos_rw_region_4_size" />
+        <map mr="seed_ring_control" vaddr="0x4000_4000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_5_vaddr" setvar_size="nowayos_rw_region_5_size" />
+        <map mr="seed_ring" vaddr="0x4000_5000" perms="r"
+             setvar_vaddr="nowayos_ro_region_1_vaddr" setvar_size="nowayos_ro_region_1_size" />
+    </protection_domain>
+    <!-- The driver and the stack notify each other. -->
+    <channel>
+        <end pd="gem_net" id="0" />
+        <end pd="net_stack" id="0" />
+    </channel>
+    <!-- The driver calls the timer, which notifies it of its tick. -->
+    <channel>
+        <end pd="gem_net" id="1" pp="true" notify="false" />
+        <end pd="timer" id="2" />
+    </channel>
+    <!-- The stack calls the timer, which notifies it of its timeout. -->
+    <channel>
+        <end pd="net_stack" id="1" pp="true" notify="false" />
+        <end pd="timer" id="1" />
+    </channel>
+    <!-- The ticker's ticks: the watchdog never notifies it. -->
+    <channel>
+        <end pd="run_watchdog" id="0" notify="false" />
+        <end pd="ticker" id="0" />
+    </channel>
+    <!-- The ticker calls the timer; the timer notifies it of each tick. -->
+    <channel>
+        <end pd="ticker" id="1" pp="true" notify="false" />
+        <end pd="timer" id="3" />
+    </channel>
+    <!-- seed_source notifies the stack when a seed waits. -->
+    <channel>
+        <end pd="seed_source" id="0" />
+        <end pd="net_stack" id="2" notify="false" />
+    </channel>
+</system>

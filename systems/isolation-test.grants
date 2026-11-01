@@ -1,0 +1,31 @@
+# Everything systems/isolation-test.system grants, one fact per line.
+# tools/check-system fails the build if the system description grants anything
+# not listed here, or lists anything it does not grant, and checks the map
+# rights again in the kernel objects the Microkit tool generates (format: see
+# tools/check-system). A change here is a security change: call it out in the
+# pull request.
+
+# The kind of system, and each PD's role (tools/grant-rules.toml): every PD
+# here is a test instrument.
+system test
+role isolation_parent test
+role bystander test
+role probe_unmapped test
+role probe_readonly test
+
+pd isolation_parent priority=100 budget=1000 period=1000
+pd bystander priority=50 budget=1000 period=1000
+pd probe_unmapped priority=20 budget=1000 period=1000
+pd probe_readonly priority=10 budget=1000 period=1000
+
+# The parent receives both probes' faults and stops them.
+child isolation_parent probe_unmapped
+child isolation_parent probe_readonly
+
+# probe_unmapped has nothing at all; probe_readonly one read-only page; the
+# bystander one private page.
+map probe_readonly probe_readonly_page r
+map bystander bystander_private rw
+
+# "Are you still running?" and the answer.
+channel isolation_parent bystander

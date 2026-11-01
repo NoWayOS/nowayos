@@ -1,0 +1,31 @@
+# The trial boot that faults: the bootloader boots slot B, release 2,
+# once; asked for its verdict, the health check's stand-in - a PD of the
+# trial release - faults, the supervisor stops it and resets the board, and
+# QEMU (-no-reboot) exits: the run ends in the reset (qemu-test
+# --ends-in-reset), the trial still marked, no verdict written.
+NOWAYOS: supervisor: starting; children update_storage (0), update (1) and update_bundles (2)
+NOWAYOS: update-bundles: starting
+NOWAYOS: update-bundles: this image is release 2
+NOWAYOS: update-bundles: the disk handed to the storage stand-in: 1736 bytes
+NOWAYOS: update-bundles: standing in for this trial boot's health check
+NOWAYOS: update-storage: starting
+NOWAYOS: update-storage: the disk the last run left: booted slot B
+NOWAYOS: update-storage: copy A on the disk: generation 3: slot A boots; slot B marked for one trial, security version 5; rollback index 3; trust list v2
+NOWAYOS: update-storage: copy B on the disk: generation 2: slot A boots; nothing marked; rollback index 3; trust list v2
+NOWAYOS: update: starting
+NOWAYOS: update: starting: slot A boots; trial: B; rollback index 3; trust list v2 (held, checked against the anchors)
+NOWAYOS: update: slot B runs, on trial, awaiting the health verdict; 1 trust anchor(s) in the image
+NOWAYOS: update: asking the health check for its verdict
+NOWAYOS: update-bundles: the health check: faulting on purpose
+NOWAYOS: supervisor: update_bundles stopped: a fault the supervisor does not decode
+NOWAYOS: supervisor: resetting the board
+
+# Output that fails the run at once if it appears anywhere.
+!MON|ERROR
+!seL4(CPU
+!gave up
+!not taken
+!: does not decode
+!refused
+!copy A written
+!copy B written

@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    In QEMU: the virtio-input driver PD turns QEMU's
+    keyboard and tablet events into canonical InputEvents and sends them to
+    input_print, a test instrument standing in for the UI, which prints
+    each. virtio-input-test.qemu gives QEMU the two devices, on the modern
+    interface; virtio-input-test.qmp types keys, moves and clicks the
+    tablet, and sends a key the driver does not know and a burst bigger than
+    the ring, over QMP.
+
+    QEMU only: the Pi 5 has no virtio.
+
+    Capabilities: the driver maps one page of virtio-mmio transports (24 to
+    31, where QEMU places the devices: the keyboard on transport 31, the
+    tablet on 30) uncached, read-write; one 4 KiB DMA region per device's
+    event queue, whose physical addresses it learns to give the devices; and
+    holds the two devices' interrupts. A ring for each device to input_print
+    - the pointer ring and the keyboard ring - each of two 4 KiB regions:
+    messages read-write in the driver and read-only in input_print; control
+    the other way round. One channel, on which only the driver notifies.
+    input_print holds no device, interrupt or other memory. The driver runs
+    above input_print, so a burst it sends fills its ring before input_print
+    can drain it. The driver also maps the screen's size, read-only
+    configuration.
+
+    Every grant above is also listed in virtio-input-test.grants, which
+    tools/check-system compares with this file and with the kernel objects
+    the Microkit tool generates (make image, make qemu-test).
+-->
+<system>
+    <memory_region name="virtio_regs" size="@virtio_mmio_24_31" phys_addr="@virtio_mmio_24_31" />
+    <memory_region name="tablet_events" size="0x1000" />
+    <memory_region name="keyboard_events" size="0x1000" />
+    <memory_region name="pointer_messages" size="0x1000" />
+    <memory_region name="pointer_control" size="0x1000" />
+    <memory_region name="keyboard_messages" size="0x1000" />
+    <memory_region name="keyboard_control" size="0x1000" />
+    <!-- Configuration: the screen the tablet's positions are scaled to, 800x480
+         (tools/board-system writes the file; read-only everywhere, rule 12). -->
+    <memory_region name="screen" prefill_path="screen-800x480.bin" />
+
+    <protection_domain name="virtio_input" priority="200" stack_size="0x10000">
+        <program_image path="nowayos-virtio-input.elf" />
+        <map mr="virtio_regs" vaddr="0x200_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_device_0_vaddr" setvar_size="nowayos_device_0_size" />
+        <map mr="tablet_events" vaddr="0x300_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_dma_0_vaddr" setvar_size="nowayos_dma_0_size" />
+        <map mr="keyboard_events" vaddr="0x300_1000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_dma_1_vaddr" setvar_size="nowayos_dma_1_size" />
+        <setvar symbol="nowayos_dma_0_paddr" region_paddr="tablet_events" />
+        <setvar symbol="nowayos_dma_1_paddr" region_paddr="keyboard_events" />
+        <map mr="pointer_messages" vaddr="0x4000_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+        <map mr="pointer_control" vaddr="0x4000_1000" perms="r"
+             setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+        <map mr="keyboard_messages" vaddr="0x4000_2000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_1_vaddr" setvar_size="nowayos_rw_region_1_size" />
+        <map mr="keyboard_control" vaddr="0x4000_3000" perms="r"
+             setvar_vaddr="nowayos_ro_region_1_vaddr" setvar_size="nowayos_ro_region_1_size" />
+        <map mr="screen" vaddr="0x5000_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_7_vaddr" setvar_size="nowayos_ro_region_7_size" />
+        <irq irq="@virtio_mmio_24_31[6]" id="1" trigger="@virtio_mmio_24_31" />
+        <irq irq="@virtio_mmio_24_31[7]" id="2" trigger="@virtio_mmio_24_31" />
+    </protection_domain>
+
+    <protection_domain name="input_print" priority="100" stack_size="0x10000">
+        <program_image path="nowayos-input-print.elf" />
+        <map mr="pointer_control" vaddr="0x4000_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+        <map mr="pointer_messages" vaddr="0x4000_1000" perms="r"
+             setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+        <map mr="keyboard_control" vaddr="0x4000_2000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_1_vaddr" setvar_size="nowayos_rw_region_1_size" />
+        <map mr="keyboard_messages" vaddr="0x4000_3000" perms="r"
+             setvar_vaddr="nowayos_ro_region_1_vaddr" setvar_size="nowayos_ro_region_1_size" />
+    </protection_domain>
+
+    <channel>
+        <end pd="virtio_input" id="0" />
+        <end pd="input_print" id="0" notify="false" />
+    </channel>
+</system>

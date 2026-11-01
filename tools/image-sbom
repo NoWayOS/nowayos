@@ -1,0 +1,1150 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT OR Apache-2.0
+"""Write a CycloneDX 1.5 SBOM for one system image.
+
+Usage:
+    image-sbom --system NAME --board BOARD --config CONFIG --dir DIR
+               --sdk DIR --pds DIR --toolchain CHANNEL --std-crates FILE
+               --out FILE
+               [--target TRIPLE] [--cargo CARGO] [--components FILE]
+               [--containerfile FILE] [--position FILE]
+               [--sdcard-config FILE --uboot-defconfig NAME
+                --uboot-fragment FILE --firmware FILE [--uboot-bin FILE]]
+               [--unit-graph FILE --metadata FILE] [--arch arm64|amd64]
+               [--glyphs DIR]
+
+`make image` runs this once the Microkit tool has made DIR/loader.img (DIR
+is build/BOARD/SYSTEM), and writes FILE beside it. The SBOM names what
+loader.img is made of, each part with its sha256:
+
+* the Microkit SDK's kernel, loader, monitor and capDL initialiser for BOARD
+  and CONFIG (board/BOARD/CONFIG/elf/ in the SDK), with their versions and
+  licences from the reviewed components file (tools/image-components.toml);
+* every program image the system description names (DIR/SYSTEM.system, as
+  tools/board-system wrote it for BOARD): the ELF the image was made from
+  and the protection domains that run it;
+* every crate compiled into a program image, with the dependency graph. The
+  crates come from cargo's own unit graph for the build `make pds` runs -
+  the same packages, profile and features - so a crate is listed exactly
+  when it is compiled for the device (TRIPLE, default aarch64-sel4). That
+  includes the standard-library crates build-std compiles, which must be on
+  the reviewed list (FILE, pds/std-crates.txt);
+* the system description itself and any prefill files;
+* the glyph atlases' notice, OFL.txt, which `make image` puts beside every
+  image: the copyright line and licence of the font the
+  atlases are a Modified Version of, with that font - family, version, file
+  and sha256 - from the manifest the atlas tool writes
+  (DIR/src/atlas/manifest.toml, DIR the atlas crate, --glyphs). When a
+  program image links the atlas crate, its component (licence OFL-1.1, from
+  cargo metadata) names the font too.
+
+What built the image but is not in it - build scripts, proc macros and what
+they need, and the Microkit tool - is listed as `excluded`, with the reason.
+Each crate's licence and source come from cargo metadata and Cargo.lock, as
+in the workspace SBOMs (tools/sbom), with the same component names.
+
+A part whose licence cannot be taken without a GPL-family licence is marked
+as needing a source offer (nowayos:source-offer). A prebuilt binary
+whose contents are not audited (composition = "unaudited" in the components
+file) is marked 'composition unaudited' and listed in a composition whose
+aggregate is "unknown". One whose audit is recorded (composition = "audited",
+or "audited, sign-off pending" while a licence in it awaits the project
+owner, and `audit` naming the audit's file: the capDL initialiser, audited in
+tools/initialiser-audit.toml) holds every crate the audit found in
+it as a nested component, each with its licence and where its sign-off
+stands, in a composition whose aggregate is "complete". The marker must
+match the audit: "audited" is refused while any sign-off is pending, and a
+crate whose licence needs more than the house list (MIT, Apache-2.0,
+BSD-2-Clause, BSD-3-Clause, ISC) is refused unless it names its sign-off or
+says it is pending (not both). An audit holds only for the Microkit SDK
+(version and both archives' sha256) and architecture it names: with any
+other SDK pinned, the part is 'composition unaudited' again, and nothing in
+its entry points to the audit's crates, until the audit is re-run.
+
+With --sdcard-config and the U-Boot and firmware options (make passes them
+for rpi5b_2gb, which boots from an SD card) the SBOM also lists what `make
+sdcard` puts beside loader.img: U-Boot, built from the source release the
+Containerfile pins (with u-boot.bin's sha256 when --uboot-bin names it, as
+make sdcard does), every firmware file with the sha256 FILE pins
+(tools/container/rpi-firmware.sha256), and config.txt.
+
+The output is a pure function of its inputs: no timestamp or absolute path,
+and everything sorted, so two runs on one build give the same bytes. It is
+checked against the CycloneDX 1.5 structure (tools/sbom's validate) before
+it is written. --unit-graph and --metadata read cargo's output from files
+instead of running cargo, and --arch names the host architecture whose SDK
+archive the Containerfile pins (default: this machine's); the tests use them.
+
+Exit status: 0 written; 1 the SBOM failed its own validation; 2 usage or
+input error. Python 3.11 or later (tomllib), standard library only.
+"""
+
+import argparse
+import fnmatch
+import hashlib
+import importlib.machinery
+import importlib.util
+import json
+import os
+import platform
+import re
+import subprocess
+import sys
+import urllib.parse
+import xml.etree.ElementTree as ElementTree
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python before 3.11
+    tomllib = None
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+NOWAYOS = os.path.dirname(HERE)
+EXIT_PASS = 0
+EXIT_FAIL = 1
+EXIT_ERROR = 2
+
+TOOL_NAME = "nowayos-image-sbom"
+DEFAULT_COMPONENTS = os.path.join(HERE, "image-components.toml")
+# The boards whose kernel the dev image builds from seL4's source, at the
+# Containerfile's SEL4_COMMIT, in place of the Microkit SDK's (its
+# sel4-rpi5b stage ends the Pi 5's RAM below the framebuffer).
+KERNEL_FROM_SOURCE = ("rpi5b_2gb",)
+DEFAULT_CONTAINERFILE = os.path.join(HERE, "container", "Containerfile")
+DEFAULT_POSITION = os.path.join(HERE, "sel4-verification.toml")
+# Microkit release archive names, per Debian architecture (the Containerfile's).
+SDK_ARCHES = {"arm64": "linux-aarch64", "amd64": "linux-x86-64"}
+MACHINE_ARCH = {"aarch64": "arm64", "arm64": "arm64", "x86_64": "amd64", "amd64": "amd64"}
+IN_IMAGE = "in loader.img"
+ON_CARD = "on the SD card's boot partition, beside loader.img (make sdcard)"
+BESIDE_IMAGE = "beside loader.img, in its folder (make image)"
+DEFAULT_GLYPHS = os.path.join(NOWAYOS, "crates", "nowayos-glyphs")
+GLYPH_MANIFEST = os.path.join("src", "atlas", "manifest.toml")
+COPYLEFT = re.compile(r"^(?:A|L)?GPL-")
+# Licences that need no sign-off.
+HOUSE = frozenset({"MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "ISC"})
+PKG_ID = re.compile(r"^[a-z]+\+(?P<url>[^#]+)#(?P<spec>.+)$")
+KEY_ORDER = ("type", "bom-ref", "name", "version", "description", "scope", "hashes", "licenses", "purl",
+             "externalReferences", "properties", "components")
+# composition = ... in the components file.
+UNAUDITED = "unaudited"
+AUDITED = "audited"
+PENDING = "audited, sign-off pending"
+# An audit file (tools/initialiser-audit.toml): its [audit] keys, and each crate's.
+AUDIT_KEYS = ("date", "sdk", "sdk-sha256-arm64", "sdk-sha256-amd64", "target", "microkit-commit",
+              "rust-sel4-commit", "rust", "established", "advisories")
+CRATE_KEYS = ("name", "version", "licence", "source", "checksum", "signed-off", "pending", "note")
+CRATE_SOURCES = ("crates.io", "rust-sel4", "microkit", "rust")
+HEX = {40: re.compile(r"[0-9a-f]{40}"), 64: re.compile(r"[0-9a-f]{64}")}
+
+
+def load_sbom():
+    """tools/sbom, for its CycloneDX helpers and structure check."""
+    loader = importlib.machinery.SourceFileLoader("sbom", os.path.join(HERE, "sbom"))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module
+
+
+sbom = load_sbom()
+InputError = sbom.InputError
+
+
+def sha256_file(path):
+    digest = hashlib.sha256()
+    try:
+        with open(path, "rb") as handle:
+            for block in iter(lambda: handle.read(1 << 20), b""):
+                digest.update(block)
+    except OSError as err:
+        raise InputError(f"cannot read {path}: {err}") from err
+    return digest.hexdigest()
+
+
+def sha256_entry(content):
+    return [{"alg": "SHA-256", "content": content}]
+
+
+def ordered(entry):
+    """A component with its keys in one fixed order, so output reads alike."""
+    return {**{key: entry[key] for key in KEY_ORDER if key in entry},
+            **{key: value for key, value in entry.items() if key not in KEY_ORDER}}
+
+
+def relative_name(path):
+    """`path` relative to nowayos, or its file name when outside it: never absolute."""
+    real = os.path.realpath(path)
+    if real.startswith(os.path.realpath(NOWAYOS) + os.sep):
+        return os.path.relpath(real, os.path.realpath(NOWAYOS)).replace(os.sep, "/")
+    return os.path.basename(path)
+
+
+# ---- Licences -------------------------------------------------------------------
+
+def can_take(expression, acceptable):
+    """Whether an SPDX licence expression can be taken using only licences
+    `acceptable(licence, exception)` accepts (exception: the WITH exception
+    bound to the licence, or None): OR needs one side, AND needs both.
+    Raises InputError on a malformed expression."""
+    tokens = re.findall(r"\(|\)|[^\s()]+", expression)
+    position = 0
+
+    def peek():
+        return tokens[position] if position < len(tokens) else None
+
+    def take():
+        nonlocal position
+        token = peek()
+        position += 1
+        return token
+
+    def primary():
+        token = take()
+        if token == "(":
+            value = either()
+            if take() != ")":
+                raise InputError(f"licence {expression!r}: unbalanced parentheses")
+            return value
+        if token is None or token in ("AND", "OR", "WITH", ")"):
+            raise InputError(f"licence {expression!r} is not an SPDX expression")
+        exception = None
+        if peek() == "WITH":
+            take()
+            exception = take()
+            if exception in (None, "AND", "OR", "WITH", "(", ")"):
+                raise InputError(f"licence {expression!r}: WITH needs an exception")
+        return acceptable(token, exception)
+
+    def both():
+        value = primary()
+        while peek() == "AND":
+            take()
+            value = primary() and value
+        return value
+
+    def either():
+        value = both()
+        while peek() == "OR":
+            take()
+            value = both() or value
+        return value
+
+    result = either()
+    if position != len(tokens):
+        raise InputError(f"licence {expression!r} is not an SPDX expression")
+    return result
+
+
+def avoids_gpl(expression):
+    """Whether an SPDX licence expression can be taken without any GPL-family
+    licence (GPL, LGPL, AGPL). Raises InputError on a malformed expression."""
+    return can_take(expression, lambda licence, _exception: COPYLEFT.match(licence) is None)
+
+
+def on_house_list(expression):
+    """Whether an SPDX licence expression can be taken under the house list
+    alone (HOUSE), with no exception added to any of its licences: what
+    needs no sign-off. Raises InputError on a malformed expression."""
+    return can_take(expression, lambda licence, exception: exception is None and licence in HOUSE)
+
+
+def spdx(declared):
+    """A cargo manifest's licence as an SPDX expression: "MIT/Apache-2.0",
+    cargo's legacy form, is MIT OR Apache-2.0 (as tools/sbom reads it)."""
+    return sbom.licence_of({"license": declared})[0]["expression"]
+
+
+def licence_parts(expression):
+    """(licenses, properties) for a part with this SPDX expression."""
+    if expression is None:
+        return None, []
+    properties = []
+    if not avoids_gpl(expression):
+        properties.append({"name": "nowayos:source-offer", "value": (
+            f"required: {expression} - every shipment carries an offer of this part's source "
+            "")})
+    return [{"expression": expression}], properties
+
+
+# ---- Inputs ---------------------------------------------------------------------
+
+def load_toml(path):
+    try:
+        with open(path, "rb") as handle:
+            return tomllib.load(handle)
+    except (OSError, tomllib.TOMLDecodeError) as err:
+        raise InputError(f"cannot read {path}: {err}") from err
+
+
+def containerfile_args(path):
+    """{NAME: value} for the Containerfile's `ARG NAME=value` lines."""
+    try:
+        with open(path, encoding="utf-8") as handle:
+            text = handle.read()
+    except OSError as err:
+        raise InputError(f"cannot read {path}: {err}") from err
+    found = {}
+    for name, value in re.findall(r"^ARG ([A-Z0-9_]+)=(\S+)\s*$", text, re.MULTILINE):
+        if name in found:
+            raise InputError(f"{path}: ARG {name} is set twice")
+        found[name] = value
+    return found
+
+
+def need_arg(args, name, path):
+    if name not in args:
+        raise InputError(f"{path}: no 'ARG {name}=...'")
+    return args[name]
+
+
+def load_components(path):
+    """The reviewed components file, checked for shape."""
+    document = load_toml(path)
+
+    def part(where, entry, keys, required):
+        if not isinstance(entry, dict):
+            raise InputError(f"{path}: {where} must be a table")
+        unknown = set(entry) - set(keys)
+        if unknown:
+            raise InputError(f"{path}: {where} has unknown keys {', '.join(sorted(unknown))}")
+        for key in required:
+            if not isinstance(entry.get(key), str) or not entry[key]:
+                raise InputError(f"{path}: {where} needs {key} = \"...\"")
+        for key in keys:
+            if key in entry and key != "paths" and not isinstance(entry[key], str):
+                raise InputError(f"{path}: {where}.{key} must be a string")
+        if "licence" in entry:
+            avoids_gpl(entry["licence"])
+        if "type" in entry and entry["type"] not in sbom.COMPONENT_TYPES:
+            raise InputError(f"{path}: {where}.type {entry['type']!r} is not a CycloneDX component type")
+        if "composition" in entry and entry["composition"] not in (AUDITED, PENDING, UNAUDITED):
+            raise InputError(f"{path}: {where}.composition must be \"{AUDITED}\", \"{PENDING}\" or \"{UNAUDITED}\"")
+        if "composition" in entry and not entry.get("note"):
+            raise InputError(f"{path}: {where} needs a note saying what was audited, or why not")
+        audited = entry.get("composition") in (AUDITED, PENDING)
+        if audited != ("audit" in entry):
+            raise InputError(f"{path}: {where}: an audited composition names its audit's file (audit = \"FILE\"), "
+                             "and only an audited one does")
+        if "audit" in entry and os.path.basename(entry["audit"]) != entry["audit"]:
+            raise InputError(f"{path}: {where}.audit must be a file name, beside {os.path.basename(path)}")
+        if "version" in entry and entry["version"] not in ("seL4", "Microkit"):
+            raise InputError(f"{path}: {where}.version must be \"seL4\" or \"Microkit\"")
+        return entry
+
+    sdk_keys = ("file", "name", "type", "version", "description", "licence", "vcs", "checked", "composition",
+                "audit", "note")
+    sdk_required = ("file", "name", "type", "version", "description", "licence", "vcs", "checked")
+    sdk = document.get("sdk")
+    if not isinstance(sdk, dict) or not sdk:
+        raise InputError(f"{path}: no [sdk.*] tables")
+    parts = {key: part(f"[sdk.{key}]", entry, sdk_keys, sdk_required) for key, entry in sdk.items()}
+    files = [entry["file"] for entry in parts.values()]
+    if len(set(files)) != len(files):
+        raise InputError(f"{path}: two [sdk.*] tables name the same file")
+    audits = {}
+    for key, entry in parts.items():
+        if "audit" not in entry:
+            continue
+        audit_path = os.path.join(os.path.dirname(path), entry["audit"])
+        audits[key] = load_audit(audit_path)
+        pending = [f"{c['name']} {c['version']}" for c in audits[key]["crates"] if "pending" in c]
+        if entry["composition"] == AUDITED and pending:
+            raise InputError(f"{path}: [sdk.{key}] says composition \"{AUDITED}\", but in {entry['audit']} the "
+                             f"sign-off of {', '.join(pending)} is pending: say \"{PENDING}\"")
+        if entry["composition"] == PENDING and not pending:
+            raise InputError(f"{path}: [sdk.{key}] says composition \"{PENDING}\", but no sign-off is pending "
+                             f"in {entry['audit']}: say \"{AUDITED}\"")
+    tool = part("[sdk-tool]", document.get("sdk-tool"), sdk_keys, sdk_required)
+    if "composition" in tool:
+        raise InputError(f"{path}: [sdk-tool] is not in the image: it has no composition")
+    uboot = part("[uboot]", document.get("uboot"),
+                 ("name", "type", "description", "licence", "vcs", "distribution", "checked"),
+                 ("name", "type", "description", "licence", "vcs", "distribution", "checked"))
+    firmware = document.get("firmware")
+    if not isinstance(firmware, dict):
+        raise InputError(f"{path}: no [firmware] table")
+    groups = firmware.get("files")
+    if not isinstance(groups, list) or not groups:
+        raise InputError(f"{path}: no [[firmware.files]] entries")
+    for number, group in enumerate(groups, 1):
+        part(f"[[firmware.files]] entry {number}", group, ("paths", "type", "licence", "note"), ("type",))
+        paths = group.get("paths")
+        if not isinstance(paths, list) or not paths or not all(isinstance(p, str) and p for p in paths):
+            raise InputError(f"{path}: [[firmware.files]] entry {number} needs paths = [\"...\"]")
+    for key in ("name", "vcs", "checked"):
+        if not isinstance(firmware.get(key), str) or not firmware[key]:
+            raise InputError(f"{path}: [firmware] needs {key} = \"...\"")
+    return {"sdk": parts, "tool": tool, "uboot": uboot, "firmware": firmware, "audits": audits}
+
+
+def load_audit(path):
+    """An audit of a prebuilt SDK part (tools/initialiser-audit.toml), checked
+    for shape: [audit] says what was audited and how; each [[crates]] entry is
+    one crate compiled into the part, with its licence and, when that licence
+    needs more than the house list, where its sign-off stands."""
+    document = load_toml(path)
+    unknown = set(document) - {"audit", "crates"}
+    if unknown:
+        raise InputError(f"{path}: unknown tables {', '.join(sorted(unknown))}")
+    audit = document.get("audit")
+    if not isinstance(audit, dict):
+        raise InputError(f"{path}: no [audit] table")
+    if set(audit) != set(AUDIT_KEYS) or not all(isinstance(v, str) and v for v in audit.values()):
+        raise InputError(f"{path}: [audit] needs exactly {', '.join(AUDIT_KEYS)}, each a string")
+    for key, length in (("sdk-sha256-arm64", 64), ("sdk-sha256-amd64", 64), ("microkit-commit", 40),
+                        ("rust-sel4-commit", 40)):
+        if not HEX[length].fullmatch(audit[key]):
+            raise InputError(f"{path}: [audit].{key} must be {length} lower-case hex digits")
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", audit["date"]):
+        raise InputError(f"{path}: [audit].date must be YYYY-MM-DD")
+    crates = document.get("crates")
+    if not isinstance(crates, list) or not crates:
+        raise InputError(f"{path}: no [[crates]] entries")
+    seen = set()
+    for number, crate in enumerate(crates, 1):
+        where = f"{path}: [[crates]] entry {number}"
+        if not isinstance(crate, dict):
+            raise InputError(f"{where} must be a table")
+        if set(crate) - set(CRATE_KEYS):
+            raise InputError(f"{where} has unknown keys {', '.join(sorted(set(crate) - set(CRATE_KEYS)))}")
+        if not all(isinstance(value, str) and value for value in crate.values()):
+            raise InputError(f"{where}: every value must be a non-empty string")
+        for key in ("name", "version", "licence", "source"):
+            if key not in crate:
+                raise InputError(f"{where} needs {key} = \"...\"")
+        where = f"{path}: {crate['name']} {crate['version']}"
+        if (crate["name"], crate["version"]) in seen:
+            raise InputError(f"{where} is listed twice")
+        seen.add((crate["name"], crate["version"]))
+        if crate["source"] not in CRATE_SOURCES:
+            raise InputError(f"{where}: source must be one of {', '.join(CRATE_SOURCES)}")
+        if (crate["source"] == "crates.io") != ("checksum" in crate):
+            raise InputError(f"{where}: a crates.io crate, and only one, has the checksum Cargo.lock pins")
+        if "checksum" in crate and not HEX[64].fullmatch(crate["checksum"]):
+            raise InputError(f"{where}: checksum must be 64 lower-case hex digits")
+        status = [key for key in ("signed-off", "pending") if key in crate]
+        if on_house_list(spdx(crate["licence"])):
+            if status:
+                raise InputError(f"{where}: {crate['licence']} is on the house list and needs no {status[0]}")
+        elif not status:
+            raise InputError(f"{where}: {crate['licence']} needs more than the house list - say where its sign-off "
+                             "stands: signed-off = \"YYYY-MM-DD\" (the day it was signed off) or pending = \"what it awaits\"")
+        elif len(status) != 1:
+            raise InputError(f"{where}: has both signed-off and pending - say where its sign-off stands with one of "
+                             "them, not both")
+        elif status == ["signed-off"] and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", crate["signed-off"]):
+            raise InputError(f"{where}: signed-off must be the day it was signed off, YYYY-MM-DD")
+    return {"audit": audit, "crates": crates, "path": path}
+
+
+def load_glyphs(directory):
+    """The atlas crate's manifest (the atlas tool writes it), checked for shape."""
+    path = os.path.join(directory, GLYPH_MANIFEST)
+    manifest = load_toml(path)
+    for key in ("crate", "licence", "notice", "copyright", "rasteriser"):
+        if not isinstance(manifest.get(key), str) or not manifest[key]:
+            raise InputError(f"{path} needs {key} = \"...\"")
+    if "/" in manifest["notice"] or manifest["notice"] in (".", ".."):
+        raise InputError(f"{path}: notice must be a file name")
+    fonts = manifest.get("font")
+    if not isinstance(fonts, list) or not fonts:
+        raise InputError(f"{path} names no [[font]]")
+    for number, font in enumerate(fonts, 1):
+        for key in ("family", "version", "style", "file", "sha256", "source"):
+            if not isinstance(font, dict) or not isinstance(font.get(key), str) or not font[key]:
+                raise InputError(f"{path}: [[font]] {number} needs {key} = \"...\"")
+    avoids_gpl(manifest["licence"])
+    return manifest
+
+
+def font_properties(glyphs):
+    """The font the atlases were made from: family, version, file and sha256, and where it came from."""
+    properties = []
+    for font in glyphs["font"]:
+        properties += [
+            {"name": "nowayos:font-family", "value": font["family"]},
+            {"name": "nowayos:font-version", "value": font["version"]},
+            {"name": "nowayos:font-file", "value": font["file"]},
+            {"name": "nowayos:font-sha256", "value": font["sha256"]},
+            {"name": "nowayos:font-source", "value": font["source"]},
+        ]
+    return properties
+
+
+RESTART_IMAGE = re.compile(r"restart-[A-Za-z_][A-Za-z0-9_]*\.bin")
+TEST_PREFILL = "test-"
+DEVICE_FACTS = re.compile(r"device-[A-Za-z_][A-Za-z0-9_]*\.bin")
+
+
+def prefill_file(name):
+    """(name, what it is, where it comes from) for a prefill file: a PD's
+    restart image, a test-only stand-in, the image's build time
+    , a device's facts, or configuration board-system writes."""
+    if name == "build-time.bin":
+        return (name, "The image's build time, in seconds since 1970 UTC: the floor below which the clock PD never "
+                      "puts wall-clock time",
+                "written by tools/board-system from SOURCE_DATE_EPOCH, or else the latest commit time of the repo "
+                "built and of NoWayOS")
+    if name.startswith(TEST_PREFILL):
+        return (name, "A test-only stand-in the Microkit tool prefills into a memory region (prefill_path): a "
+                      "supervisor's counts until a store is built; the grants check refuses it "
+                      "outside a test system",
+                "written by tools/board-system from its file name")
+    if DEVICE_FACTS.fullmatch(name):
+        return (name, "The board's facts about one of its devices, for the driver that holds it: its compatible "
+                      "string and how many bytes of its window are registers (nowayos_region::device_facts)",
+                "written by tools/board-system from the board file, platforms/BOARD.toml")
+    if RESTART_IMAGE.fullmatch(name):
+        return (name, "A protection domain's restart image: its writable memory as its program is loaded, which "
+                      "its restart entry checks at a cold start and puts back at a restart (nowayos-restart)",
+                "written by tools/restart-image from the PD's program image")
+    return (name, "Configuration the Microkit tool prefills into a memory region (prefill_path)",
+            "written by tools/board-system from its file name")
+
+
+def read_description(path):
+    """([(protection domain, program image)], [prefill files]) from a system description."""
+    try:
+        tree = ElementTree.parse(path)
+    except (OSError, ElementTree.ParseError) as err:
+        raise InputError(f"cannot read {path}: {err}") from err
+    domains = []
+    for domain in tree.iter("protection_domain"):
+        images = [image.get("path", "") for image in domain.findall("program_image")]
+        if len(images) != 1 or not images[0].endswith(".elf") or "/" in images[0]:
+            raise InputError(f"{path}: protection domain {domain.get('name')!r} needs one "
+                             "<program_image path=\"NAME.elf\"/>")
+        domains.append((domain.get("name", ""), images[0]))
+    if not domains:
+        raise InputError(f"{path} names no protection domain")
+    prefill = sorted({region.get("prefill_path") for region in tree.iter("memory_region")
+                      if region.get("prefill_path")})
+    for name in prefill:
+        if "/" in name or name in ("", ".", ".."):
+            raise InputError(f"{path}: prefill_path {name!r} must be a file name")
+    return domains, prefill
+
+
+def read_firmware(path):
+    """[(path, sha256)] from rpi-firmware.sha256 (`sha256  path` lines)."""
+    try:
+        with open(path, encoding="utf-8") as handle:
+            lines = handle.read().splitlines()
+    except OSError as err:
+        raise InputError(f"cannot read {path}: {err}") from err
+    files = []
+    for number, line in enumerate(lines, 1):
+        match = re.fullmatch(r"([0-9a-f]{64})  (boot/\S+)", line)
+        if match is None:
+            raise InputError(f"{path}:{number}: expected 'SHA256  boot/PATH'")
+        files.append((match.group(2), match.group(1)))
+    if not files:
+        raise InputError(f"{path} lists no file")
+    return sorted(files)
+
+
+def cargo_json(cargo, directory, arguments):
+    command = [cargo, *arguments]
+    try:
+        result = subprocess.run(command, cwd=directory, capture_output=True, text=True, check=False)
+    except OSError as err:
+        raise InputError(f"cannot run {cargo}: {err}") from err
+    if result.returncode != 0:
+        raise InputError(f"'{' '.join(command)}' in {directory} failed:\n{result.stderr.strip()}")
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError as err:
+        raise InputError(f"'{' '.join(command)}' in {directory} printed no JSON: {err}") from err
+
+
+def split_pkg_id(pkg_id):
+    """(name, version) from a cargo package id, `KIND+URL#[NAME@]VERSION`."""
+    match = PKG_ID.match(pkg_id)
+    if match is None:
+        raise InputError(f"cargo's unit graph has a package id it cannot read: {pkg_id}")
+    spec = match.group("spec")
+    if "@" in spec:
+        name, version = spec.rsplit("@", 1)
+    else:
+        name = os.path.basename(urllib.parse.urlparse(match.group("url")).path.rstrip("/"))
+        version = spec
+    return name, version
+
+
+# ---- The SBOM -------------------------------------------------------------------
+
+class UnitGraph:
+    """Cargo's unit graph for the PD build (cargo build --unit-graph)."""
+
+    def __init__(self, graph, target):
+        if not isinstance(graph, dict) or graph.get("version") != 1 or not isinstance(graph.get("units"), list):
+            raise InputError("cargo's unit graph is not version 1")
+        self.units = graph["units"]
+        self.roots = list(graph.get("roots", []))
+        self.target = target
+
+    def on_device(self, index):
+        unit = self.units[index]
+        return (unit.get("platform") == self.target and unit.get("mode") == "build"
+                and "custom-build" not in unit["target"].get("kind", []))
+
+    def closure(self, root):
+        """Unit indexes compiled into the program image `root` builds."""
+        seen, stack = set(), [root]
+        while stack:
+            index = stack.pop()
+            if index in seen or not self.on_device(index):
+                continue
+            seen.add(index)
+            stack.extend(dep["index"] for dep in self.units[index].get("dependencies", []))
+        return seen
+
+
+def build_sbom(args, components, graph, metadata, lock, containerfile, position):
+    target = args.target
+    domains, prefill = read_description(os.path.join(args.dir, f"{args.system}.system"))
+    images = sorted({image for _, image in domains})
+    runs = {image: sorted(name for name, used in domains if used == image) for image in images}
+    workspace = sbom.Workspace(metadata, None, args.pds)
+    units = UnitGraph(graph, target)
+    std_listed = dict(sbom.read_std_crates(args.std_crates))
+    checksums = {
+        (p.get("name"), p.get("version"), p.get("source")): p.get("checksum")
+        for p in lock.get("package", []) if p.get("checksum")
+    }
+
+    # Each unit's component: a package cargo metadata knows, or a
+    # standard-library crate build-std adds (and the reviewed list names).
+    std_refs = {}
+    unit_ref = []
+    for unit in units.units:
+        pkg_id = unit.get("pkg_id", "")
+        if pkg_id in workspace.packages:
+            unit_ref.append(workspace.refs[pkg_id])
+            continue
+        name, version = split_pkg_id(pkg_id)
+        crate = name.replace("-", "_")
+        if crate not in std_listed:
+            raise InputError(f"{name} {version} is built for the program images but is neither in "
+                             f"{args.pds}/Cargo.lock nor on {args.std_crates}: review it and add it there")
+        ref = f"rust-std:{crate}@{version}"
+        std_refs[ref] = (crate, version)
+        unit_ref.append(ref)
+
+    # Each program image's root unit: its bin, named as the image.
+    roots = {}
+    for index in units.roots:
+        unit = units.units[index]
+        if "bin" in unit["target"].get("kind", []):
+            roots.setdefault(unit["target"].get("name"), []).append(index)
+    in_images = {}
+    pd_refs = {}
+    for image in images:
+        crate = image[:-len(".elf")]
+        found = [i for i in roots.get(crate, []) if units.units[i].get("pkg_id") in workspace.packages
+                 and workspace.packages[units.units[i]["pkg_id"]]["name"] == crate]
+        if len(found) != 1:
+            raise InputError(f"cargo's unit graph has no program image {crate} for {target} "
+                             f"(roots: {', '.join(sorted(roots)) or 'none'})")
+        pd_refs[image] = unit_ref[found[0]]
+        for index in units.closure(found[0]):
+            in_images.setdefault(unit_ref[index], set()).add(image)
+    required = set(in_images)
+
+    # The package-level graph: every unit's direct dependencies, merged.
+    depends = {}
+    for index, unit in enumerate(units.units):
+        mine = unit_ref[index]
+        out = depends.setdefault(mine, set())
+        for dep in unit.get("dependencies", []):
+            other = unit_ref[dep["index"]]
+            if other != mine:
+                out.add(other)
+
+    pkg_of_ref = {ref: pid for pid, ref in workspace.refs.items()}
+    image_of = {ref: image for image, ref in pd_refs.items()}
+    glyphs = load_glyphs(args.glyphs)
+    atlases_in = set()
+    entries = []
+    for ref in sorted(depends):
+        scope = "required" if ref in required else "excluded"
+        pid = pkg_of_ref.get(ref)
+        if pid is not None:
+            entry = sbom.component(workspace, pid, scope, {"build"}, checksums)
+        else:
+            crate, version = std_refs[ref]
+            entry = {
+                "type": "library", "bom-ref": ref, "name": crate, "version": version,
+                "description": ("Rust standard-library crate compiled into the protection domains by build-std, "
+                                f"from the rust-src of {args.toolchain}"),
+                "scope": scope, "licenses": [{"expression": std_listed[crate]}],
+                "properties": [{"name": "nowayos:source", "value": f"rust-src of {args.toolchain} (build-std)"}],
+            }
+            if scope == "excluded":
+                entry["properties"].append({"name": "nowayos:excluded", "value": sbom.REASONS["build"]})
+        if ref in image_of:
+            image = image_of[ref]
+            entry["type"] = "application"
+            entry["hashes"] = sha256_entry(sha256_file(os.path.join(args.dir, image)))
+            entry["properties"] += [
+                {"name": "nowayos:location", "value": IN_IMAGE},
+                {"name": "nowayos:program-image", "value": image},
+                {"name": "nowayos:protection-domains", "value": ", ".join(runs[image])},
+            ]
+        elif scope == "required":
+            entry["properties"].append({"name": "nowayos:program-images",
+                                        "value": ", ".join(sorted(in_images[ref]))})
+        licences = entry.get("licenses", [])
+        if licences and "expression" in licences[0]:
+            entry["properties"] += licence_parts(licences[0]["expression"])[1]
+        if pid is not None and entry["name"] == glyphs["crate"] and workspace.packages[pid].get("source") is None:
+            entry["properties"] += font_properties(glyphs) + [
+                {"name": "nowayos:notice", "value": f"{glyphs['notice']} beside loader.img"}]
+            if scope == "required":
+                atlases_in.update(in_images[ref])
+        entries.append(entry)
+
+    # The Microkit SDK's parts, and the tool.
+    sdk_version = read_text(os.path.join(args.sdk, "VERSION")).strip()
+    microkit = need_arg(containerfile, "MICROKIT_VERSION", args.containerfile)
+    if sdk_version != microkit:
+        raise InputError(f"the SDK in {args.sdk} is Microkit {sdk_version}, but {args.containerfile} pins "
+                         f"{microkit}: rebuild the dev image with 'make container'")
+    archive = f"microkit-sdk-{sdk_version}-{SDK_ARCHES[args.arch]}.tar.gz"
+    archive_sha = need_arg(containerfile, f"MICROKIT_SHA256_{args.arch.upper()}", args.containerfile)
+    archive_url = f"https://github.com/seL4/microkit/releases/download/{sdk_version}/{archive}"
+    sel4_release = position_release(position, containerfile, args)
+    elf_dir = os.path.join(args.sdk, "board", args.board, args.config, "elf")
+    try:
+        present = sorted(name for name in os.listdir(elf_dir) if not name.startswith("."))
+    except OSError as err:
+        raise InputError(f"the Microkit SDK has no {args.board}/{args.config}: {err}") from err
+    known = sorted(part["file"] for part in components["sdk"].values())
+    if present != known:
+        raise InputError(f"{elf_dir} holds {', '.join(present)}, but {args.components} lists "
+                         f"{', '.join(known)}: review the difference and update it")
+    pinned = (microkit, need_arg(containerfile, "MICROKIT_SHA256_ARM64", args.containerfile),
+              need_arg(containerfile, "MICROKIT_SHA256_AMD64", args.containerfile))
+
+    def audit_gap(audit):
+        """Why an audit does not hold for this image, or None when it does."""
+        head = audit["audit"]
+        name = f"the audit in {relative_name(audit['path'])} ({head['date']})"
+        if (head["sdk"], head["sdk-sha256-arm64"], head["sdk-sha256-amd64"]) != pinned:
+            return (f"{name} is for Microkit {head['sdk']} (archive sha256 {head['sdk-sha256-arm64']}, "
+                    f"linux-aarch64; {head['sdk-sha256-amd64']}, linux-x86-64), not the SDK "
+                    "tools/container/Containerfile pins: re-run it for this SDK")
+        if target.split("-")[0] != head["target"].split("-")[0]:
+            return f"{name} is for the build for {head['target']}, not for this image's architecture ({target})"
+        return None
+
+    def sdk_entry(part, relative, scope, location, audit=None):
+        """(the part's component, its composition: AUDITED, PENDING, UNAUDITED or None)."""
+        licences, offer = licence_parts(part["licence"])
+        properties = [{"name": "nowayos:source",
+                       "value": f"{relative} in the Microkit SDK {sdk_version} ({archive})"},
+                      {"name": "nowayos:licence-checked", "value": part["checked"]}]
+        if location:
+            properties.append({"name": "nowayos:location", "value": location})
+        if scope == "excluded":
+            properties.append({"name": "nowayos:excluded",
+                               "value": "build time only: the Microkit tool, which made the image"})
+        state = part.get("composition")
+        gap = audit_gap(audit) if audit is not None else None
+        if gap:
+            state = UNAUDITED
+            properties.append({"name": "nowayos:composition", "value": f"composition unaudited: {gap}"})
+        elif state == UNAUDITED:
+            properties.append({"name": "nowayos:composition", "value": f"composition unaudited: {part['note']}"})
+        else:
+            if state in (AUDITED, PENDING):
+                properties += audit_properties(state, audit)
+            if part.get("note"):
+                properties.append({"name": "nowayos:note", "value": part["note"]})
+        references = [{"type": "distribution", "url": archive_url, "hashes": sha256_entry(archive_sha)},
+                      {"type": "vcs", "url": part["vcs"]}]
+        if part["version"] == "seL4" and args.board in KERNEL_FROM_SOURCE:
+            commit = need_arg(containerfile, "SEL4_COMMIT", args.containerfile)
+            properties[0] = {"name": "nowayos:source",
+                             "value": f"{relative}: built in the dev image from seL4 {commit} with {args.board}'s "
+                                      f"RAM ending below the framebuffer (tools/container/Containerfile), "
+                                      f"in place of the Microkit SDK {sdk_version}'s"}
+            references = [{"type": "vcs", "url": f"{part['vcs']}/tree/{commit}"}]
+        if part["version"] == "seL4":
+            properties.append({"name": "nowayos:sel4-config",
+                               "value": "sel4-config.txt beside the image records this kernel's configuration "
+                                        "and what seL4's proofs cover"})
+        entry = {
+            "type": part["type"], "bom-ref": f"microkit-sdk:{relative}", "name": part["name"],
+            "version": sel4_release if part["version"] == "seL4" else sdk_version,
+            "description": part["description"], "scope": scope,
+            "hashes": sha256_entry(sha256_file(os.path.join(args.sdk, relative))),
+            "licenses": licences,
+            "externalReferences": references,
+            "properties": properties + offer,
+        }
+        if state in (AUDITED, PENDING):
+            entry["components"] = audit_components(part["file"].rsplit(".", 1)[0], audit)
+        return entry, state
+
+    top = []
+    assemblies = {}  # aggregate -> [bom-ref]
+    for key, part in sorted(components["sdk"].items(), key=lambda item: item[1]["file"]):
+        entry, state = sdk_entry(part, f"board/{args.board}/{args.config}/elf/{part['file']}", "required", IN_IMAGE,
+                                 components["audits"].get(key))
+        entries.append(entry)
+        top.append(entry["bom-ref"])
+        if state is not None:
+            assemblies.setdefault("unknown" if state == UNAUDITED else "complete", []).append(entry["bom-ref"])
+    tool, _ = sdk_entry(components["tool"], components["tool"]["file"], "excluded", None)
+    entries.append(tool)
+
+    # The system description and its prefill files.
+    description = f"{args.system}.system"
+    files = [(description, (f"The system description loader.img was made from, as tools/board-system wrote it "
+                            f"for {args.board}: every protection domain, memory region, channel and device it grants"),
+              f"{args.source or 'systems/' + description}, with the facts of platforms/{args.board}.toml")]
+    files += [prefill_file(name) for name in prefill]
+    for name, what, source in files:
+        entries.append({
+            "type": "file", "bom-ref": f"file:{name}", "name": name, "description": what, "scope": "required",
+            "hashes": sha256_entry(sha256_file(os.path.join(args.dir, name))),
+            "properties": [{"name": "nowayos:source", "value": source},
+                           {"name": "nowayos:location", "value": IN_IMAGE}],
+        })
+        top.append(f"file:{name}")
+    top += sorted(pd_refs.values())
+
+    # The glyph atlases' notice, beside every image (and on its SD card).
+    notice = glyphs["notice"]
+    beside = os.path.join(args.dir, notice)
+    if not os.path.isfile(beside):
+        raise InputError(f"{beside} is missing: make image puts the glyph atlases' notice beside every image "
+                         f", from {relative_name(os.path.join(args.glyphs, notice))}")
+    notice_sha = sha256_file(beside)
+    if notice_sha != sha256_file(os.path.join(args.glyphs, notice)):
+        raise InputError(f"{beside} differs from {relative_name(os.path.join(args.glyphs, notice))}: "
+                         "make image copies the atlas crate's notice unchanged")
+    fonts = ", ".join(f"{font['family']} {font['version']} {font['style']}" for font in glyphs["font"])
+    entries.append({
+        "type": "file", "bom-ref": f"notice:{notice}", "name": notice, "scope": "required",
+        "description": (f"The notice of the glyph atlases ({glyphs['crate']}, {glyphs['licence']}), a Modified "
+                        f"Version of {fonts}: its copyright line and licence, which go with every copy of the "
+                        "atlases and beside every image"),
+        "hashes": sha256_entry(notice_sha),
+        "properties": [
+            {"name": "nowayos:source", "value": f"{relative_name(os.path.join(args.glyphs, notice))}, "
+                                                     "the font's licence text as released, unchanged"},
+            {"name": "nowayos:notice-for", "value": f"{glyphs['crate']} ({glyphs['licence']}): "
+                                                         f"{glyphs['copyright']}"},
+            *font_properties(glyphs),
+            {"name": "nowayos:atlases-in", "value": ", ".join(sorted(atlases_in)) if atlases_in else (
+                "none of this image's program images yet: the notice goes beside every image")},
+            {"name": "nowayos:location", "value": BESIDE_IMAGE + (
+                ", and " + ON_CARD if args.sdcard_config else "")},
+        ],
+    })
+    top.append(f"notice:{notice}")
+
+    sdcard = sdcard_entries(args, components, containerfile) if args.sdcard_config else []
+    entries += sdcard
+    top += [entry["bom-ref"] for entry in sdcard]
+
+    image = os.path.join(args.dir, "loader.img")
+    image_sha = sha256_file(image)
+    root_ref = f"image:{args.system}"
+    dependencies = [{"ref": root_ref, "dependsOn": sorted(top)}]
+    dependencies += [{"ref": ref, "dependsOn": sorted(depends[ref])} for ref in depends]
+    dependencies += [{"ref": entry["bom-ref"], "dependsOn": []} for entry in entries
+                     if entry["bom-ref"] not in depends]
+    entries = [ordered(entry) for entry in sorted(entries, key=lambda e: e["bom-ref"])]
+    dependencies.sort(key=lambda entry: entry["ref"])
+    where = f"for {args.board}, {args.config} configuration"
+    properties = [
+        {"name": "nowayos:image", "value": "loader.img"},
+        {"name": "nowayos:image-sha256", "value": image_sha},
+        {"name": "nowayos:system", "value": args.system},
+        {"name": "nowayos:board", "value": args.board},
+        {"name": "nowayos:configuration", "value": args.config},
+        {"name": "nowayos:sdk", "value": f"Microkit {sdk_version}: {archive}, sha256 {archive_sha} "
+                                              "(pinned in tools/container/Containerfile)"},
+        {"name": "nowayos:target", "value": target},
+        {"name": "nowayos:toolchain", "value": args.toolchain},
+        {"name": "nowayos:scope-rule", "value": (
+            "required: what loader.img is made of - the Microkit SDK's kernel, loader, monitor and capDL "
+            "initialiser, every program image and each crate compiled into it (cargo's unit graph for the "
+            "PD build, the standard-library crates included), the system description and its prefill files, "
+            "the glyph atlases' notice beside it"
+            + (", and the boot files make sdcard puts beside it" if sdcard else "")
+            + "; excluded: what built it but is not in it, with the reason in nowayos:excluded")},
+    ]
+    document = {
+        "bomFormat": "CycloneDX",
+        "specVersion": sbom.SPEC_VERSION,
+        "version": 1,
+        "metadata": {
+            "tools": {"components": [{
+                "type": "application", "name": TOOL_NAME,
+                "description": ("nowayos/tools/image-sbom: CycloneDX from the Microkit build, cargo's unit graph, "
+                                "cargo metadata and Cargo.lock, Python standard library only"),
+            }]},
+            "component": {"type": "firmware", "bom-ref": root_ref, "name": args.system,
+                          "description": f"loader.img, the Microkit system image of {args.system} {where}"
+                                         + (", and the SD card's boot files beside it" if sdcard else ""),
+                          "hashes": sha256_entry(image_sha)},
+            "properties": properties,
+        },
+        "components": entries,
+        "dependencies": dependencies,
+    }
+    if assemblies:
+        document["compositions"] = [{"aggregate": aggregate, "assemblies": sorted(refs)}
+                                    for aggregate, refs in sorted(assemblies.items())]
+    return document
+
+
+def audit_properties(state, audit):
+    """The properties of a part whose audit holds: the marker, and the audit."""
+    head = audit["audit"]
+    crates = audit["crates"]
+    pending = [f"{crate['name']} {crate['version']}" for crate in crates if "pending" in crate]
+    marker = f"{state}: the {len(crates)} crates compiled into it are listed inside it"
+    if pending:
+        marker += f"; the project owner's licence sign-off is pending for {', '.join(pending)}"
+    return [
+        {"name": "nowayos:composition", "value": marker},
+        {"name": "nowayos:audit", "value": f"{relative_name(audit['path'])}: {head['date']}, "
+                                                f"for Microkit {head['sdk']}, built for {head['target']}"},
+        {"name": "nowayos:audit-established", "value": head["established"]},
+        {"name": "nowayos:audit-advisories", "value": head["advisories"]},
+    ]
+
+
+def audit_components(prefix, audit):
+    """Each crate the audit lists, as a nested component of the part."""
+    head = audit["audit"]
+    nested = []
+    for crate in audit["crates"]:
+        name, version, source = crate["name"], crate["version"], crate["source"]
+        licences, offer = licence_parts(spdx(crate["licence"]))
+        entry = {"type": "library", "bom-ref": f"{prefix}:{name}@{version}", "name": name, "version": version,
+                 "scope": "required", "licenses": licences}
+        if source == "crates.io":
+            entry["hashes"] = sha256_entry(crate["checksum"])
+            entry["purl"] = f"pkg:cargo/{name}@{version}"
+            where = "crates.io"
+        elif source in ("rust-sel4", "microkit"):
+            repository = f"https://github.com/seL4/{source}"
+            commit = head[f"{source}-commit"]
+            entry["purl"] = (f"pkg:cargo/{name}@{version}?vcs_url="
+                             + urllib.parse.quote(f"git+{repository}@{commit}", safe=""))
+            entry["externalReferences"] = [{"type": "vcs", "url": repository}]
+            where = f"git {repository} at {commit}"
+        else:
+            where = f"the standard library of Rust {head['rust']}, prebuilt for {head['target']}"
+        properties = [{"name": "nowayos:source", "value": where}]
+        if "signed-off" in crate:
+            properties.append({"name": "nowayos:licence-sign-off", "value": f"signed off: {crate['signed-off']}"})
+        elif "pending" in crate:
+            properties.append({"name": "nowayos:licence-sign-off", "value": f"pending: {crate['pending']}"})
+        if "note" in crate:
+            properties.append({"name": "nowayos:note", "value": crate["note"]})
+        entry["properties"] = properties + offer
+        nested.append(ordered(entry))
+    return sorted(nested, key=lambda entry: entry["bom-ref"])
+
+
+def read_text(path):
+    try:
+        with open(path, encoding="utf-8") as handle:
+            return handle.read()
+    except OSError as err:
+        raise InputError(f"cannot read {path}: {err}") from err
+
+
+def position_release(position, containerfile, args):
+    """The seL4 release the verification position records for the pinned SDK."""
+    sdk = position.get("sdk") if isinstance(position, dict) else None
+    if not isinstance(sdk, dict) or not isinstance(sdk.get("sel4"), str):
+        raise InputError(f"{args.position}: [sdk] needs sel4 = \"...\"")
+    pinned = (need_arg(containerfile, "MICROKIT_VERSION", args.containerfile),
+              need_arg(containerfile, "MICROKIT_SHA256_ARM64", args.containerfile),
+              need_arg(containerfile, "MICROKIT_SHA256_AMD64", args.containerfile))
+    if (sdk.get("version"), sdk.get("sha256-arm64"), sdk.get("sha256-amd64")) != pinned:
+        return "unknown (the verification position has not been re-checked for this SDK: make sel4-config-check)"
+    return sdk["sel4"]
+
+
+def sdcard_entries(args, components, containerfile):
+    """U-Boot, the firmware files and config.txt: what make sdcard adds."""
+    missing = [flag for flag, value in (("--uboot-defconfig", args.uboot_defconfig),
+                                        ("--uboot-fragment", args.uboot_fragment),
+                                        ("--firmware", args.firmware)) if not value]
+    if missing:
+        raise InputError(f"--sdcard-config needs {', '.join(missing)} too")
+    entries = []
+    uboot = components["uboot"]
+    version = need_arg(containerfile, "UBOOT_VERSION", args.containerfile)
+    source_sha = need_arg(containerfile, "UBOOT_SHA256", args.containerfile)
+    licences, offer = licence_parts(uboot["licence"])
+    entry = {
+        "type": uboot["type"], "bom-ref": "sdcard:u-boot.bin", "name": uboot["name"], "version": version,
+        "description": uboot["description"], "scope": "required", "licenses": licences,
+        "externalReferences": [
+            {"type": "distribution", "url": uboot["distribution"].format(version=version),
+             "hashes": sha256_entry(source_sha)},
+            {"type": "vcs", "url": uboot["vcs"]},
+        ],
+        "properties": [
+            {"name": "nowayos:source", "value": f"the U-Boot {version} source release, its sha256 pinned in "
+                                                     "tools/container/Containerfile"},
+            {"name": "nowayos:configuration",
+             "value": f"{args.uboot_defconfig} with {relative_name(args.uboot_fragment)} "
+                      f"(sha256 {sha256_file(args.uboot_fragment)})"},
+            {"name": "nowayos:licence-checked", "value": uboot["checked"]},
+        ],
+    }
+    if args.uboot_bin:
+        entry["hashes"] = sha256_entry(sha256_file(args.uboot_bin))
+    else:
+        entry["properties"].append({"name": "nowayos:note", "value": (
+            "make uboot builds u-boot.bin reproducibly from this source; make sdcard records its sha256 here "
+            "and in the card's SHA256SUMS")})
+    entry["properties"] += [{"name": "nowayos:location", "value": ON_CARD}] + offer
+    entries.append(entry)
+
+    firmware = components["firmware"]
+    release = need_arg(containerfile, "RPI_FIRMWARE_VERSION", args.containerfile)
+    commit = need_arg(containerfile, "RPI_FIRMWARE_COMMIT", args.containerfile)
+    groups = firmware["files"]
+    for path, digest in read_firmware(args.firmware):
+        matched = [group for group in groups if any(fnmatch.fnmatchcase(path, p) for p in group["paths"])]
+        if len(matched) != 1:
+            raise InputError(f"{path} in {args.firmware} matches {len(matched)} [[firmware.files]] entries in "
+                             f"{args.components}, not one: review its licence and list it")
+        group = matched[0]
+        name = path[len("boot/"):]
+        licences, offer = licence_parts(group.get("licence"))
+        properties = [
+            {"name": "nowayos:source", "value": f"{firmware['name']} {release} (commit {commit}): {path}, "
+                                                     "its sha256 pinned in tools/container/rpi-firmware.sha256"},
+            {"name": "nowayos:licence-checked", "value": firmware["checked"]},
+        ]
+        if group.get("note"):
+            properties.append({"name": "nowayos:note", "value": group["note"]})
+        properties.append({"name": "nowayos:location", "value": ON_CARD})
+        item = {
+            "type": group["type"], "bom-ref": f"sdcard:{name}", "name": name, "version": release,
+            "description": f"Raspberry Pi firmware {release}: {name}", "scope": "required",
+            "hashes": sha256_entry(digest),
+            "externalReferences": [{"type": "vcs", "url": firmware["vcs"]}],
+            "properties": properties + offer,
+        }
+        if licences:
+            item["licenses"] = licences
+        entries.append(item)
+
+    entries.append({
+        "type": "file", "bom-ref": "sdcard:config.txt", "name": "config.txt",
+        "description": "The Raspberry Pi firmware's configuration: how it loads U-Boot",
+        "scope": "required", "hashes": sha256_entry(sha256_file(args.sdcard_config)),
+        "properties": [{"name": "nowayos:source", "value": relative_name(args.sdcard_config)},
+                       {"name": "nowayos:location", "value": ON_CARD}],
+    })
+    return entries
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n", 1)[0])
+    parser.add_argument("--system", required=True, help="the system's name (DIR/SYSTEM.system)")
+    parser.add_argument("--board", required=True)
+    parser.add_argument("--source", help="the system description's source, as the SBOM names it (default: "
+                        "systems/SYSTEM.system; a board's own variant is systems/BOARD/SYSTEM.system)")
+    parser.add_argument("--config", required=True, help="the Microkit configuration: debug, release, ...")
+    parser.add_argument("--dir", required=True, help="the image's folder: loader.img, the description, the ELFs")
+    parser.add_argument("--sdk", required=True, help="the Microkit SDK directory")
+    parser.add_argument("--pds", required=True, help="the PD Cargo workspace the program images are built from")
+    parser.add_argument("--toolchain", required=True, help="the PD toolchain (pds/rust-toolchain.toml's channel)")
+    parser.add_argument("--std-crates", required=True, help="the reviewed list of build-std crates")
+    parser.add_argument("--out", required=True, help="the CycloneDX JSON file to write")
+    parser.add_argument("--target", default="aarch64-sel4", help="the PDs' target (default aarch64-sel4)")
+    parser.add_argument("--cargo", default="cargo")
+    parser.add_argument("--components", default=DEFAULT_COMPONENTS, help="the reviewed components file")
+    parser.add_argument("--containerfile", default=DEFAULT_CONTAINERFILE)
+    parser.add_argument("--position", default=DEFAULT_POSITION, help="the seL4 verification position")
+    parser.add_argument("--sdcard-config", help="config.txt's source, for a board that boots from an SD card")
+    parser.add_argument("--uboot-defconfig")
+    parser.add_argument("--uboot-fragment")
+    parser.add_argument("--firmware", help="the pinned firmware list (rpi-firmware.sha256)")
+    parser.add_argument("--uboot-bin", help="the u-boot.bin make sdcard puts on the card")
+    parser.add_argument("--unit-graph", help="cargo's unit graph, instead of running cargo")
+    parser.add_argument("--metadata", help="cargo metadata's output, with --unit-graph")
+    parser.add_argument("--arch", choices=sorted(SDK_ARCHES), help="the host architecture (default: this machine's)")
+    parser.add_argument("--glyphs", default=DEFAULT_GLYPHS,
+                        help="the glyph atlas crate: its notice and src/atlas/manifest.toml (default: NoWayOS's)")
+    args = parser.parse_args()
+    if tomllib is None:
+        print("image-sbom: needs Python 3.11 or later (tomllib); run it in the dev container", file=sys.stderr)
+        return EXIT_ERROR
+    if bool(args.unit_graph) != bool(args.metadata):
+        parser.error("--unit-graph and --metadata go together")
+    if args.arch is None:
+        args.arch = MACHINE_ARCH.get(platform.machine())
+        if args.arch is None:
+            print(f"image-sbom: no Microkit SDK archive is pinned for this machine ({platform.machine()})",
+                  file=sys.stderr)
+            return EXIT_ERROR
+    try:
+        components = load_components(args.components)
+        containerfile = containerfile_args(args.containerfile)
+        position = load_toml(args.position)
+        if args.unit_graph:
+            graph = sbom.load_json(args.unit_graph)
+            metadata = sbom.load_json(args.metadata)
+        else:
+            domains, _prefill = read_description(os.path.join(args.dir, f"{args.system}.system"))
+            crates = sorted({image[:-len(".elf")] for _, image in domains})
+            graph = cargo_json(args.cargo, args.pds, ["build", "--locked", "--release", "--unit-graph",
+                                                      "-Z", "unstable-options"]
+                               + [flag for crate in crates for flag in ("-p", crate)])
+            metadata = cargo_json(args.cargo, args.pds, ["metadata", "--locked", "--format-version", "1"])
+        lock = load_toml(os.path.join(args.pds, "Cargo.lock"))
+        document = build_sbom(args, components, graph, metadata, lock, containerfile, position)
+    except InputError as err:
+        print(f"image-sbom: {err}", file=sys.stderr)
+        return EXIT_ERROR
+    problems = sbom.validate(document)
+    if problems:
+        print(f"image-sbom: FAIL - the SBOM for {args.system} is not valid CycloneDX {sbom.SPEC_VERSION}:",
+              file=sys.stderr)
+        for problem in problems:
+            print(f"    {problem}", file=sys.stderr)
+        return EXIT_FAIL
+    try:
+        with open(args.out, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write(sbom.render(document))
+    except OSError as err:
+        print(f"image-sbom: cannot write {args.out}: {err}", file=sys.stderr)
+        return EXIT_ERROR
+    required = [entry for entry in document["components"] if entry["scope"] == "required"]
+    on_card = sum(1 for entry in required if entry["bom-ref"].startswith("sdcard:"))
+    notices = sum(1 for entry in required if entry["bom-ref"].startswith("notice:"))
+    crates = sum(1 for entry in required if entry["type"] == "library")
+    inside = [part for entry in required for part in entry.get("components", [])]
+    offers = sum(1 for entry in required + inside for prop in entry.get("properties", [])
+                 if prop["name"] == "nowayos:source-offer")
+    marked = "".join(f"; {entry['name']} {prop['value'].split(':', 1)[0]}"
+                     + (f", {len(entry['components'])} crates inside it" if entry.get("components") else "")
+                     for entry in required for prop in entry.get("properties", [])
+                     if prop["name"] == "nowayos:composition")
+    print(f"image-sbom: {args.out}: {len(required) - on_card - notices} parts in loader.img "
+          f"({crates} of them crates{marked}), the glyph atlases' notice beside it"
+          f"{f', {on_card} on the SD card' if on_card else ''}, "
+          f"{len(document['components']) - len(required)} excluded; {offers} need a source offer; "
+          f"loader.img sha256 {document['metadata']['component']['hashes'][0]['content']}")
+    return EXIT_PASS
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,256 @@
+# Microkit protection-domain binaries: a Cargo workspace of its own.
+#
+# Separate from the library workspace in ../Cargo.toml because PDs need the
+# pinned nightly toolchain, a custom target and build-std (see .cargo/). PDs may
+# depend on ../crates/* by path.
+#
+# Members: the PD binaries, one crate per program image, plus eight small
+# libraries they share (region, fault, ipc-demo, hw, timer-api, clock-api,
+# ui-loop, restart). The libraries need no seL4 (timer-api and clock-api only
+# for their `client` feature, restart only for its `entry` and `parent`
+# features), so `make pds-test` also runs their tests on the container's own
+# target.
+
+[workspace]
+resolver = "3"
+members = [
+    # The first PD
+    "hello",
+    # libraries
+    "region",
+    "fault",
+    "ipc-demo",
+    "hw",
+    "timer-api",
+    "ui-loop",
+    # systems/ipc-demo.system
+    "ipc-producer",
+    "ipc-consumer",
+    # Phases 1-2: systems/isolation-test.system, systems/ui-isolation*.system
+    "isolation-parent",
+    "isolation-probe",
+    "isolation-bystander",
+    # systems/pl011-demo.system, the first driver PD
+    "pl011",
+    # systems/dma-demo.system, DMA by a learned physical address
+    "dma-demo",
+    # In QEMU: systems/display-test.system, the ramfb display PD
+    "ramfb",
+    # In QEMU: systems/virtio-input-test.system, the virtio-input driver PD
+    # and the test instrument that prints what it sends
+    "virtio-input",
+    "input-print",
+    # In QEMU: systems/input-broker-test.system, the input broker PD and
+    # the test instrument that floods it
+    "input-broker",
+    "input-flood",
+    # systems/timer-demo.system, the timer PD and a client
+    "timer",
+    "timer-client",
+    # systems/ui-demo.system, the UI PD and a display stub
+    "ui-demo",
+    "display-stub",
+    "input-script",
+    # In QEMU: systems/ui-interactive.system, the clickable demo with
+    # QEMU's display and input
+    "display-ramfb",
+    # systems/supervisor-test.system and supervisor-panic.system, the
+    # fault policy's supervisor and the console test systems report through
+    "supervisor",
+    "console",
+    # In QEMU: systems/watchdog-test.system, the watchdog PD,
+    # the test-only stand-in for the hardware watchdog QEMU lacks, and the
+    # watched PDs that answer its heartbeat
+    "watchdog",
+    "watchdog-stand-in",
+    # The Pi 5's fan: systems/rpi5b_2gb/fan-test.system
+    "fan",
+    # systems/update-test.system, the update PD and its test
+    # stand-ins for the TLS PD and the storage PD
+    "update",
+    "update-bundles",
+    "update-storage",
+    "heartbeat-probe",
+    # Time isolation in QEMU: systems/budget-test.system and
+    # budget-test-widened.system
+    "budget-probe",
+    # In QEMU: systems/net-test.system, the NIC driver PD for
+    # virtio-net and the test instrument standing in for its client
+    "virtio-net",
+    "net-client",
+    # restarting one PD cleanly, and systems/restart-test.system
+    "restart",
+    "restart-probe",
+    # In QEMU: systems/virtio-console-test.system, the serial driver PD
+    # for QEMU's virtio console, which a product can run one way, and
+    # the test instrument standing in for its client
+    "virtio-console",
+    "serial-test",
+    # In QEMU: systems/clock-test.system, the clock PD, its interface,
+    # and the test instrument standing in for the TLS PD and for a reader
+    "clock-api",
+    "clock",
+    "clock-test",
+    # In QEMU: systems/signature-test.system, ECDSA P-256 checked in a
+    # PD, by a test instrument
+    "signature-check",
+    # In QEMU: systems/net-stack-test.system and its counterparts, the
+    # network stack PD on smoltcp, and the test instrument standing in
+    # for the entropy PD and for a hostile NIC driver
+    "net-stack",
+    "net-stack-test",
+    # The Pi 5's firmware framebuffer - showing
+    # frames on it, and its test pattern (systems/rpi5b_2gb/fb-test)
+    "fb",
+    "fb-test",
+    # systems/usb-test.system, the USB host PD for an xHCI controller
+    # - QEMU's qemu-xhci, RP1's on the Pi 5
+    "usb-host",
+    # systems/usb-audio-test.system's test instrument: the USB host PD
+    # streaming audio interfaces' isochronous endpoints
+    "usb-tone",
+    # systems/usb-audio-loop-test.system's test instrument: the audio client
+    # of the USB host PD's rings
+    "audio-loop",
+    # systems/rpi5b_2gb/usb-camera-test.system's test instruments: the USB
+    # host PD streaming a camera's Motion JPEG frames, and their client
+    "usb-camera",
+    "camera-test",
+    # a development route only: keys typed on a terminal through the
+    # debug UART into the input broker (systems/uart-input-test.system)
+    "uart-input",
+    # In QEMU: randomness in a PD - each
+    # PD's own generator and the getrandom back end, approved-unsafe, and
+    # systems/getrandom-test.system's test instrument
+    "entropy",
+    "getrandom-probe",
+    # In QEMU: systems/entropy-test.system and entropy-test-no-rng's
+    # entropy PD, on virtio-rng, and their test consumer
+    "entropy-source",
+    "seed-consumer",
+    # In QEMU: TLS inside one PD on a fixed heap arena - the
+    # PD heap, approved-unsafe, and systems/tls-test.system's and
+    # systems/tls-test-small-arena.system's test instruments
+    "heap",
+    "tls-test",
+    "tls-test-small-arena",
+    # In QEMU: systems/tcp-test.system's test instrument, the network
+    # stack's socket client over TCP
+    "socket-test",
+    # The Pi 5's network: systems/rpi5b_2gb/net-stack-test.system, the NIC
+    # driver PD for RP1's Cadence GEM MAC, polled
+    "gem-net",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.93"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[workspace.dependencies]
+# rust-sel4 is not on crates.io. Pinned by the full commit hash of tag v5.0.0,
+# which states compatibility with seL4 16.0.0 and Microkit 2.3.0 (built here
+# against Microkit 2.3.1, which uses the same seL4 16.0.0 commit).
+sel4-microkit = { git = "https://github.com/seL4/rust-sel4", rev = "d441a880938209f661201704dfbee7b91c5aa905", default-features = false }
+# The `sel4` crate from the same pinned checkout. It is already in the tree as
+# a dependency of sel4-microkit; the fault-handling PD names its fault types.
+sel4 = { git = "https://github.com/seL4/rust-sel4", rev = "d441a880938209f661201704dfbee7b91c5aa905" }
+# The runtime's view of a PD's program headers, from the same pinned checkout
+# (BSD-2-Clause; already in the tree as a dependency of sel4-microkit's
+# runtime): the restart entry finds the program's writable segments with it.
+sel4-phdrs = { git = "https://github.com/seL4/rust-sel4", rev = "d441a880938209f661201704dfbee7b91c5aa905" }
+
+# NoWayOS's library crates (../crates), by path.
+# The audio channel's records: PCM to and from a client PD.
+nowayos-audio = { path = "../crates/nowayos-audio" }
+nowayos-bounded = { path = "../crates/nowayos-bounded" }
+nowayos-demo = { path = "../crates/nowayos-demo" }
+nowayos-display = { path = "../crates/nowayos-display" }
+nowayos-fault-policy = { path = "../crates/nowayos-fault-policy" }
+nowayos-heartbeat = { path = "../crates/nowayos-heartbeat" }
+nowayos-input = { path = "../crates/nowayos-input" }
+# The network stack's logic, which brings smoltcp 0.14.0 (0BSD, signed
+# off: Licensing Options item 19) with only the features deny.toml
+# allows.
+nowayos-gem = { path = "../crates/nowayos-gem" }
+nowayos-ip = { path = "../crates/nowayos-ip" }
+nowayos-ipc = { path = "../crates/nowayos-ipc" }
+nowayos-rng-health = { path = "../crates/nowayos-rng-health" }
+nowayos-socket = { path = "../crates/nowayos-socket" }
+nowayos-net = { path = "../crates/nowayos-net" }
+nowayos-render-eg = { path = "../crates/nowayos-render-eg" }
+nowayos-seed = { path = "../crates/nowayos-seed" }
+nowayos-serial = { path = "../crates/nowayos-serial" }
+nowayos-signature = { path = "../crates/nowayos-signature" }
+nowayos-time = { path = "../crates/nowayos-time" }
+nowayos-update = { path = "../crates/nowayos-update" }
+nowayos-ui = { path = "../crates/nowayos-ui" }
+# USB host logic from the public specifications: xHCI's records and
+# contexts, descriptors, enumeration and HID boot reports.
+nowayos-usb = { path = "../crates/nowayos-usb" }
+# A rustls client and server on nowayos-tls-crypto, joined in memory: the TLS
+# test instruments'. Never in a product image.
+nowayos-tls-loopback = { path = "../crates/nowayos-tls-loopback" }
+# TLS: Apache-2.0 OR ISC OR MIT, no std, no logging, no
+# provider of its own (nowayos-tls-crypto is the provider).
+rustls = { version = "=0.23.46", default-features = false }
+# SHA-256, as in ../Cargo.toml: RustCrypto, MIT OR Apache-2.0, already in the
+# PDs through nowayos-rng-health; the entropy test's consumer hashes its draw
+# with it, so the draw itself is never printed.
+sha2 = { version = "0.11.0", default-features = false }
+
+# The rendering substrate, as in ../Cargo.toml: MIT OR Apache-2.0;
+# its built-in bitmap fonts are signed off as interim, for bring-up
+# and debug screens only.
+embedded-graphics = "0.8.2"
+
+# Device registers for driver PDs: typed MMIO that never makes a
+# Rust reference to device memory. MIT OR Apache-2.0; its run-time dependency
+# zerocopy is BSD-2-Clause OR Apache-2.0 OR MIT. Only nowayos-hw uses it.
+safe-mmio = "0.3.2"
+
+# Libraries in this workspace.
+nowayos-fault = { path = "fault" }
+nowayos-hw = { path = "hw" }
+nowayos-fb = { path = "fb" }
+nowayos-timer-api = { path = "timer-api" }
+nowayos-clock-api = { path = "clock-api" }
+nowayos-ui-loop = { path = "ui-loop" }
+nowayos-ipc-demo = { path = "ipc-demo" }
+nowayos-region = { path = "region" }
+nowayos-restart = { path = "restart" }
+nowayos-update-pd = { path = "update" }
+nowayos-entropy = { path = "entropy" }
+nowayos-entropy-source = { path = "entropy-source" }
+nowayos-heap = { path = "heap" }
+nowayos-fan = { path = "fan" }
+nowayos-usb-host = { path = "usb-host" }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+# Panicking shortcuts are not allowed in PD code (tests may opt out locally).
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+unreachable = "deny"
+undocumented_unsafe_blocks = "deny"
+# No panic inside a function that returns Result, and every #[allow] says why.
+panic_in_result_fn = "deny"
+allow_attributes_without_reason = "deny"
+# No out-of-bounds panics and no unchecked arithmetic on lengths and offsets.
+indexing_slicing = "deny"
+arithmetic_side_effects = "deny"
+
+[profile.release]
+overflow-checks = true
+panic = "abort"
+
+[profile.dev]
+panic = "abort"

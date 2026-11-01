@@ -1,0 +1,21 @@
+[package]
+name = "nowayos-usb-camera"
+description = "A test instrument: the USB host PD, streaming the first USB camera's Motion JPEG video it finds into a ring of whole frames for a client PD, and every USB audio interface as nowayos-usb-tone does. Never in a product's image"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "nowayos-usb-camera"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+nowayos-usb-host.workspace = true
+sel4-microkit.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,53 @@
+# Everything systems/update-trial-r2.system grants, one fact per line.
+# tools/check-system fails the build if the system description grants
+# anything not listed here, or lists anything it does not grant (format: see
+# tools/check-system). A change here is a security change: call it out in the
+# pull request.
+
+# The kind of system, and each PD's role (tools/grant-rules.toml): the
+# supervisor, the update PD, and two test instruments in the TLS PD's, the
+# health check's and the storage PD's places.
+system test
+role update_supervisor supervisor
+role update update
+role update_bundles test
+role update_storage test
+
+pd update_supervisor priority=254 budget=1000 period=1000
+pd update_bundles priority=4 budget=1000 period=1000
+pd update_storage priority=3 budget=1000 period=1000
+pd update priority=2 budget=1000 period=1000
+
+# The supervisor: every other PD its child, and the SMC capability for PSCI
+# SYSTEM_RESET (unbadged in Microkit 2.3.1: refused in a product).
+child update_supervisor update_storage
+child update_supervisor update
+child update_supervisor update_bundles
+smc update_supervisor
+
+# The update PD: its end of the ring, the shared page, the anchors read-only.
+map update bundle_control rw
+map update bundle_records r
+map update storage_page rw
+map update trust_anchors r
+
+# The bundle server: fw_cfg and its DMA region, its end of the ring, the
+# release marker read-only, and the disk it copies for the storage stand-in.
+device update_bundles fw_cfg rw
+map update_bundles bundle_dma rw
+paddr update_bundles bundle_dma
+map update_bundles bundle_records rw
+map update_bundles bundle_control r
+map update_bundles release r
+map update_bundles disk rw
+
+# The storage stand-in: the shared page, the slots, the disk read-only.
+map update_storage storage_page rw
+map update_storage slot_a rw
+map update_storage slot_b rw
+map update_storage disk r
+
+channel update update_bundles
+call update update_bundles
+channel update update_storage notify=none
+call update update_storage

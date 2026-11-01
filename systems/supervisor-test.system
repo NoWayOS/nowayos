@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    the fault policy's supervisor. fault_supervisor is the parent of every
+    other PD, so every fault reaches it. When faulter, a driver-like child,
+    faults on its trigger - writing its read-only page once trigger, standing
+    in for hostile input, notifies it - the supervisor stops it, reports it
+    and the decoded fault, and resets the board with PSCI SYSTEM_RESET. The
+    system boots again, and faulter finds the marker it wrote before the
+    fault gone: every boot's memory is fresh. It resets again, and again,
+    until the test has seen two boots.
+
+    Capabilities: fault_supervisor holds its children's thread capabilities
+    and the SMC capability (smc="true"; Microkit 2.3.1 gives it unbadged, so
+    the grants check refuses it in a product system), and nothing else.
+    faulter maps its marker page read-write and one page read-only, and its
+    end of the channel trigger notifies it on. trigger holds that channel only.
+
+    Every grant above is also listed in supervisor-test.grants, which
+    tools/check-system compares with this file and with the kernel objects the
+    Microkit tool generates (make image, make qemu-test).
+-->
+<system>
+    <memory_region name="marker" size="0x1000" />
+    <memory_region name="read_only_page" size="0x1000" />
+
+    <protection_domain name="fault_supervisor" priority="254" stack_size="0x10000" smc="true">
+        <program_image path="nowayos-supervisor.elf" />
+
+        <protection_domain name="faulter" id="0" priority="100" stack_size="0x10000">
+            <program_image path="nowayos-isolation-probe.elf" />
+            <map mr="marker" vaddr="0x4000_0000" perms="rw"
+                 setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+            <map mr="read_only_page" vaddr="0x4000_1000" perms="r"
+                 setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+        </protection_domain>
+
+        <protection_domain name="trigger" id="1" priority="50" stack_size="0x10000">
+            <program_image path="nowayos-isolation-probe.elf" />
+        </protection_domain>
+    </protection_domain>
+
+    <!-- The trigger: only trigger notifies. -->
+    <channel>
+        <end pd="trigger" id="0" />
+        <end pd="faulter" id="0" notify="false" />
+    </channel>
+</system>

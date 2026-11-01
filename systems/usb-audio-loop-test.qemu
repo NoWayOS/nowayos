@@ -1,0 +1,7 @@
+# usb-test's first xHCI controller, on PCI bus 0 as device 2 (where
+# platforms/qemu_virt_aarch64.toml's xhci0_config is), and QEMU's USB audio
+# device - a USB speaker - on its first root port, whose output QEMU writes
+# to a WAV file at 48 kHz beside the image.
+-device qemu-xhci,id=xhci0,addr=2
+-audiodev wav,id=speaker,path=build/qemu_virt_aarch64/usb-audio-loop-test/speaker.wav,out.frequency=48000
+-device usb-audio,id=audio,bus=xhci0.0,port=1,audiodev=speaker

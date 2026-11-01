@@ -1,0 +1,20 @@
+# Lines tools/qemu-test must see, in this order, as whole serial lines.
+# the first driver PD writes to the PL011 through nowayos-hw's
+# typed registers. The two lines in the middle come from the UART's own data
+# register (pds/pl011 LINES), the others through the seL4 debug console.
+# The same lines on every board: how the UART was identified - by its
+# identification registers on QEMU, by the board's facts on the Pi 5, whose
+# window holds none - is printed before "found", and not checked here.
+NOWAYOS: pl011: starting
+NOWAYOS: pl011: found an Arm PL011
+NOWAYOS: pl011: this line was written to the UART's own data register
+NOWAYOS: pl011: by a driver PD with no unsafe code
+NOWAYOS: pl011: done
+
+# Output that fails the test at once if it appears anywhere (substring match):
+# a fault reported by the Microkit monitor, a kernel error message, a panic,
+# or the driver giving up.
+!MON|ERROR
+!seL4(CPU
+!panicked
+!gave up

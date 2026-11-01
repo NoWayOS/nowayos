@@ -1,0 +1,31 @@
+# Lines tools/qemu-test must see, in this order, as whole serial lines.
+# In QEMU: fed from /dev/zero, the
+# entropy PD's repetition count test fails on its first bytes; it hands out no
+# seed, reports which test failed and faults on purpose; the supervisor stops
+# it, reports it and resets the board; the system starts again and fails the
+# same way. QEMU reboots rather than exiting (no -no-reboot): qemu-test fails
+# a run in which QEMU exits, and the second boot shows the reset took.
+NOWAYOS: supervisor: starting; children entropy (0) and seed_consumer (1)
+NOWAYOS: entropy: starting
+NOWAYOS: entropy: virtio-rng on transport 8, claimed to give 8 bits a byte
+NOWAYOS: entropy: health test failed: the repetition count test: no more seeds
+NOWAYOS: supervisor: entropy stopped: a fault the supervisor does not decode
+NOWAYOS: supervisor: resetting the board
+NOWAYOS: supervisor: starting; children entropy (0) and seed_consumer (1)
+NOWAYOS: entropy: health test failed: the repetition count test: no more seeds
+NOWAYOS: supervisor: entropy stopped: a fault the supervisor does not decode
+
+# Output that fails the test at once if it appears anywhere (substring match),
+# including in the second after the last line above: any sign of a seed taken
+# from the stuck source - the start-up tests passed, a ring filled, a consumer
+# seeded or drawing - a fault the monitor sees, a kernel error, the reset
+# returning or a PD not stopped.
+!start-up tests passed
+!full:
+!seeded
+!seed-consumer: drew
+!MON|ERROR
+!seL4(CPU
+!the reset returned
+!NOT stopped
+!gave up

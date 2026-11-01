@@ -1,0 +1,11 @@
+/target
+/build
+/pds/target
+/fuzz/target
+/tools/glyph-atlas/target
+*.img
+report.txt
+.DS_Store
+# Written next to a golden image when a snapshot test fails; never committed.
+*.actual.png
+__pycache__/

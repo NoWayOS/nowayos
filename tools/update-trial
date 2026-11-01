@@ -1,0 +1,360 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT OR Apache-2.0
+"""The QEMU harness that plays the bootloader, so that the update tests
+cross reboots.
+
+Usage:
+    update-trial --make MAKE --qemu QEMU --loader-addr ADDR --build-root DIR
+                 --systems DIR [--out DIR] [--timeout SECONDS]
+                 [--scenario pass|fail|late|fault ...]
+
+Run in the dev container by `make update-trial-test`, which `make
+qemu-test-all` runs. It:
+
+  1. makes this run's keys, as tools/update-bundles does, in a temporary
+     folder deleted when it is done: the root key, the image key, an image
+     key the next trust list removes, the configuration key;
+  2. builds two releases of systems/update-trial-r1.system and -r2.system,
+     with MAKE (`make image SYSTEM=... UPDATE_BUNDLES_KEEP=1`), both with
+     the run's root key as their trust anchor - release 1, which the device
+     was made with in slot A, and release 2, the newer one;
+  3. signs a bundle that offers release 2's whole loader.img: trust list v2
+     (which removes the old image key) and a manifest by the image key,
+     security version 5 - and then deletes the keys;
+  4. plays the device: its storage - both copies of the update state, and
+     what each slot holds, kept as the image file whose SHA-256 the storage
+     stand-in reported for it - and its bootloader, which reads the state,
+     boots the slot it names and, when a slot is marked for a trial, boots
+     that slot once: a one-shot flag of its own, as the Pi's tryboot is,
+     that it clears when it boots the trial;
+  5. boots each run with qemu-test - the image of the slot it chose, its
+     SHA-256 checked against what the stand-in reported its slot holds -
+     with QEMU's -no-reboot, so a reset ends the run, and fw_cfg files: the
+     disk (the state the last run left, and the slot booted), the bundle
+     for the run that stages it, and the health script for a trial boot;
+  6. takes the state and the slots from each run's serial log - the storage
+     stand-in prints each copy of the state it writes, in hex, and what each
+     slot was written - into the next run.
+
+The runs: `stage` (release 1 from slot A takes the bundle: release 2 in
+slot B, marked for one trial), then from there each scenario:
+
+    pass   trial-pass: release 2 on trial; the health check passes, so the
+           update PD marks slot B good and raises the rollback index to 5;
+           after-pass: release 2 boots from slot B as the default
+    fail   trial-fail: the health check fails: slot B unmarked;
+           after-fallback: release 1 boots from slot A
+    late   trial-late: the health check comes after the deadline; then
+           after-fallback
+    fault  trial-fault: a PD of release 2 faults during the trial, the
+           supervisor resets the board, and the run ends in the reset with
+           the trial still marked; after-fault: the bootloader has booted
+           the trial once, so release 1 boots from slot A, and the update PD
+           unmarks the trial that failed, and says so
+
+Each run's serial output is checked against systems/update-trial/RUN.expect
+by qemu-test's rules, and its log kept in OUT/SCENARIO-RUN/serial.log. The disk the
+harness hands over (fw_cfg's opt/nowayos/disk): the magic BDSK, a 32-bit
+little-endian version (1), the slot booted the same way (1 A, 2 B), four
+zero bytes, then copy A and copy B of the state; a copy of all zeros is
+empty.
+
+Exit status: 0 every run passes; 1 a run fails, or a step before it; 2
+usage error. Python 3.11 or later, standard library only; openssl on PATH.
+"""
+
+import argparse
+import hashlib
+import importlib.machinery
+import importlib.util
+import os
+import re
+import shlex
+import shutil
+import struct
+import subprocess
+import sys
+import tempfile
+import time
+import zlib
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+EXIT_PASS, EXIT_FAIL, EXIT_ERROR = 0, 1, 2
+
+
+def load_update_bundles():
+    """tools/update-bundles, as a module: its keys and records."""
+    path = os.path.join(HERE, "update-bundles")
+    loader = importlib.machinery.SourceFileLoader("update_bundles", path)
+    spec = importlib.util.spec_from_loader("update_bundles", loader)
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module
+
+
+ub = load_update_bundles()
+
+# The update state (crates/nowayos-update/src/state.rs): a copy is the
+# generation, the state record, the held trust list's record and a CRC-32.
+STATE_RECORD_LEN = ub.HEADER_LEN + ub.STATE_PAYLOAD_LEN
+LIST_RECORD_LEN = ub.HEADER_LEN + ub.LIST_PAYLOAD_LEN
+COPY_LEN = 8 + STATE_RECORD_LEN + LIST_RECORD_LEN + 4
+SLOTS = {1: "A", 2: "B"}
+SLOT_CODES = {"A": 1, "B": 2}
+
+DISK_MAGIC = b"BDSK"
+DISK_VERSION = 1
+SECURITY_VERSION = 5
+
+COPY_LINE = re.compile(r"NOWAYOS: update-storage: copy ([AB]) written: bytes (\d+)/(\d+): ([0-9a-f]*)$")
+SLOT_LINE = re.compile(r"NOWAYOS: update-storage: slot ([AB]) holds (\d+) bytes written this run, "
+                       r"SHA-256 ([0-9a-f]{64})$")
+
+# Each scenario's runs after `stage`: (run, health script, ends in a reset).
+SCENARIOS = {
+    "pass": [("trial-pass", "pass", False), ("after-pass", None, False)],
+    "fail": [("trial-fail", "fail", False), ("after-fallback", None, False)],
+    "late": [("trial-late", "late", False), ("after-fallback", None, False)],
+    "fault": [("trial-fault", "fault", True), ("after-fault", None, False)],
+}
+
+
+class HarnessError(Exception):
+    """A step failed; the message says which and why."""
+
+
+def decode_copy(copy):
+    """A copy of the update state as (generation, boots, trial slot or
+    None), or None if it is empty, torn or not one."""
+    if len(copy) != COPY_LEN or not any(copy):
+        return None
+    body, crc = copy[:-4], struct.unpack("<I", copy[-4:])[0]
+    if zlib.crc32(body) != crc:
+        return None
+    generation = struct.unpack("<Q", body[:8])[0]
+    kind = struct.unpack("<H", body[8:10])[0]
+    boots, trial = body[8 + ub.HEADER_LEN], body[9 + ub.HEADER_LEN]
+    if generation == 0 or kind != ub.STATE_KIND or boots not in SLOTS or trial not in (0, *SLOTS):
+        return None
+    return generation, SLOTS[boots], SLOTS.get(trial)
+
+
+def current(copies):
+    """The state that counts: the decodable copy with the higher
+    generation, as nowayos-update's StateStore::read takes it."""
+    states = [state for state in (decode_copy(copy) for copy in copies) if state is not None]
+    if not states:
+        raise HarnessError("neither copy of the update state decodes: the device's state is lost")
+    return max(states)
+
+
+class Device:
+    """The device between runs: its storage - the two copies of the state
+    and what each slot holds - and its bootloader's one-shot trial flag."""
+
+    def __init__(self, copy_a, slot_a):
+        self.copies = [copy_a, bytes(COPY_LEN)]
+        # Each slot: (image file, its SHA-256) or None.
+        self.slots = {"A": slot_a, "B": None}
+        # The trial the bootloader has booted: (slot, generation) or None.
+        self.tried = None
+
+    def copy(self):
+        twin = Device(self.copies[0], self.slots["A"])
+        twin.copies = list(self.copies)
+        twin.slots = dict(self.slots)
+        twin.tried = self.tried
+        return twin
+
+    def choose(self):
+        """The bootloader: the slot to boot, and whether on trial. A slot
+        marked for a trial boots once; after that, the slot that boots."""
+        generation, boots, trial = current(self.copies)
+        if trial is not None and self.tried != (trial, generation):
+            self.tried = (trial, generation)
+            return trial, True
+        return boots, False
+
+    def disk(self, slot):
+        """The disk handed to the storage stand-in for a boot of `slot`."""
+        return (DISK_MAGIC + struct.pack("<III", DISK_VERSION, SLOT_CODES[slot], 0)
+                + self.copies[0] + self.copies[1])
+
+    def take(self, log_text, images):
+        """Takes what a run's serial log says the stand-in wrote: the last
+        whole copy of each written, and each slot written's SHA-256, matched
+        to one of `images` ({path: sha256}) or to none."""
+        copies, pieces = {}, {}
+        for line in log_text.splitlines():
+            line = line.rstrip("\r")
+            match = COPY_LINE.search(line)
+            if match:
+                which, index, count, data = match.group(1), int(match.group(2)), int(match.group(3)), match.group(4)
+                if index == 1:
+                    pieces[which] = []
+                pieces.setdefault(which, []).append(data)
+                if index == count and len(pieces[which]) == count:
+                    copies[which] = bytes.fromhex("".join(pieces[which]))
+                continue
+            match = SLOT_LINE.search(line)
+            if match:
+                slot, digest = match.group(1), match.group(3)
+                found = [path for path, sha in images.items() if sha == digest]
+                self.slots[slot] = (found[0], digest) if found else (None, digest)
+        for which, copy in copies.items():
+            if len(copy) != COPY_LEN:
+                raise HarnessError(f"the stand-in printed copy {which} as {len(copy)} bytes, not {COPY_LEN}")
+            self.copies["AB".index(which)] = copy
+        return sorted(copies)
+
+
+def sha256_file(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for block in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def write(path, data):
+    with open(path, "wb") as handle:
+        handle.write(data)
+
+
+def build(make, build_root, out):
+    """Makes the keys, builds both releases, signs release 2's bundle and
+    deletes the keys. Returns (release images {1: path, 2: path}, the bundles
+    file, the first copy of the state)."""
+    os.makedirs(out, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="update-trial-keys-") as keys:
+        root = ub.Key(keys, "root")
+        image_key = ub.Key(keys, "image")
+        old_image = ub.Key(keys, "old-image")
+        configuration = ub.Key(keys, "configuration")
+        held = [("trust-list", root), ("image", image_key), ("image", old_image),
+                ("configuration", configuration)]
+        newer = [("trust-list", root), ("image", image_key), ("configuration", configuration)]
+        list_v1 = ub.trust_list(ub.HELD_LIST_VERSION, False, held, [root])
+        list_v2 = ub.trust_list(2, False, newer, [root])
+        write(os.path.join(out, "anchors.bin"), root.public)
+        images = {}
+        for release in (1, 2):
+            system = f"update-trial-r{release}"
+            command = shlex.split(make) + ["image", f"SYSTEM={system}", "UPDATE_BUNDLES_KEEP=1",
+                                           f"UPDATE_BUNDLES_OUT={out}"]
+            result = subprocess.run(command, capture_output=True, text=True, check=False)
+            if result.returncode != 0:
+                tail = "\n".join((result.stdout + result.stderr).splitlines()[-20:])
+                raise HarnessError(f"building {system} failed:\n{tail}")
+            path = os.path.join(build_root, "qemu_virt_aarch64", system, "loader.img")
+            images[release] = os.path.join(out, f"release-{release}.img")
+            shutil.copyfile(path, images[release])
+        with open(images[2], "rb") as handle:
+            image = handle.read()
+        manifest = ub.manifest(image_key, hashlib.sha256(image).digest(), len(image),
+                               security_version=SECURITY_VERSION, trust_list_version=2)
+        bundle = ub.bundle(list_v2, manifest, image)
+        bundles = os.path.join(out, "trial.bundles")
+        write(bundles, struct.pack("<II", 1, len(bundle)) + bundle)
+        first = ub.state_copy(1, list_v1, ub.ROLLBACK_INDEX)
+    return images, bundles, first
+
+
+def run(name, label, device, images, options, health=None, bundles=None, ends_in_reset=False):
+    """Boots one run: chooses the slot, checks its image, runs qemu-test,
+    and takes the run's report into `device`. Returns the seconds it took."""
+    slot, on_trial = device.choose()
+    held = device.slots[slot]
+    if held is None:
+        raise HarnessError(f"{name}: the bootloader chose slot {slot}, which holds nothing")
+    path, digest = held
+    if path is None or sha256_file(path) != digest:
+        raise HarnessError(f"{name}: slot {slot} holds bytes whose SHA-256 ({digest}) no image built "
+                           f"for this run has: there is nothing to boot")
+    folder = os.path.join(options.out, label)
+    os.makedirs(folder, exist_ok=True)
+    disk = os.path.join(folder, "disk.bin")
+    write(disk, device.disk(slot))
+    qemu = shlex.split(options.qemu) + [
+        "-no-reboot",
+        "-device", f"loader,file={path},addr={options.loader_addr},cpu-num=0",
+        "-fw_cfg", f"name=opt/nowayos/disk,file={disk}",
+    ]
+    if health is not None:
+        script = os.path.join(folder, "health.txt")
+        write(script, health.encode() + b"\n")
+        qemu += ["-fw_cfg", f"name=opt/nowayos/health,file={script}"]
+    if bundles is not None:
+        qemu += ["-fw_cfg", f"name=opt/nowayos/bundles,file={bundles}"]
+    log = os.path.join(folder, "serial.log")
+    expect = os.path.join(options.systems, "update-trial", f"{name}.expect")
+    command = [sys.executable, os.path.join(HERE, "qemu-test"), "--expect", expect, "--log", log,
+               "--timeout", str(options.timeout)]
+    command += ["--ends-in-reset"] if ends_in_reset else ["--settle", "1"]
+    release = next(number for number, image in images.items() if image == path)
+    print(f"update-trial: {label}: the bootloader boots slot {slot}{' on trial' if on_trial else ''} "
+          f"(release {release}, SHA-256 {digest[:16]}...)", flush=True)
+    started = time.monotonic()
+    result = subprocess.run(command + ["--"] + qemu, capture_output=True, text=True, check=False)
+    seconds = time.monotonic() - started
+    for line in (result.stdout + result.stderr).splitlines():
+        if line.startswith("qemu-test: PASS") or line.startswith("qemu-test: FAIL") or "    " == line[:4]:
+            print(f"    {line}", flush=True)
+    if result.returncode != 0:
+        raise HarnessError(f"{name}: qemu-test failed (status {result.returncode}); log {log}")
+    with open(log, encoding="utf-8", errors="replace") as handle:
+        taken = device.take(handle.read(), {image: sha256_file(image) for image in images.values()})
+    state = current(device.copies)
+    print(f"update-trial: {label}: {seconds:.1f} s; copies written: {', '.join(taken) or 'none'}; "
+          f"the state now: generation {state[0]}, slot {state[1]} boots, "
+          f"trial {state[2] or 'none'}", flush=True)
+    return seconds
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--make", required=True, help="the make command that builds an image (make -f system.mk)")
+    parser.add_argument("--qemu", required=True, help="the QEMU command, without the image's loader device")
+    parser.add_argument("--loader-addr", required=True, help="where QEMU's loader device puts the image")
+    parser.add_argument("--build-root", required=True, help="the repository's build/ folder")
+    parser.add_argument("--systems", required=True, help="the repository's systems/ folder")
+    parser.add_argument("--out", help="where the runs' files and logs go (default BUILD_ROOT/update-trial)")
+    parser.add_argument("--timeout", type=float, default=120.0, help="seconds each run may take (120)")
+    parser.add_argument("--scenario", action="append", choices=sorted(SCENARIOS),
+                        help="the scenarios to run after the staging run (default: all)")
+    options = parser.parse_args(argv)
+    options.out = options.out or os.path.join(options.build_root, "update-trial")
+    if sys.version_info < (3, 11):
+        print("update-trial: Python 3.11 or later is needed", file=sys.stderr)
+        return EXIT_ERROR
+
+    started = time.monotonic()
+    try:
+        if os.path.isdir(options.out):
+            shutil.rmtree(options.out)
+        images, bundles, first = build(options.make, options.build_root, options.out)
+        print(f"update-trial: keys made and deleted; releases 1 and 2 built "
+              f"({os.path.getsize(images[2])} bytes for release 2's image, staged whole)", flush=True)
+        device = Device(first, (images[1], sha256_file(images[1])))
+        runs = {"stage": run("stage", "stage", device, images, options, bundles=bundles)}
+        staged = device.slots["B"]
+        if staged is None or staged[0] != images[2]:
+            raise HarnessError("stage: slot B does not hold release 2's image")
+        for scenario in options.scenario or sorted(SCENARIOS):
+            twin = device.copy()
+            for name, health, ends_in_reset in SCENARIOS[scenario]:
+                label = f"{scenario}-{name}"
+                runs[label] = run(name, label, twin, images, options, health=health,
+                                  ends_in_reset=ends_in_reset)
+    except HarnessError as err:
+        print(f"update-trial: FAIL - {err}", file=sys.stderr)
+        return EXIT_FAIL
+    total = time.monotonic() - started
+    booted = sum(runs.values())
+    print(f"update-trial: PASS - {len(runs)} runs in {booted:.1f} s of QEMU, {total:.1f} s in all "
+          f"with the two builds")
+    return EXIT_PASS
+
+
+if __name__ == "__main__":
+    sys.exit(main())

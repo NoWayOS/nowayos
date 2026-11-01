@@ -1,0 +1,36 @@
+# Everything this failsafe-* system grants, one fact per line - the same for
+# all six (make tools-test checks). tools/check-system fails the build if the
+# system description grants anything not listed here, or lists anything it
+# does not grant, and checks the map rights again in the kernel objects the
+# Microkit tool generates (format: see tools/check-system). A change here is a
+# security change: call it out in the pull request.
+
+# The kind of system, and each PD's role (tools/grant-rules.toml): only a test
+# system may give the supervisor memory - here, its stand-in counts - and only
+# a test system may prefill a region from test-counts-*.bin (rule 12).
+system test
+role failsafe_supervisor supervisor
+role kept_child test
+role stopped_child test
+role unnamed_child test
+
+# The supervisor has the highest priority, so its start-up - reading the
+# counts and stopping the children it does not keep - runs before any
+# child's. Full budgets.
+pd failsafe_supervisor priority=254 budget=1000 period=1000
+pd kept_child priority=100 budget=1000 period=1000
+pd stopped_child priority=50 budget=1000 period=1000
+pd unnamed_child priority=40 budget=1000 period=1000
+
+# The supervisor: its children, and the SMC capability for PSCI SYSTEM_RESET
+# (unbadged in Microkit 2.3.1: it could make any firmware call).
+child failsafe_supervisor kept_child
+child failsafe_supervisor stopped_child
+child failsafe_supervisor unnamed_child
+smc failsafe_supervisor
+
+# The stand-in counts: prefilled at build time, read-only (rule 12).
+map failsafe_supervisor counts r
+
+# kept_child: the page it must not write.
+map kept_child kept_page r

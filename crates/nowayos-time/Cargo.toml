@@ -1,0 +1,17 @@
+[package]
+name = "nowayos-time"
+description = "Monotonic time and wall-clock time as two types: Instant, and UTC held as an interval from the build-time floor, with checked arithmetic, the checks on a sample and the clock's records"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+nowayos-ipc.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true

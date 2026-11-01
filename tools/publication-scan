@@ -1,0 +1,287 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT OR Apache-2.0
+"""The pre-publication scan: what must not become public with a repository.
+
+Usage:
+    publication-scan --terms FILE REPO [REPO ...]
+
+Before NoWayOS and Screen Compiler are published, each repository is read
+- its tree, every version of every file and every file name in its history,
+every commit message, the author, committer and co-authors of every commit,
+every ref and every annotated tag - for what must not become public with it.
+It reads each repository through git only, offline, as tools/secrets-scan
+does (whose plumbing it uses), and needs the whole history: a shallow clone
+fails.
+
+What it lists, for the Product Owner to review:
+
+* term N: line N of FILE - a client's, customer's or partner's name, an
+  internal project code, a person's name - found without regard to case, as
+  a whole word where the term begins or ends with a letter or digit, in a
+  file, a file name, a commit message, an identity or a ref name. FILE is kept
+  outside every repository, so the list itself is never published: the scan
+  refuses a FILE inside a git work tree. A finding names where the term was
+  found and its line in FILE, never the term or the text around it, so the
+  report can be copied into a work item or a wiki page without repeating it:
+  a name it prints - a path, a ref, an identity - shows each term in it as
+  [term N].
+* link: a URL or SSH remote on Azure DevOps's hosts (dev.azure.com,
+  *.visualstudio.com) - where the project, its wiki and its repositories
+  were - or on the project wiki's private repository on GitHub
+  (github.com/NoWayOS/Wiki), which a public reader cannot open.
+* assistant-file: our own AI assistant's instruction file (CLAUDE.md,
+  anything under .claude/), which describes internal working practice and
+  is kept out of the published tree (export-ignore). AGENTS.md, written for
+  contributors' assistants, is public and not listed.
+* wiki-reference: a file in the tree that mentions the wiki (the private
+  project wiki, where design lives), with how many lines do. The
+  tree only: the history holds earlier versions of the same pointers.
+* identity: every author, committer, tagger and co-author (Co-Authored-By
+  trailers), with how many commits name each - what publishing the history
+  would publish.
+
+A finding in the tree names its file and line. One in the history names its
+file and how many versions of it hold the finding, with the oldest commits
+that added one. Every kind but identity is something to resolve
+before publication: remove it, or record why it may stay.
+
+Exit status: 0 nothing but identities to review; 1 findings to review; 2
+usage or input error. Python 3.11 or later, standard library only; needs
+git.
+"""
+
+import argparse
+import importlib.machinery
+import importlib.util
+import os
+import re
+import subprocess
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+EXIT_PASS = 0
+EXIT_FAIL = 1
+EXIT_ERROR = 2
+SHOWN_COMMITS = 3
+
+# A URL (or an SSH remote, user@host) on Azure DevOps's hosts.
+LINK = re.compile(
+    r"(?i)(?:\bhttps?://|@)(?:(?:[a-z0-9-]+\.)*(?:dev\.azure\.com|visualstudio\.com)\b"
+    r"|github\.com[/:]NoWayOS/Wiki\b)"
+)
+WIKI = re.compile(r"(?i)\bwiki\b")
+ASSISTANT_FILE = re.compile(r"(?i)(?:^|/)(?:CLAUDE\.md|\.claude/.*)$")
+CO_AUTHOR = re.compile(r"(?im)^co-authored-by:[ \t]*(.+?)[ \t]*$")
+# The order findings are listed in.
+ORDER = ("term", "link", "assistant-file", "wiki-reference")
+
+
+def load_secrets_scan():
+    """tools/secrets-scan, for its read-only git plumbing."""
+    loader = importlib.machinery.SourceFileLoader("secrets_scan", os.path.join(HERE, "secrets-scan"))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module
+
+
+scan_git = load_secrets_scan()
+InputError = scan_git.InputError
+
+
+def read_terms(path):
+    """[(line number, compiled pattern)] from the term list, which must lie
+    outside every git work tree."""
+    directory = os.path.dirname(os.path.abspath(path))
+    try:
+        inside = subprocess.run(["git", "-C", directory, "rev-parse", "--is-inside-work-tree"],
+                                capture_output=True, check=False)
+    except OSError as err:
+        raise InputError(f"cannot run git: {err}") from err
+    if inside.returncode == 0 and inside.stdout.strip() == b"true":
+        raise InputError(f"{path} is inside a git work tree: keep the term list outside every repository, "
+                         "so that it is never committed")
+    try:
+        with open(path, encoding="utf-8") as handle:
+            lines = handle.read().splitlines()
+    except (OSError, UnicodeDecodeError) as err:
+        raise InputError(f"cannot read {path}: {err}") from err
+    terms = []
+    for number, line in enumerate(lines, 1):
+        term = line.strip()
+        if not term or term.startswith("#"):
+            continue
+        if len(term) < 3:
+            raise InputError(f"{path}:{number}: a term needs three characters or more")
+        start = r"\b" if term[0].isalnum() else ""
+        end = r"\b" if term[-1].isalnum() else ""
+        terms.append((number, re.compile(start + re.escape(term) + end, re.IGNORECASE)))
+    if not terms:
+        raise InputError(f"{path} lists no term")
+    return terms
+
+
+def text_of(data):
+    return data.decode("utf-8", "replace")
+
+
+def line_of(text, offset):
+    return text.count("\n", 0, offset) + 1
+
+
+def matches(text, terms):
+    """[(kind, line)] for every term and link in `text`."""
+    found = []
+    for number, pattern in terms:
+        found += [(f"term {number}", line_of(text, m.start())) for m in pattern.finditer(text)]
+    found += [("link", line_of(text, m.start())) for m in LINK.finditer(text)]
+    return found
+
+
+def in_name(name, terms):
+    """[kind] for every term found in a name (a path, a ref, an identity)."""
+    return [f"term {number}" for number, pattern in terms if pattern.search(name)]
+
+
+def masked(name, terms):
+    """A name to print: each term in it replaced by [term N], so the report
+    never repeats one."""
+    for number, pattern in terms:
+        name = pattern.sub(f"[term {number}]", name)
+    return name
+
+
+def identities(raw):
+    """[(role, identity)] in a raw commit or tag object."""
+    headers, _, message = raw.partition(b"\n\n")
+    found = []
+    for line in headers.split(b"\n"):
+        role, _, rest = line.partition(b" ")
+        if role in (b"author", b"committer", b"tagger"):
+            # NAME <EMAIL> TIMESTAMP ZONE
+            found.append((role.decode(), text_of(rest.rsplit(b" ", 2)[0])))
+    found += [("co-author", match.group(1)) for match in CO_AUTHOR.finditer(text_of(message))]
+    return found
+
+
+def roles_text(roles):
+    """'author of 3; committer of 3' for {role: commits}."""
+    return "; ".join(f"{role} of {len(roles[role])}" for role in ("author", "committer", "co-author", "tagger")
+                     if role in roles)
+
+
+def scan_repository(repo, terms):
+    """(findings, people, counts) for one repository: findings are
+    (sort key, kind, where); people {identity: {role: commits}}."""
+    scan_git.check_repository(repo)
+    findings = []
+    people = {}
+
+    def add(kind, where, key):
+        category = kind.split(" ")[0]
+        number = int(kind.split(" ")[1]) if category == "term" else 0
+        findings.append(((ORDER.index(category), number, key), kind, where))
+
+    tree_count = 0
+    for path, data in scan_git.tree_files(repo):
+        tree_count += 1
+        shown = masked(path, terms)
+        for kind in in_name(path, terms):
+            add(kind, f"{shown} (its name, in the tree)", (0, path, 0))
+        if ASSISTANT_FILE.search(path):
+            add("assistant-file", f"{shown} (in the tree)", (0, path, 0))
+        text = text_of(data)
+        for kind, line in sorted(set(matches(text, terms))):
+            add(kind, f"{shown}:{line} (in the tree)", (0, path, line))
+        wiki = len({line_of(text, m.start()) for m in WIKI.finditer(text)})
+        if wiki:
+            add("wiki-reference", f"{shown} ({wiki} line{'s' if wiki != 1 else ''} in the tree)", (0, path, 0))
+
+    commits, versions = scan_git.history(repo)
+    age = {commit: index for index, commit in enumerate(commits)}
+    # {(kind, path): [versions, {commits that added one}]}
+    in_history = {}
+    for oid, data in scan_git.read_objects(repo, sorted(versions), "blob"):
+        found = {kind for kind, _line in matches(text_of(data), terms)}
+        for path, added in versions[oid].items():
+            kinds = set(found) | set(in_name(path, terms))
+            if ASSISTANT_FILE.search(path):
+                kinds.add("assistant-file")
+            for kind in kinds:
+                entry = in_history.setdefault((kind, path), [0, set()])
+                entry[0] += 1
+                entry[1].update(added)
+    for (kind, path), (count, added) in in_history.items():
+        oldest = sorted(added, key=lambda commit: -age.get(commit, 0))
+        shown = ", ".join(commit.decode()[:12] for commit in oldest[:SHOWN_COMMITS])
+        more = f" and {len(oldest) - SHOWN_COMMITS} more" if len(oldest) > SHOWN_COMMITS else ""
+        add(kind, f"{masked(path, terms)} (in {count} version{'s' if count != 1 else ''} in the history, "
+                  f"added by commit{'s' if len(oldest) > 1 else ''} {shown}{more})", (1, path, 0))
+
+    for commit, raw in scan_git.read_objects(repo, commits, "commit"):
+        short = commit.decode()[:12]
+        message = text_of(scan_git.message_of(raw))
+        for kind, line in sorted(set(matches(message, terms))):
+            add(kind, f"commit {short}, message line {line}", (2, commit.decode(), line))
+        for role, who in identities(raw):
+            people.setdefault(who, {}).setdefault(role, set()).add(commit)
+
+    refs = scan_git.git(repo, "for-each-ref", "--format=%(objecttype) %(objectname) %(refname)").decode()
+    tags = []
+    for line in refs.splitlines():
+        kind, oid, name = line.split(" ", 2)
+        for found in in_name(name, terms):
+            add(found, f"ref {masked(name, terms)}", (3, name, 0))
+        if kind == "tag":
+            tags.append((oid.encode(), name))
+    for (oid, raw), (_, name) in zip(scan_git.read_objects(repo, [oid for oid, _ in tags], "tag"), tags):
+        for kind, line in sorted(set(matches(text_of(scan_git.message_of(raw)), terms))):
+            add(kind, f"tag {masked(name, terms)}, message line {line}", (3, name, line))
+        for role, who in identities(raw):
+            people.setdefault(who, {}).setdefault(role, set()).add(oid)
+    # An identity holding a term: one finding for it, with how many commits
+    # and tags name it in each role.
+    for who, roles in people.items():
+        for kind in in_name(who, terms):
+            add(kind, f"identity {masked(who, terms)} ({roles_text(roles)})", (4, who, 0))
+    counts = {"files": tree_count, "versions": len(versions), "commits": len(commits),
+              "refs": len(refs.splitlines()), "tags": len(tags)}
+    return findings, people, counts
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n", 1)[0])
+    parser.add_argument("--terms", required=True, help="the term list, kept outside every repository")
+    parser.add_argument("repos", nargs="+", metavar="REPO", help="a repository to scan")
+    args = parser.parse_args()
+    to_review = 0
+    try:
+        terms = read_terms(args.terms)
+        for repo in args.repos:
+            findings, people, counts = scan_repository(repo, terms)
+            print(f"publication-scan: {masked(os.path.realpath(repo), terms)} - {counts['files']} files in the tree; "
+                  f"{counts['versions']} file versions, {counts['commits']} commits, {counts['refs']} refs and "
+                  f"{counts['tags']} annotated tags in the history; {len(terms)} terms")
+            totals = {}
+            for _key, kind, where in sorted(findings):
+                print(f"    {kind}: {where}")
+                totals[kind.split(" ")[0]] = totals.get(kind.split(" ")[0], 0) + 1
+            for who in sorted(people):
+                print(f"    identity: {masked(who, terms)} - {roles_text(people[who])}")
+            to_review += len(findings)
+            print(f"    summary: {totals.get('term', 0)} term findings, {totals.get('link', 0)} links, "
+                  f"{totals.get('assistant-file', 0)} assistant-file findings, "
+                  f"{totals.get('wiki-reference', 0)} files mentioning the wiki, {len(people)} identities")
+    except InputError as err:
+        print(f"publication-scan: {err}", file=sys.stderr)
+        return EXIT_ERROR
+    if to_review:
+        print(f"publication-scan: {to_review} findings to review before publication: remove each, or record "
+              "why it may stay, without repeating a term anywhere", file=sys.stderr)
+        return EXIT_FAIL
+    print("publication-scan: nothing to review but the identities above")
+    return EXIT_PASS
+
+
+if __name__ == "__main__":
+    sys.exit(main())

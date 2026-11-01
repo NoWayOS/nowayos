@@ -1,0 +1,29 @@
+# Lines make check-serial (and tools/pi-run, live) must see on the Pi 5, in
+# this order, as whole serial lines: rpi5b_2gb/usb-stream-test.system, the
+# Pi 5 only. Each USB host PD
+# runs its controller as usb-test's do; what is plugged in, on which port,
+# differs by desk and is printed between these lines, not checked here -
+# the run's log shows each stream's 10 s reports, "600 s, no interval
+# missed" among them. The run ends at its run length, 660 s (the ticker's
+# last line). A missed interval anywhere in the run fails it, as a stream
+# not streamed does.
+NOWAYOS: usb0: starting
+NOWAYOS: usb0: controller identified
+NOWAYOS: usb0: halted and reset
+NOWAYOS: usb0: running: a No Op command came back through DMA
+NOWAYOS: usb0: ready
+NOWAYOS: usb1: starting
+NOWAYOS: usb1: controller identified
+NOWAYOS: usb1: halted and reset
+NOWAYOS: usb1: running: a No Op command came back through DMA
+NOWAYOS: usb1: ready
+NOWAYOS: watchdog-stand-in: ticker: the run length is reached: no more ticks, so the watchdog services no more and the board resets
+
+# Output that fails the run at once if it appears anywhere (substring match).
+!MON|ERROR
+!seL4(CPU
+!panicked
+!gave up
+!could not service
+!not streamed
+!missed so far

@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    A supervisor whose program's list of children is one
+    nowayos_supervisor::valid refuses - so no program that asserts it builds
+    with one - fails closed. NoWayOS's supervisor program gives
+    bad_list_supervisor such a list, on purpose: kept_app (id 0), of class
+    app, marked to keep running in the fail-safe state, which only the
+    watchdog and display classes may; stopped_child (id 1); id 1 named
+    again, as named_twice, marked to keep; and out_of_range, id 64, which no
+    Microkit child can have. The supervisor reports each wrong entry at
+    start-up, and honours none of them: kept_app is not kept, and the
+    second entry for id 1 is ignored.
+
+    Its stand-in counts are at the restart limit: test-counts-4-0.bin,
+    restart count 4 and sensitive count 0, prefilled at build time and
+    mapped read-only (tools/board-system), which the grants check refuses
+    outside a test system (check-system rule 12). So before any child runs
+    the supervisor enters the fail-safe state, keeps nothing and stops
+    both children: neither prints its start line.
+
+    Capabilities: bad_list_supervisor holds its children's thread
+    capabilities, the SMC capability (smc="true"; unbadged in Microkit
+    2.3.1) and its stand-in counts, read-only - in a test system only:
+    the grants check refuses the supervisor any memory in a demo or product
+    system (supervisor-no-memory). kept_app and stopped_child hold nothing.
+
+    Every grant above is also listed in supervisor-bad-list.grants, which
+    tools/check-system compares with this file and with the kernel objects the
+    Microkit tool generates (make image, make qemu-test).
+-->
+<system>
+    <memory_region name="counts" prefill_path="test-counts-4-0.bin" />
+
+    <protection_domain name="bad_list_supervisor" priority="254" stack_size="0x10000" smc="true">
+        <program_image path="nowayos-supervisor.elf" />
+        <map mr="counts" vaddr="0x4000_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_1_vaddr" setvar_size="nowayos_ro_region_1_size" />
+
+        <protection_domain name="kept_app" id="0" priority="100" stack_size="0x10000">
+            <program_image path="nowayos-isolation-probe.elf" />
+        </protection_domain>
+
+        <protection_domain name="stopped_child" id="1" priority="50" stack_size="0x10000">
+            <program_image path="nowayos-isolation-probe.elf" />
+        </protection_domain>
+    </protection_domain>
+</system>

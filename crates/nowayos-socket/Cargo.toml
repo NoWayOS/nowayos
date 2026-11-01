@@ -1,0 +1,17 @@
+[package]
+name = "nowayos-socket"
+description = "The typed socket records between the network stack PD and its socket clients: bounded, versioned TCP records on nowayos-ipc rings, and each side's connection table"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+nowayos-ipc.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true

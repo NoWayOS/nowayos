@@ -1,0 +1,758 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT OR Apache-2.0
+"""Boot a system image in QEMU headless and check its serial output.
+
+Usage:
+    qemu-test --expect FILE --log FILE [--timeout SECONDS] [--settle SECONDS]
+              [--screen GOLDEN.png] [--qmp-script FILE] [--baud RATE]
+              [--ends-in-reset] -- QEMU-COMMAND...
+
+Starts QEMU-COMMAND (which must send the guest's serial console to stdout,
+e.g. `-nographic -serial mon:stdio`), copies everything it prints to the log
+file, and waits until every expected line has appeared, in order, each as a
+whole line (other output may come in between). It then keeps watching for
+--settle more seconds (default 0), so that a fault or panic just after the
+last expected line still fails the test. QEMU is always stopped afterwards:
+on success, failure, timeout or interrupt.
+
+The expect file holds one expected line per line; blank lines and lines
+starting with '#' are ignored. A line starting with '!' is forbidden output
+instead: the rest of the line is a text that must not appear anywhere in
+any output line (for example `!MON|ERROR`), from the first line until the
+end of the settle period. If it appears, the test fails at once rather than
+waiting for the timeout. QEMU exiting during the settle period fails the
+test too: a booted seL4 system does not stop by itself.
+
+With --ends-in-reset, the run must end with the board resetting: a
+system that resets itself - its supervisor's PSCI SYSTEM_RESET - given to
+QEMU with -no-reboot, which then exits instead of booting the image again,
+so that a harness playing the bootloader can choose the next one. Once
+every expected line has appeared, QEMU must exit within the timeout, and
+its exit passes the test; forbidden output is watched until it does.
+QEMU exiting before the last expected line still fails.
+
+With --screen, qemu-test also gives QEMU a QMP socket and, as soon as the
+last expected line has appeared, asks it for a screendump (a binary PPM,
+`screen.ppm` beside the log). The screen must match GOLDEN.png pixel for
+pixel: if it differs, it is written beside the golden image as
+`NAME.actual.png` (never committed) and the test fails, saying how many
+pixels differ and where the first is. With NOWAYOS_UPDATE_SNAPSHOTS set to
+anything but 0 or empty, the screen is written as the golden image instead
+(unless its pixels are already the golden image's), to be reviewed by eye
+like any other golden image. Golden images are 8-bit RGB PNG, read and
+written here with Python's standard library alone.
+
+With --qmp-script, qemu-test drives QEMU over QMP while the system runs -
+to type keys, move and click the pointer (`input-send-event`) - from a
+script of steps, one per line, `#` starting a comment:
+
+    wait TEXT       wait until a serial line equal to TEXT has appeared
+    send JSON       send this QMP command (one JSON object) and wait for its
+                    reply; an error reply fails the test
+    pause MS        wait MS milliseconds (0 to 60000)
+    tablet W H      the screen, W x H pixels, that the clicks below are on:
+                    QEMU's tablet maps 0 to 0x7FFF on each axis onto it
+    click X Y       move the tablet to pixel (X, Y), then press and release
+                    its left button
+    key QCODE...    press and release each key, in order (QEMU's key names,
+                    such as a, ret, shift)
+    hold QCODE      press a key and keep it down; release QCODE lets it go
+    screen PATH     take a screendump and compare it, pixel for pixel, with
+                    the approved image PATH (relative to the script's
+                    folder); a difference fails the test, and is never
+                    written over the approved image
+    serial TEXT     write TEXT's bytes to QEMU's serial port, as one burst -
+                    what a terminal attached to the board's debug UART sends
+                    for a key. \\e is ESC, \\r CR, \\n LF, \\t HT,
+                    \\b BS, \\xNN any byte and \\\\ a backslash; any other
+                    printable character stands for itself. Never \\x01:
+                    QEMU's serial shares stdio with its monitor (mon:stdio),
+                    whose escape key is Ctrl-A
+
+A script of wait, pause and serial steps alone also plays on the Pi 5:
+tools/pi-run writes its serial steps through the Debug Probe.
+
+With --baud, QEMU's serial output is taken no faster than a real UART's
+line rate - RATE baud, 8N1, so RATE / 10 bytes a second - through a socket
+whose buffer holds only a few bytes, so a guest's write to its UART waits as
+the seL4 kernel's debug output waits for a board's FIFO to drain. On
+QEMU's own serial a line takes no time, which hides two PDs printing into
+each other's lines; at 115200 baud a long line takes about 8 ms, as on the
+Pi 5. No credit builds up while the guest is quiet: each byte waits for the
+one before it to have gone.
+
+Steps run in order as the serial lines arrive. Each event a click,
+key, hold or release sends, and each serial step, is followed by a pause of
+10 milliseconds, so input arrives at a person's pace - inside the input
+broker's rate - and each event in its own report.
+
+Exit status: 0 all lines seen and nothing forbidden (and, with --screen,
+the screen as approved); 1 not seen (timeout, or QEMU exited first),
+forbidden output seen, QEMU exited while settling, or the screen differs or
+has no golden image; 2 usage or setup error.
+
+The expect-file rules and the report format are shared with check-serial,
+which applies them to a log captured from a board (serial_expect.py).
+Python 3 standard library only, so it runs anywhere python3 does.
+"""
+
+import argparse
+import json
+import os
+import queue
+import re
+import signal
+import socket
+import subprocess
+import sys
+import threading
+import time
+import zlib
+
+sys.dont_write_bytecode = True  # keep tools/ free of __pycache__
+from serial_expect import ExpectError, Matcher, Reporter, read_expectations  # noqa: E402
+
+EXIT_PASS = 0
+EXIT_FAIL = 1
+EXIT_ERROR = 2
+STOP_GRACE_SECONDS = 5.0
+# Bytes taken at a time at a real UART's line rate (--baud): a few, so QEMU
+# has only a board's FIFO's worth in flight.
+SLOW_READ = 4
+
+
+def pump_output(fd, log, lines, started, rate=None):
+    """Copy QEMU's output to the log; queue each complete line with its time.
+    With `rate` (bytes a second), take a few bytes at a time and no faster
+    than that: a real UART's line rate (--baud)."""
+    pending = b""
+    free = time.monotonic()
+    while True:
+        try:
+            chunk = os.read(fd, 4096 if rate is None else SLOW_READ)
+        except OSError:
+            break
+        if not chunk:
+            break
+        if rate is not None:
+            # From the last byte's slot, never from the start: nothing is
+            # saved up while the guest is quiet, as nothing is on a line.
+            free = max(free, time.monotonic()) + len(chunk) / rate
+            delay = free - time.monotonic()
+            if delay > 0:
+                time.sleep(delay)
+        log.write(chunk)
+        log.flush()
+        pending += chunk
+        while b"\n" in pending:
+            raw, pending = pending.split(b"\n", 1)
+            text = raw.decode("utf-8", errors="replace").rstrip("\r")
+            lines.put((time.monotonic() - started, text))
+    if pending:
+        text = pending.decode("utf-8", errors="replace").rstrip("\r")
+        lines.put((time.monotonic() - started, text))
+    lines.put(None)  # end of output: QEMU has exited or closed stdout
+
+
+def slow_serial():
+    """(QEMU's end, ours) of a socket pair whose buffers are as small as the
+    kernel allows, so QEMU's writes to its serial console wait on the reader
+    (--baud): each one-byte write of the guest's UART is its own buffer, so
+    only a few are ever in flight, about a board's FIFO."""
+    ours, theirs = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+    theirs.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 1)
+    ours.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, 1)
+    return theirs, ours
+
+
+def stop(process):
+    """Stop QEMU and anything it started; escalate to SIGKILL if needed."""
+    if process.poll() is not None:
+        return
+    try:
+        os.killpg(process.pid, signal.SIGTERM)
+    except ProcessLookupError:
+        return
+    try:
+        process.wait(timeout=STOP_GRACE_SECONDS)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        process.wait()
+
+
+def on_sigterm(_signum, _frame):
+    raise SystemExit(EXIT_FAIL)
+
+
+def read_ppm(path):
+    """(width, height, pixels) of a binary PPM (P6, maximum value 255)."""
+    with open(path, "rb") as handle:
+        data = handle.read()
+    fields, at = [], 0
+    while len(fields) < 4:
+        while at < len(data) and (data[at:at + 1].isspace() or data[at:at + 1] == b"#"):
+            if data[at:at + 1] == b"#":
+                at = data.index(b"\n", at)
+            at += 1
+        start = at
+        while at < len(data) and not data[at:at + 1].isspace():
+            at += 1
+        fields.append(data[start:at])
+    if fields[0] != b"P6" or fields[3] != b"255":
+        raise ValueError(f"{path}: not a binary PPM with maximum value 255")
+    width, height = int(fields[1]), int(fields[2])
+    pixels = data[at + 1:]
+    if len(pixels) != width * height * 3:
+        raise ValueError(f"{path}: {len(pixels)} bytes of pixels for {width}x{height}")
+    return width, height, pixels
+
+
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+
+
+def read_png(path):
+    """(width, height, pixels) of an 8-bit RGB PNG without interlacing, with
+    rows under any of PNG's five filters; every chunk's checksum is checked."""
+    with open(path, "rb") as handle:
+        data = handle.read()
+    if not data.startswith(PNG_SIGNATURE):
+        raise ValueError(f"{path}: not a PNG")
+    at, header, compressed = len(PNG_SIGNATURE), None, []
+    while True:
+        if at + 8 > len(data):
+            raise ValueError(f"{path}: truncated PNG")
+        length = int.from_bytes(data[at:at + 4], "big")
+        kind, body = data[at + 4:at + 8], data[at + 8:at + 8 + length]
+        crc = data[at + 8 + length:at + 12 + length]
+        if len(body) != length or len(crc) != 4:
+            raise ValueError(f"{path}: truncated PNG")
+        if zlib.crc32(kind + body).to_bytes(4, "big") != crc:
+            raise ValueError(f"{path}: bad checksum in its {kind!r} chunk")
+        at += 12 + length
+        if kind == b"IHDR":
+            header = body
+        elif kind == b"IDAT":
+            compressed.append(body)
+        elif kind == b"IEND":
+            break
+    if header is None or len(header) != 13:
+        raise ValueError(f"{path}: a PNG with no proper header")
+    width, height = int.from_bytes(header[0:4], "big"), int.from_bytes(header[4:8], "big")
+    if header[8:13] != b"\x08\x02\x00\x00\x00" or not width or not height:
+        raise ValueError(f"{path}: not an 8-bit RGB PNG without interlacing")
+    if width * height > 1 << 24:
+        raise ValueError(f"{path}: {width}x{height} is too large")
+    stride = width * 3
+    try:
+        raw = zlib.decompressobj().decompress(b"".join(compressed), height * (stride + 1) + 1)
+    except zlib.error as err:
+        raise ValueError(f"{path}: corrupt image data: {err}") from None
+    if len(raw) != height * (stride + 1):
+        raise ValueError(f"{path}: {len(raw)} bytes of image data for {width}x{height}")
+    rows, previous = [], bytes(stride)
+    for y in range(height):
+        kind, line = raw[y * (stride + 1)], raw[y * (stride + 1) + 1:(y + 1) * (stride + 1)]
+        if kind == 0:
+            row = line
+        elif kind == 2:
+            row = bytes((a + b) & 0xFF for a, b in zip(line, previous))
+        elif kind in (1, 3, 4):
+            row = bytearray(line)
+            for n in range(stride):
+                left = row[n - 3] if n >= 3 else 0
+                up = previous[n]
+                if kind == 1:
+                    row[n] = (row[n] + left) & 0xFF
+                elif kind == 3:
+                    row[n] = (row[n] + (left + up) // 2) & 0xFF
+                else:
+                    corner = previous[n - 3] if n >= 3 else 0
+                    guess = left + up - corner
+                    near = min((abs(guess - left), 0, left), (abs(guess - up), 1, up),
+                               (abs(guess - corner), 2, corner))[2]
+                    row[n] = (row[n] + near) & 0xFF
+            row = bytes(row)
+        else:
+            raise ValueError(f"{path}: row {y} has an unknown filter {kind}")
+        rows.append(row)
+        previous = row
+    return width, height, b"".join(rows)
+
+
+def write_png(path, width, height, pixels):
+    """Writes 8-bit RGB `pixels` as a PNG: no row filter, the strongest
+    compression - the smallest files for flat interface screens."""
+    stride = width * 3
+    raw = b"".join(b"\x00" + pixels[y * stride:(y + 1) * stride] for y in range(height))
+
+    def chunk(kind, body):
+        return (len(body).to_bytes(4, "big") + kind + body
+                + zlib.crc32(kind + body).to_bytes(4, "big"))
+
+    with open(path, "wb") as handle:
+        handle.write(PNG_SIGNATURE
+                     + chunk(b"IHDR", width.to_bytes(4, "big") + height.to_bytes(4, "big")
+                             + b"\x08\x02\x00\x00\x00")
+                     + chunk(b"IDAT", zlib.compress(raw, 9)) + chunk(b"IEND", b""))
+
+
+# The pause after each event a click, key, hold or release step sends: 20
+# keys a second, faster than anyone types. At 10 ms a loaded host slowed
+# QEMU enough that a long run of keys filled a virtio-input ring of 4 slots.
+PACE_SECONDS = 0.025
+
+# QEMU's tablet reports 0 to ABS_MAX on each axis, across the whole screen.
+ABS_MAX = 0x7FFF
+
+QCODE = re.compile(r"[a-z0-9_]+")
+
+
+def input_event(*events):
+    """A QMP input-send-event command carrying `events`."""
+    return {"execute": "input-send-event", "arguments": {"events": list(events)}}
+
+
+def key_event(qcode, down):
+    return input_event({"type": "key", "data": {"down": down, "key": {"type": "qcode", "data": qcode}}})
+
+
+def tablet_value(pixel, size):
+    """The tablet value that QEMU's virtio tablet driver scales back to
+    `pixel` on an axis of `size` pixels (value * size // (ABS_MAX + 1))."""
+    return min(ABS_MAX, -(-pixel * (ABS_MAX + 1) // size))
+
+
+# The escapes a serial step's text may hold, and the byte each stands for.
+SERIAL_ESCAPES = {"e": 0x1B, "r": 0x0D, "n": 0x0A, "t": 0x09, "b": 0x08, "\\": 0x5C}
+# QEMU's monitor escape (mon:stdio): never sent as data.
+MONITOR_ESCAPE = 0x01
+
+
+def serial_bytes(text, where):
+    """The bytes a serial step's TEXT stands for (SERIAL_ESCAPES, \\xNN)."""
+    out, at = bytearray(), 0
+    while at < len(text):
+        char = text[at]
+        if char != "\\":
+            if ord(char) > 0x7E or ord(char) < 0x20:
+                raise ValueError(f"{where}: {char!r} in a serial step: write it as \\xNN")
+            out.append(ord(char))
+            at += 1
+            continue
+        escape = text[at + 1:at + 2]
+        if escape in SERIAL_ESCAPES:
+            out.append(SERIAL_ESCAPES[escape])
+            at += 2
+        elif escape == "x" and re.fullmatch(r"[0-9a-fA-F]{2}", text[at + 2:at + 4]):
+            out.append(int(text[at + 2:at + 4], 16))
+            at += 4
+        else:
+            raise ValueError(f"{where}: an unknown escape in a serial step at {text[at:at + 4]!r}")
+    if MONITOR_ESCAPE in out:
+        raise ValueError(f"{where}: \\x01 is QEMU's monitor escape (mon:stdio), never sent as data")
+    if not out:
+        raise ValueError(f"{where}: a serial step sends at least one byte")
+    return bytes(out)
+
+
+def read_qmp_script(path):
+    """The steps of a QMP script: ("wait", text), ("send", command),
+    ("pause", seconds), ("screen", golden path) or ("serial", bytes), in
+    order."""
+    steps, tablet = [], None
+    folder = os.path.dirname(os.path.abspath(path))
+
+    def numbers(rest, count, where):
+        values = rest.split()
+        if len(values) != count or not all(value.isdigit() for value in values):
+            raise ValueError(f"{where}: expected {count} whole number(s), got {rest!r}")
+        return [int(value) for value in values]
+
+    def paced(command):
+        steps.extend([("send", command), ("pause", PACE_SECONDS)])
+
+    with open(path, encoding="utf-8") as handle:
+        for number, line in enumerate(handle, start=1):
+            text = line.strip()
+            if not text or text.startswith("#"):
+                continue
+            where = f"{path}:{number}"
+            verb, _, rest = text.partition(" ")
+            rest = rest.strip()
+            if verb == "wait" and rest:
+                steps.append(("wait", rest))
+            elif verb == "send":
+                try:
+                    command = json.loads(rest)
+                except ValueError as err:
+                    raise ValueError(f"{where}: not JSON: {err}") from err
+                if not isinstance(command, dict) or "execute" not in command:
+                    raise ValueError(f"{where}: a QMP command needs \"execute\"")
+                steps.append(("send", command))
+            elif verb == "pause":
+                (milliseconds,) = numbers(rest, 1, where)
+                if milliseconds > 60000:
+                    raise ValueError(f"{where}: a pause is at most 60000 ms")
+                steps.append(("pause", milliseconds / 1000))
+            elif verb == "tablet":
+                width, height = numbers(rest, 2, where)
+                if not width or not height:
+                    raise ValueError(f"{where}: the tablet's screen has no size")
+                tablet = (width, height)
+            elif verb == "click":
+                x, y = numbers(rest, 2, where)
+                if tablet is None:
+                    raise ValueError(f"{where}: click before `tablet W H`")
+                if x >= tablet[0] or y >= tablet[1]:
+                    raise ValueError(f"{where}: ({x}, {y}) is off the {tablet[0]}x{tablet[1]} screen")
+                paced(input_event({"type": "abs", "data": {"axis": "x", "value": tablet_value(x, tablet[0])}},
+                                  {"type": "abs", "data": {"axis": "y", "value": tablet_value(y, tablet[1])}}))
+                for down in (True, False):
+                    paced(input_event({"type": "btn", "data": {"down": down, "button": "left"}}))
+            elif verb in ("key", "hold", "release") and rest:
+                qcodes = rest.split()
+                if not all(QCODE.fullmatch(qcode) for qcode in qcodes) or (verb != "key" and len(qcodes) != 1):
+                    raise ValueError(f"{where}: {verb} takes {'key names' if verb == 'key' else 'one key name'}")
+                for qcode in qcodes:
+                    if verb != "release":
+                        paced(key_event(qcode, True))
+                    if verb != "hold":
+                        paced(key_event(qcode, False))
+            elif verb == "screen" and rest:
+                steps.append(("screen", os.path.join(folder, rest)))
+            elif verb == "serial" and rest:
+                steps.extend([("serial", serial_bytes(rest, where)), ("pause", PACE_SECONDS)])
+            else:
+                raise ValueError(f"{where}: a step is wait, send, pause, tablet, click, key, hold, "
+                                 f"release, screen or serial")
+    return steps
+
+
+class Qmp:
+    """One QMP connection, opened on first use."""
+
+    def __init__(self, socket_path, timeout=10.0):
+        self.socket_path, self.timeout, self.stream, self.sock = socket_path, timeout, None, None
+
+    def send(self, command):
+        if self.stream is None:
+            self.sock = socket.socket(socket.AF_UNIX)
+            self.sock.settimeout(self.timeout)
+            self.sock.connect(self.socket_path)
+            self.stream = self.sock.makefile("rwb")
+            json.loads(self.stream.readline())  # the greeting
+            self._call({"execute": "qmp_capabilities"})
+        return self._call(command)
+
+    def _call(self, command):
+        self.stream.write(json.dumps(command).encode() + b"\n")
+        self.stream.flush()
+        while True:
+            message = json.loads(self.stream.readline())
+            if "return" in message:
+                return message
+            if "error" in message:
+                raise OSError(f"QMP {command.get('execute')}: {message['error']}")
+
+    def screendump(self, output):
+        """Has QEMU write its screen to `output` (a binary PPM)."""
+        self.send({"execute": "screendump", "arguments": {"filename": output}})
+
+    def close(self):
+        if self.sock is not None:
+            self.sock.close()
+
+
+def compare_screen(screen, golden, may_update=True):
+    """None when the screen (QEMU's PPM) matches its golden image (a PNG), or
+    was written as it; otherwise why not. Only with `may_update` does
+    NOWAYOS_UPDATE_SNAPSHOTS write the screen as the golden image."""
+    update = may_update and os.environ.get("NOWAYOS_UPDATE_SNAPSHOTS", "") not in ("", "0")
+    width, height, pixels = read_ppm(screen)
+    if update:
+        try:
+            unchanged = read_png(golden) == (width, height, pixels)
+        except (OSError, ValueError):
+            unchanged = False
+        if not unchanged:
+            write_png(golden, width, height, pixels)
+            print(f"qemu-test: wrote the screen as {golden}: review it by eye before committing it",
+                  flush=True)
+        return None
+    if not os.path.exists(golden):
+        return (f"no golden image {golden}: create it with NOWAYOS_UPDATE_SNAPSHOTS=1 "
+                f"and review it")
+    golden_width, golden_height, golden_pixels = read_png(golden)
+    if (width, height) != (golden_width, golden_height):
+        reason = f"the screen is {width}x{height}, the golden image {golden_width}x{golden_height}"
+    else:
+        differing = [n for n in range(0, len(pixels), 3) if pixels[n:n + 3] != golden_pixels[n:n + 3]]
+        if not differing:
+            return None
+        first = differing[0] // 3
+        reason = (f"{len(differing)} pixel(s) differ from {golden}, the first at "
+                  f"({first % width}, {first // width})")
+    actual = (golden[:-len(".png")] if golden.endswith(".png") else golden) + ".actual.png"
+    write_png(actual, width, height, pixels)
+    return (f"{reason}; the screen is written to {actual}. If the change is intended, "
+            f"rerun with NOWAYOS_UPDATE_SNAPSHOTS=1 and review the new image")
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Boot an image in QEMU headless and assert serial output."
+    )
+    parser.add_argument("--expect", required=True, help="file of expected lines")
+    parser.add_argument("--log", required=True, help="where to write the serial log")
+    parser.add_argument(
+        "--timeout", type=float, default=60.0, help="seconds to wait (default 60)"
+    )
+    parser.add_argument(
+        "--settle",
+        type=float,
+        default=0.0,
+        help="seconds to keep checking for forbidden output after the last "
+        "expected line (default 0)",
+    )
+    parser.add_argument(
+        "--screen",
+        help="golden image (PNG) the screen must match once every expected line is seen",
+    )
+    parser.add_argument(
+        "--qmp-script",
+        help="steps that drive QEMU over QMP as serial lines appear (wait TEXT / send JSON)",
+    )
+    parser.add_argument(
+        "--baud",
+        type=int,
+        help="take QEMU's serial output no faster than a UART at this many baud, 8N1",
+    )
+    parser.add_argument(
+        "--ends-in-reset",
+        action="store_true",
+        help="the run ends with the board resetting: QEMU, given -no-reboot, must exit "
+        "once every expected line has appeared",
+    )
+    parser.add_argument("command", nargs=argparse.REMAINDER, help="-- QEMU command")
+    args = parser.parse_args()
+
+    command = args.command[1:] if args.command[:1] == ["--"] else args.command
+    if not command:
+        parser.error("no QEMU command given after --")
+    if args.timeout <= 0:
+        parser.error("--timeout must be positive")
+    if args.settle < 0:
+        parser.error("--settle must not be negative")
+    if args.baud is not None and not 300 <= args.baud <= 4_000_000:
+        parser.error("--baud must be from 300 to 4000000")
+
+    try:
+        expected, forbidden = read_expectations(args.expect)
+    except ExpectError as err:
+        print(f"qemu-test: {err}", file=sys.stderr)
+        return EXIT_ERROR
+    try:
+        script = read_qmp_script(args.qmp_script) if args.qmp_script else []
+    except (OSError, ValueError) as err:
+        print(f"qemu-test: {err}", file=sys.stderr)
+        return EXIT_ERROR
+
+    log_dir = os.path.dirname(os.path.abspath(args.log))
+    os.makedirs(log_dir, exist_ok=True)
+    signal.signal(signal.SIGTERM, on_sigterm)
+    qmp_socket = os.path.join(log_dir, "qmp.sock")
+    screen = os.path.join(log_dir, "screen.ppm")
+    screen_problem = None
+    script_problem = None
+    screens_compared = 0
+    qmp = Qmp(qmp_socket)
+    if args.screen or script:
+        for stale in (qmp_socket, screen):
+            if os.path.exists(stale):
+                os.remove(stale)
+        command = command + ["-qmp", f"unix:{qmp_socket},server=on,wait=off"]
+
+    def run_script(line):
+        """Runs the script's steps that `line` (None: none) lets run."""
+        nonlocal script_problem, screens_compared
+        while script and script_problem is None:
+            verb, value = script[0]
+            if verb == "wait":
+                if line is None or line.strip() != value:
+                    return
+                line = None
+                script.pop(0)
+                continue
+            script.pop(0)
+            try:
+                if verb == "pause":
+                    time.sleep(value)
+                elif verb == "serial":
+                    process.stdin.write(value)
+                    process.stdin.flush()
+                elif verb == "screen":
+                    qmp.screendump(screen)
+                    problem = compare_screen(screen, value, may_update=False)
+                    if problem is not None:
+                        script_problem = f"the screen against {value}: {problem}"
+                    else:
+                        screens_compared += 1
+                else:
+                    qmp.send(value)
+            except (OSError, ValueError) as err:
+                script_problem = str(err)
+
+    print("qemu-test: " + " ".join(command), flush=True)
+    print(f"qemu-test: expecting {len(expected)} line(s) within {args.timeout:g}s; "
+          f"serial log: {args.log}", flush=True)
+    if args.baud is not None:
+        print(f"qemu-test: serial taken at {args.baud} baud, 8N1, as a board's UART sends it",
+              flush=True)
+    if forbidden:
+        print(f"qemu-test: failing at once on {len(forbidden)} forbidden text(s)",
+              flush=True)
+
+    lines = queue.Queue()
+    matcher = Matcher(expected, forbidden)
+    report = Reporter("qemu-test", args.log, stamp=lambda t: f"[{t:7.3f}s]",
+                      at=lambda t: f"after {t:.3f}s")
+    exited_early = False
+    exited_settling = False
+    reset_seen = False
+    with open(args.log, "wb") as log:
+        started = time.monotonic()
+        theirs, ours = slow_serial() if args.baud is not None else (None, None)
+        try:
+            # QEMU's serial input is its stdin (-serial mon:stdio): a pipe
+            # when the script writes to it, otherwise nothing.
+            serial = any(verb == "serial" for verb, _ in script)
+            process = subprocess.Popen(
+                command,
+                stdin=subprocess.PIPE if serial else subprocess.DEVNULL,
+                stdout=subprocess.PIPE if theirs is None else theirs.fileno(),
+                stderr=subprocess.STDOUT,
+                start_new_session=True,  # own process group, so stop() gets it all
+            )
+        except OSError as err:
+            print(f"qemu-test: cannot start {command[0]}: {err}", file=sys.stderr)
+            return EXIT_ERROR
+        finally:
+            if theirs is not None:
+                theirs.close()
+
+        source = process.stdout.fileno() if ours is None else ours.fileno()
+        rate = None if args.baud is None else args.baud / 10
+        reader = threading.Thread(
+            target=pump_output, args=(source, log, lines, started, rate), daemon=True
+        )
+        reader.start()
+        deadline = started + args.timeout
+        try:
+            while not matcher.complete and matcher.offending is None:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                try:
+                    item = lines.get(timeout=remaining)
+                except queue.Empty:
+                    break
+                if item is None:
+                    exited_early = True
+                    break
+                elapsed, text = item
+                if matcher.feed(elapsed, text):
+                    report.found(elapsed, text)
+                run_script(text)
+                if script_problem is not None:
+                    break
+            if args.screen and matcher.complete and matcher.offending is None:
+                try:
+                    qmp.screendump(screen)
+                    screen_problem = compare_screen(screen, os.path.abspath(args.screen))
+                except (OSError, ValueError) as err:
+                    screen_problem = f"no screendump: {err}"
+            # A run that ends in a reset: everything was seen; QEMU must exit.
+            while args.ends_in_reset and matcher.complete and matcher.offending is None:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                try:
+                    item = lines.get(timeout=remaining)
+                except queue.Empty:
+                    break
+                if item is None:
+                    reset_seen = True
+                    break
+                matcher.feed(*item)
+            # Settle: everything was seen; keep watching for forbidden output.
+            settle_end = time.monotonic() + (0 if args.ends_in_reset else args.settle)
+            while matcher.complete and matcher.offending is None:
+                remaining = settle_end - time.monotonic()
+                if remaining <= 0:
+                    break
+                try:
+                    item = lines.get(timeout=remaining)
+                except queue.Empty:
+                    break
+                if item is None:
+                    exited_settling = True
+                    break
+                matcher.feed(*item)
+        except KeyboardInterrupt:
+            print("qemu-test: interrupted", file=sys.stderr)
+        finally:
+            qmp.close()
+            stop(process)
+            reader.join(timeout=STOP_GRACE_SECONDS)
+            if ours is not None:
+                ours.close()
+
+    if script_problem is None and script and matcher.complete:
+        verb, value = script[0]
+        script_problem = (f"it had not finished when the last expected line appeared: "
+                          f"{len(script)} step(s) left, the next `{verb} {value}`")
+    if script_problem is not None:
+        report.fail(f"the QMP script: {script_problem}")
+        return EXIT_FAIL
+
+    if matcher.offending is not None:
+        report.fail_forbidden(matcher)
+        return EXIT_FAIL
+
+    if exited_settling:
+        report.fail(f"QEMU exited (status {process.returncode}) "
+                    f"within {args.settle:g}s of the last expected line")
+        return EXIT_FAIL
+
+    if matcher.complete and screen_problem is not None:
+        report.fail(f"the screen: {screen_problem}")
+        return EXIT_FAIL
+
+    if args.ends_in_reset and matcher.complete and not reset_seen:
+        report.fail(f"QEMU had not exited {args.timeout:g}s after it started: the board did not "
+                    f"reset, as the run must end (--ends-in-reset)")
+        return EXIT_FAIL
+
+    if matcher.complete:
+        report.passed(matcher, (f"; nothing forbidden in the {args.settle:g}s after it"
+                                if args.settle > 0 else "")
+                      + ("; the screen as approved" if args.screen else "")
+                      + (f"; {screens_compared} screen(s) as approved along the way"
+                         if screens_compared else "")
+                      + ("; then the board reset and QEMU exited (--ends-in-reset)"
+                         if reset_seen else ""))
+        return EXIT_PASS
+
+    if exited_early:
+        reason = f"QEMU exited (status {process.returncode}) before it printed"
+    else:
+        reason = f"not seen within {args.timeout:g}s:"
+    report.fail(f"{reason} {matcher.missing!r}")
+    return EXIT_FAIL
+
+
+if __name__ == "__main__":
+    sys.exit(main())

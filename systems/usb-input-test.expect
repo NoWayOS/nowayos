@@ -1,0 +1,67 @@
+# Lines tools/qemu-test must see, in this order, as whole serial lines.
+# In QEMU: usb-test's controller lines; then
+# usb0 enumerates QEMU's USB keyboard, mouse and tablet on its root ports 5
+# to 7 - each device's vendor, product, class, USB release and speed, then
+# each boot interface ready, and the tablet's layout read from its report
+# descriptor - and once usb-input-test.qmp types, moves and clicks, their
+# reports reach the UI's stand-in as canonical events through the input
+# broker. The keyboard is unplugged with "c" held - its release comes
+# with it - and plugged back: enumerated afresh, its keys arrive again.
+# Then it is unplugged and plugged straight back, with no wait between: the
+# connection change is read as an unplug, and it is enumerated again. Each
+# device's first report is logged by its length alone, never its contents.
+NOWAYOS: usb0: starting
+NOWAYOS: usb0: controller identified
+NOWAYOS: usb0: halted and reset
+NOWAYOS: usb0: running: a No Op command came back through DMA
+NOWAYOS: usb0: ready
+NOWAYOS: usb1: starting
+NOWAYOS: usb1: controller identified
+NOWAYOS: usb1: halted and reset
+NOWAYOS: usb1: running: a No Op command came back through DMA
+NOWAYOS: usb1: ready
+NOWAYOS: usb0: port 5: device 0627:0001, class 0/0/0, USB 2.0, high-speed
+NOWAYOS: usb0: port 5: boot keyboard ready
+NOWAYOS: usb0: port 6: device 0627:0001, class 0/0/0, USB 2.0, high-speed
+NOWAYOS: usb0: port 6: boot mouse ready
+NOWAYOS: usb0: port 7: device 0627:0001, class 0/0/0, USB 2.0, high-speed
+NOWAYOS: usb0: port 7: tablet ready: report ID 0; X at bit 8, 16 bits, 0 to 32767; Y at bit 24, 16 bits, 0 to 32767
+NOWAYOS: usb0: port 5: the keyboard's first report: 8 bytes
+NOWAYOS: input-print: key down 0x04
+NOWAYOS: input-print: key up 0x04
+NOWAYOS: usb0: port 6: the mouse's first report: 4 bytes
+NOWAYOS: input-print: pointer at (410, 235)
+NOWAYOS: usb0: port 7: the tablet's first report: 6 bytes
+NOWAYOS: input-print: pointer at (399, 239)
+NOWAYOS: input-print: button 0 down
+NOWAYOS: input-print: button 0 up
+NOWAYOS: input-print: key down 0x06
+NOWAYOS: usb0: port 5: unplugged
+NOWAYOS: input-print: key up 0x06
+NOWAYOS: usb0: port 5: device 0627:0001, class 0/0/0, USB 2.0, high-speed
+NOWAYOS: usb0: port 5: boot keyboard ready
+NOWAYOS: usb0: port 5: the keyboard's first report: 8 bytes
+NOWAYOS: input-print: key down 0x05
+NOWAYOS: input-print: key up 0x05
+NOWAYOS: usb0: port 5: unplugged
+NOWAYOS: usb0: port 5: device 0627:0001, class 0/0/0, USB 2.0, high-speed
+NOWAYOS: usb0: port 5: boot keyboard ready
+NOWAYOS: input-print: key down 0x07
+NOWAYOS: input-print: key up 0x07
+# A held key repeats: its press, two repeats, its release.
+NOWAYOS: input-print: key down 0x07
+NOWAYOS: input-print: key down 0x07
+NOWAYOS: input-print: key down 0x07
+NOWAYOS: input-print: key up 0x07
+
+# Output that fails the test at once if it appears anywhere (substring match):
+# a fault reported by the Microkit monitor, a kernel error message, a panic,
+# a PD giving up, an event or record refused, a device left alone, or an
+# event dropped.
+!MON|ERROR
+!seL4(CPU
+!panicked
+!gave up
+!refused
+!left alone
+!dropped so far

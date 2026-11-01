@@ -1,0 +1,26 @@
+[package]
+name = "nowayos-render-eg"
+description = "Renders a laid-out nowayos-ui tree to any embedded-graphics DrawTarget, with dirty-rectangle redraw"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+nowayos-display.workspace = true
+# The glyph atlases every product theme draws its text from, whose
+# advances and kerning layout measures with too. OFL-1.1, the signed-off
+# font's licence, in a crate of its own, which an image's SBOM
+# names with the font.
+nowayos-glyphs.workspace = true
+nowayos-ui.workspace = true
+embedded-graphics.workspace = true
+
+[dev-dependencies]
+nowayos-input.workspace = true
+nowayos-testkit.workspace = true
+proptest.workspace = true
+
+[lints]
+workspace = true

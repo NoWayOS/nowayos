@@ -1,0 +1,20 @@
+# Lines tools/check-serial must see, in this order, as whole serial lines.
+# Spike S2, on the Pi 5 only (systems/rpi5b_2gb/fb-test.system): the
+# display test pattern QEMU's display-test draws, at 2x, centred, in the
+# firmware's 1920x1080 framebuffer, read back. The pattern's hash is of its
+# 800x480 Xrgb8888 rows, as QEMU's ramfb holds them; the second, of every
+# r5g6b5 byte written. crates/nowayos-display/tests/test_pattern.rs computes
+# both from nowayos_display::test_pattern, so the chain is closed.
+NOWAYOS: fb-test: starting
+NOWAYOS: fb-test: the board's framebuffer: 1920x1080 r5g6b5, 3840 bytes a row, its window from row 16
+NOWAYOS: fb-test: the 800x480 test pattern, hash 0x26a5f77654fa9525, shown at 2x at (160, 60)
+NOWAYOS: fb-test: wrote 1600x960 r5g6b5 pixels, hash 0x1393522b0fe1ba25; read back the same
+
+# Output that fails the test at once if it appears anywhere (substring match):
+# a fault reported by the Microkit monitor, a kernel error message, a panic,
+# the PD giving up, or a read-back that differs.
+!MON|ERROR
+!seL4(CPU
+!panicked
+!gave up
+!which differs

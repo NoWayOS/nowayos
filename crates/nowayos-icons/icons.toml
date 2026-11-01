@@ -1,0 +1,28 @@
+# The icons: Lucide icons (https://lucide.dev, ISC; LICENSE-LUCIDE.txt), only
+# those the screens use, each pinned by its sha256. tools/icon-masks (make atlases)
+# draws each into an alpha mask at every device scale, into src/masks/; it
+# refuses a file that differs from its pin or an SVG file not named here.
+
+[[icon]]
+name = "clipboard-list"
+sha256 = "2b91abc2e8ee8ba4c2e0f77d506a47a7a9774b0d4de3fa4b27e822a6376ab892"
+
+[[icon]]
+name = "fuel"
+sha256 = "1e2f065370733e919bda97f92a946c1fec79cae809da4b53d364ead08eea136e"
+
+[[icon]]
+name = "house"
+sha256 = "28216c479005731ef5e382e7d8627eda2b129b019eb1f3d9de9f5915576d448e"
+
+[[icon]]
+name = "message-square"
+sha256 = "5812a3be783fdcd73efd2b6026e03131e4b8c6649e7d52aa2dc7bf2e2023a59d"
+
+[[icon]]
+name = "shield-check"
+sha256 = "8d4fcdbde5bba4abb1a2f6fe53e37ceb6343a1d5449a9d88f6f97c1971d26c4e"
+
+[[icon]]
+name = "user-check"
+sha256 = "8768036bfd882012085d6c22cdd21f1a5f9c1b2a273c60390ad742ab535c2eff"

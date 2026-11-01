@@ -1,0 +1,33 @@
+# Everything systems/entropy-stuck-test.system grants, one fact per line.
+# tools/check-system fails the build if the system description grants anything
+# not listed here, or lists anything it does not grant, and checks the map
+# rights again in the kernel objects the Microkit tool generates (format: see
+# tools/check-system). A change here is a security change: call it out in the
+# pull request.
+
+system test
+role entropy_supervisor supervisor
+role entropy entropy
+role seed_consumer test
+
+# The supervisor above all, the parent of every other PD;
+# the entropy PD above the PD it seeds.
+pd entropy_supervisor priority=254 budget=1000 period=1000
+pd entropy priority=200 budget=1000 period=1000
+pd seed_consumer priority=100 budget=1000 period=1000
+child entropy_supervisor entropy
+child entropy_supervisor seed_consumer
+smc entropy_supervisor
+
+# The random source, in the entropy PD only (as entropy-test).
+device entropy rng rw
+irq entropy rng 56
+map entropy rng_requests rw
+paddr entropy rng_requests
+
+# The seed ring, one way (as entropy-test).
+map entropy seed_ring rw
+map entropy seed_ring_control r
+map seed_consumer seed_ring r
+map seed_consumer seed_ring_control rw
+channel entropy seed_consumer

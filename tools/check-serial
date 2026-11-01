@@ -1,0 +1,106 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT OR Apache-2.0
+"""Check a serial log captured from a board against a system's expect file.
+
+Usage:
+    check-serial --expect FILE --log FILE
+
+The board-side twin of qemu-test: the same expect file, the same rules and
+the same report, applied to a log captured from a real board's serial port
+(the Pi 5's debug UART) instead of to QEMU's output. Every expected line
+must appear, in order, as a whole line, and no forbidden text may appear
+anywhere after the boot output.
+
+Boot output is ignored: everything before the first line containing
+'LDR|', where the Microkit loader starts, comes from the board's firmware
+and U-Boot, not from the system under test. A loader built in Microkit's
+release configuration prints nothing, so a log without that line - a
+release image's - is checked from the line after U-Boot's first
+'## Starting application at', where U-Boot's go command (the Pi 5 card's
+boot command) jumps to the loader; as with the loader's line, the
+first, so a system that resets the board is checked across its boots. A
+log with neither line fails.
+CR LF, LF and a lone CR each end a line, as capture tools differ. Capture
+one boot per log; the rest of the log after the last expected line is
+checked for forbidden output, as qemu-test's settle period is.
+
+Exit status: 0 all lines seen and nothing forbidden; 1 a line not seen,
+forbidden output seen, or no loader output; 2 usage or setup error.
+
+Python 3 standard library only.
+"""
+
+import argparse
+import sys
+
+sys.dont_write_bytecode = True  # keep tools/ free of __pycache__
+from serial_expect import ExpectError, Matcher, Reporter, read_expectations, split_lines  # noqa: E402
+
+EXIT_PASS = 0
+EXIT_FAIL = 1
+EXIT_ERROR = 2
+
+# The Microkit loader prefixes everything it prints with this.
+LOADER_MARK = "LDR|"
+# U-Boot's go command prints this as it jumps to the loader: the last boot
+# output before a release image, whose loader prints nothing.
+UBOOT_GO_MARK = "## Starting application at"
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Check a serial log captured from a board against an expect file."
+    )
+    parser.add_argument("--expect", required=True, help="file of expected lines")
+    parser.add_argument("--log", required=True, help="the captured serial log")
+    args = parser.parse_args()
+
+    try:
+        expected, forbidden = read_expectations(args.expect)
+    except ExpectError as err:
+        print(f"check-serial: {err}", file=sys.stderr)
+        return EXIT_ERROR
+    try:
+        with open(args.log, "rb") as handle:
+            lines = split_lines(handle.read())
+    except OSError as err:
+        print(f"check-serial: cannot read {args.log}: {err}", file=sys.stderr)
+        return EXIT_ERROR
+
+    report = Reporter("check-serial", args.log, stamp=lambda n: f"[line {n:5d}]",
+                      at=lambda n: f"at line {n}")
+    report.say(f"expecting {len(expected)} line(s) from {args.expect} in {args.log}")
+    start = next((i for i, text in enumerate(lines) if LOADER_MARK in text), None)
+    if start is not None:
+        report.say(f"skipping {start} line(s) of boot output; the loader starts at line {start + 1}")
+    else:
+        go = next((i for i, text in enumerate(lines) if UBOOT_GO_MARK in text), None)
+        if go is None:
+            report.fail(f"no Microkit loader output: no line contains {LOADER_MARK!r}, nor "
+                        f"U-Boot's {UBOOT_GO_MARK!r} before a release loader, in {len(lines)} "
+                        f"line(s). Did the capture start before the board was powered on, and "
+                        f"did the boot reach the loader?")
+            return EXIT_FAIL
+        start = go + 1
+        report.say(f"skipping {start} line(s) of boot output; no loader output (a release "
+                   f"image's loader prints none), so checking from line {start + 1}, after "
+                   f"U-Boot's go at line {start}")
+
+    matcher = Matcher(expected, forbidden)
+    for number, text in enumerate(lines[start:], start=start + 1):
+        if matcher.feed(number, text):
+            report.found(number, text)
+        if matcher.offending is not None:
+            report.fail_forbidden(matcher)
+            return EXIT_FAIL
+
+    if not matcher.complete:
+        report.fail(f"not seen in {len(lines)} line(s): {matcher.missing!r}")
+        return EXIT_FAIL
+    after = len(lines) - matcher.seen[-1]
+    report.passed(matcher, f"; nothing forbidden in the {after} line(s) after it")
+    return EXIT_PASS
+
+
+if __name__ == "__main__":
+    sys.exit(main())

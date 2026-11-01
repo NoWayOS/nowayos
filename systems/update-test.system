@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    The update PD stages a signed
+    release and refuses each bad bundle the update design names, on the
+    real kernel. tools/update-bundles makes this run's keys - deleted when it
+    ends - and its bundles; make image runs it before this system is built.
+
+    update (role update): nowayos-update-pd, thin over nowayos-update's
+    logic with nowayos-signature's checks. It holds no device, interrupt or
+    physical address: it maps its end of the bundle ring (control
+    read-write, records read-only), the page it shares with the storage
+    stand-in, and the trust anchors read-only - the run's root key, which
+    the image is built with (test-trust-anchors.bin). It calls the storage
+    stand-in, and notifies the bundle server when it has taken a bundle. Its
+    restart request ends the run: no supervisor channel.
+
+    update_bundles (role test, a test instrument): in the TLS PD's place,
+    it reads the run's bundles from QEMU's fw_cfg (update-test.qemu hands
+    them to QEMU at run time, so no build holds them) by DMA, and offers
+    them one at a time on the ring: fw_cfg's register page and a 64 KiB DMA
+    region whose physical address it learns, as dma-demo.
+
+    update_storage (role test, a test instrument): the storage PD's
+    stand-in, with the two copies of the update state in its memory - copy
+    A provisioned from test-update-state.bin - and two 4 KiB slots, each a
+    region of its own. It answers the update PD's calls through the shared
+    page, and runs above it, as a protected procedure call must go to a
+    strictly higher priority.
+
+    Every grant above is also listed in update-test.grants, which
+    tools/check-system compares with this file and with the kernel objects
+    the Microkit tool generates (make image, make qemu-test).
+-->
+<system>
+    <!-- The run's root key and the provisioned state: prefilled at build time. -->
+    <memory_region name="trust_anchors" size="0x1000" prefill_path="test-trust-anchors.bin" />
+    <memory_region name="provisioned_state" size="0x1000" prefill_path="test-update-state.bin" />
+
+    <!-- The bundle server's ring into the update PD: records (its), control
+         (the update PD's). 8,192 records of 512 bytes and the producer's
+         counters: a whole release image's bundle fits, as
+         update-trial's does. -->
+    <memory_region name="bundle_records" size="0x60_0000" page_size="0x20_0000" />
+    <memory_region name="bundle_control" size="0x1000" />
+
+    <!-- The page the update PD and the storage stand-in share, and the slots. -->
+    <memory_region name="storage_page" size="0x1000" />
+    <memory_region name="slot_a" size="0x1000" />
+    <memory_region name="slot_b" size="0x1000" />
+
+    <!-- fw_cfg, and the bundle server's DMA region. -->
+    <memory_region name="fw_cfg_regs" size="@fw_cfg" phys_addr="@fw_cfg" />
+    <memory_region name="bundle_dma" size="0x10000" />
+
+    <protection_domain name="update_storage" priority="3" stack_size="0x10000">
+        <program_image path="nowayos-update-storage.elf" />
+        <map mr="storage_page" vaddr="0x4000_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+        <map mr="slot_a" vaddr="0x4000_1000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_1_vaddr" setvar_size="nowayos_rw_region_1_size" />
+        <map mr="slot_b" vaddr="0x4000_2000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_2_vaddr" setvar_size="nowayos_rw_region_2_size" />
+        <map mr="provisioned_state" vaddr="0x4000_3000" perms="r"
+             setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+    </protection_domain>
+
+    <protection_domain name="update" priority="2" stack_size="0x10000">
+        <program_image path="nowayos-update-pd.elf" />
+        <map mr="bundle_control" vaddr="0x4000_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+        <map mr="bundle_records" vaddr="0x4100_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_1_vaddr" setvar_size="nowayos_ro_region_1_size" />
+        <map mr="storage_page" vaddr="0x4000_5000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_1_vaddr" setvar_size="nowayos_rw_region_1_size" />
+        <map mr="trust_anchors" vaddr="0x4000_6000" perms="r"
+             setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+    </protection_domain>
+
+    <protection_domain name="update_bundles" priority="1" stack_size="0x10000">
+        <program_image path="nowayos-update-bundles.elf" />
+        <map mr="fw_cfg_regs" vaddr="0x200_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_device_0_vaddr" setvar_size="nowayos_device_0_size" />
+        <map mr="bundle_dma" vaddr="0x300_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_dma_0_vaddr" setvar_size="nowayos_dma_0_size" />
+        <setvar symbol="nowayos_dma_0_paddr" region_paddr="bundle_dma" />
+        <map mr="bundle_records" vaddr="0x4000_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+        <map mr="bundle_control" vaddr="0x4100_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+    </protection_domain>
+
+    <!-- "A bundle waits" one way, "taken" the other. -->
+    <channel>
+        <end pd="update" id="0" />
+        <end pd="update_bundles" id="0" />
+    </channel>
+
+    <!-- The update PD calls the storage stand-in; no notifications. -->
+    <channel>
+        <end pd="update" id="1" pp="true" notify="false" />
+        <end pd="update_storage" id="0" notify="false" />
+    </channel>
+</system>

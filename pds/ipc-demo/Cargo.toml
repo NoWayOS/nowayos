@@ -1,0 +1,15 @@
+[package]
+name = "nowayos-ipc-demo"
+description = "IPC demonstration: shared definitions for the producer and consumer PDs (ring geometry, synthetic event sequence, receive step)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+nowayos-input.workspace = true
+nowayos-ipc.workspace = true
+
+[lints]
+workspace = true

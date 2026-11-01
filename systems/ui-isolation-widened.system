@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    ui-isolation.system with one grant widened ON PURPOSE.
+    ui_reads_display_private also maps display_side's private page, read-only,
+    at the very address it probes. Nothing else differs (tools/test_tools.py
+    checks that). So its read succeeds, and the probe reports an isolation
+    failure - which ui-isolation-widened.expect requires, while
+    ui-isolation.expect forbids it. It shows that ui-isolation can fail - a
+    test that cannot fail proves nothing. It sees a widening only at the
+    address a probe reads; review of the .grants diff catches any other.
+-->
+<system>
+    <memory_region name="present_messages" size="0x1000" />
+    <memory_region name="present_control" size="0x1000" />
+    <memory_region name="display_messages" size="0x1000" />
+    <memory_region name="display_control" size="0x1000" />
+    <memory_region name="framebuffer" size="0x400000" />
+    <memory_region name="input_messages" size="0x1000" />
+    <memory_region name="input_control" size="0x1000" />
+    <memory_region name="display_private" size="0x1000" />
+
+    <protection_domain name="ui_isolation_parent" priority="100" stack_size="0x10000">
+        <program_image path="nowayos-isolation-parent.elf" />
+
+        <!-- The display's maps (ui-demo.system, "display"). -->
+        <protection_domain name="display_writes_framebuffer" id="0" priority="40" stack_size="0x10000">
+            <program_image path="nowayos-isolation-probe.elf" />
+            <map mr="present_control" vaddr="0x4000_0000" perms="rw"
+                 setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+            <map mr="present_messages" vaddr="0x4000_1000" perms="r"
+                 setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+            <map mr="display_messages" vaddr="0x4000_2000" perms="rw"
+                 setvar_vaddr="nowayos_rw_region_1_vaddr" setvar_size="nowayos_rw_region_1_size" />
+            <map mr="display_control" vaddr="0x4000_3000" perms="r"
+                 setvar_vaddr="nowayos_ro_region_1_vaddr" setvar_size="nowayos_ro_region_1_size" />
+            <map mr="framebuffer" vaddr="0x5000_0000" perms="r"
+                 setvar_vaddr="nowayos_ro_region_2_vaddr" setvar_size="nowayos_ro_region_2_size" />
+        </protection_domain>
+
+        <!-- The UI's maps (ui-demo.system, "ui"), three times. -->
+        <protection_domain name="ui_writes_display_index" id="1" priority="30" stack_size="0x20000">
+            <program_image path="nowayos-isolation-probe.elf" />
+            <map mr="present_messages" vaddr="0x4000_0000" perms="rw"
+                 setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+            <map mr="present_control" vaddr="0x4000_1000" perms="r"
+                 setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+            <map mr="display_control" vaddr="0x4000_2000" perms="rw"
+                 setvar_vaddr="nowayos_rw_region_1_vaddr" setvar_size="nowayos_rw_region_1_size" />
+            <map mr="display_messages" vaddr="0x4000_3000" perms="r"
+                 setvar_vaddr="nowayos_ro_region_1_vaddr" setvar_size="nowayos_ro_region_1_size" />
+            <map mr="framebuffer" vaddr="0x5000_0000" perms="rw"
+                 setvar_vaddr="nowayos_rw_region_2_vaddr" setvar_size="nowayos_rw_region_2_size" />
+            <map mr="input_control" vaddr="0x4000_4000" perms="rw"
+                 setvar_vaddr="nowayos_rw_region_3_vaddr" setvar_size="nowayos_rw_region_3_size" />
+            <map mr="input_messages" vaddr="0x4000_5000" perms="r"
+                 setvar_vaddr="nowayos_ro_region_2_vaddr" setvar_size="nowayos_ro_region_2_size" />
+        </protection_domain>
+
+        <protection_domain name="ui_reads_display_private" id="2" priority="20" stack_size="0x20000">
+            <program_image path="nowayos-isolation-probe.elf" />
+            <!-- WIDENED ON PURPOSE: display_side's private page. -->
+            <map mr="display_private" vaddr="0x6000_0000" perms="r" />
+            <map mr="present_messages" vaddr="0x4000_0000" perms="rw"
+                 setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+            <map mr="present_control" vaddr="0x4000_1000" perms="r"
+                 setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+            <map mr="display_control" vaddr="0x4000_2000" perms="rw"
+                 setvar_vaddr="nowayos_rw_region_1_vaddr" setvar_size="nowayos_rw_region_1_size" />
+            <map mr="display_messages" vaddr="0x4000_3000" perms="r"
+                 setvar_vaddr="nowayos_ro_region_1_vaddr" setvar_size="nowayos_ro_region_1_size" />
+            <map mr="framebuffer" vaddr="0x5000_0000" perms="rw"
+                 setvar_vaddr="nowayos_rw_region_2_vaddr" setvar_size="nowayos_rw_region_2_size" />
+            <map mr="input_control" vaddr="0x4000_4000" perms="rw"
+                 setvar_vaddr="nowayos_rw_region_3_vaddr" setvar_size="nowayos_rw_region_3_size" />
+            <map mr="input_messages" vaddr="0x4000_5000" perms="r"
+                 setvar_vaddr="nowayos_ro_region_2_vaddr" setvar_size="nowayos_ro_region_2_size" />
+        </protection_domain>
+
+        <protection_domain name="ui_reads_device" id="3" priority="10" stack_size="0x20000">
+            <program_image path="nowayos-isolation-probe.elf" />
+            <map mr="present_messages" vaddr="0x4000_0000" perms="rw"
+                 setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+            <map mr="present_control" vaddr="0x4000_1000" perms="r"
+                 setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+            <map mr="display_control" vaddr="0x4000_2000" perms="rw"
+                 setvar_vaddr="nowayos_rw_region_1_vaddr" setvar_size="nowayos_rw_region_1_size" />
+            <map mr="display_messages" vaddr="0x4000_3000" perms="r"
+                 setvar_vaddr="nowayos_ro_region_1_vaddr" setvar_size="nowayos_ro_region_1_size" />
+            <map mr="framebuffer" vaddr="0x5000_0000" perms="rw"
+                 setvar_vaddr="nowayos_rw_region_2_vaddr" setvar_size="nowayos_rw_region_2_size" />
+            <map mr="input_control" vaddr="0x4000_4000" perms="rw"
+                 setvar_vaddr="nowayos_rw_region_3_vaddr" setvar_size="nowayos_rw_region_3_size" />
+            <map mr="input_messages" vaddr="0x4000_5000" perms="r"
+                 setvar_vaddr="nowayos_ro_region_2_vaddr" setvar_size="nowayos_ro_region_2_size" />
+        </protection_domain>
+    </protection_domain>
+
+    <!-- display_side: a bystander standing in for the display's private state. 0x6000_0000:
+         pds/isolation-probe/src/forbidden.rs, Unmapped::DisplayPrivatePage -->
+    <protection_domain name="display_side" priority="50" stack_size="0x10000">
+        <program_image path="nowayos-isolation-bystander.elf" />
+        <map mr="display_private" vaddr="0x6000_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+    </protection_domain>
+
+    <!-- "Are you still running?" and the answer. -->
+    <channel>
+        <end pd="ui_isolation_parent" id="0" />
+        <end pd="display_side" id="0" />
+    </channel>
+</system>

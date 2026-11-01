@@ -1,0 +1,105 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT OR Apache-2.0
+"""A getrandom back end only from nowayos-entropy, in every library a PD links
+.
+
+    check-backends --deps DIR
+
+DIR is a PD build's deps directory (make std-crates-check passes it): every
+library (lib*.rlib) the repo's PDs are linked from, third-party crates'
+included. Each object inside each is read, and every definition of
+getrandom's back-end symbols - `__getrandom_custom` (0.2) and
+`__getrandom_v03_custom` (0.3 and 0.4) - must be in nowayos-entropy's
+library. A stray definition fails the check, naming its library: any
+crate's, ours or a third party's, whether its source shows it or getrandom
+0.2's macro wrote it, and whether or not the PD also links nowayos-entropy
+(where the link would fail on the duplicate - which rests on how rustc
+links, not on a promise) or not (where it would link without a word, and
+getrandom would take its bytes). tools/check-unsafe refuses the same in our
+own source. Exit status: 0 pass; 1 a stray definition; 2 usage or input
+error. Python standard library only.
+"""
+import argparse
+import os
+import re
+import struct
+import sys
+
+SYMBOLS = {b"__getrandom_custom", b"__getrandom_v03_custom"}
+ENTROPY = "nowayos_entropy"
+RLIB = re.compile(r"^lib(.+)-[0-9a-f]+\.rlib$")
+
+
+def members(data):
+    """The (name, bytes) members of an ar archive."""
+    if not data.startswith(b"!<arch>\n"):
+        return
+    at, names = 8, b""
+    while at + 60 <= len(data):
+        header = data[at:at + 60]
+        name, size = header[:16].strip(), int(header[48:58].strip() or 0)
+        body = data[at + 60:at + 60 + size]
+        if name == b"//":
+            names = body
+        elif name.startswith(b"/") and name[1:].isdigit():
+            start = int(name[1:])
+            name = names[start:names.index(b"/\n", start)]
+        yield name.decode("utf-8", "replace").rstrip("/"), body
+        at += 60 + size + (size & 1)
+
+
+def defined(obj):
+    """The global symbols an ELF64 little-endian object defines."""
+    if obj[:4] != b"\x7fELF" or obj[4] != 2 or obj[5] != 1:
+        return set()
+    shoff, = struct.unpack_from("<Q", obj, 0x28)
+    shentsize, shnum = struct.unpack_from("<HH", obj, 0x3A)
+    sections = [struct.unpack_from("<IIQQQQIIQQ", obj, shoff + i * shentsize) for i in range(shnum)]
+    found = set()
+    for _, kind, _, _, offset, size, link, _, _, entsize in sections:
+        if kind != 2 or not entsize:  # SHT_SYMTAB
+            continue
+        strtab = sections[link]
+        strings = obj[strtab[4]:strtab[4] + strtab[5]]
+        for at in range(offset, offset + size, entsize):
+            name, info, _, shndx = struct.unpack_from("<IBBH", obj, at)
+            if shndx != 0 and info >> 4 in (1, 2):  # defined, GLOBAL or WEAK
+                found.add(strings[name:strings.index(b"\0", name)])
+    return found
+
+
+def strays(deps):
+    """[(library, symbol)]: every back-end definition outside nowayos-entropy."""
+    found = []
+    for file in sorted(os.listdir(deps)):
+        match = RLIB.match(file)
+        if not match:
+            continue
+        with open(os.path.join(deps, file), "rb") as handle:
+            data = handle.read()
+        for _, body in members(data):
+            for symbol in sorted(defined(body) & SYMBOLS):
+                if match.group(1) != ENTROPY:
+                    found.append((file, symbol.decode()))
+    return found
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--deps", required=True)
+    args = parser.parse_args(argv)
+    if not os.path.isdir(args.deps):
+        print(f"check-backends: no deps directory {args.deps}: build the PDs first", file=sys.stderr)
+        return 2
+    found = strays(args.deps)
+    if found:
+        print("check-backends: FAIL - a getrandom back end outside nowayos-entropy:", file=sys.stderr)
+        for library, symbol in found:
+            print(f"    {library} defines {symbol}", file=sys.stderr)
+        return 1
+    print("check-backends: PASS - getrandom's back end defined in nowayos-entropy's library alone, if anywhere")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

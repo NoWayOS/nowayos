@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    In QEMU: the watchdog PD. It keeps the
+    hardware watchdog from firing only while every PD it watches answers its
+    heartbeat each round. QEMU's virt board has no watchdog, so stand_in, a
+    test instrument, plays it: a tick to the watchdog every 200 ms, timed by
+    the timer PD, which ends each round; the watchdog makes no call and has
+    no other clock. The watchdog watches the supervisor, which answers
+    itself, and three heartbeat probes at three priorities. For ten rounds
+    every PD answers and the watchdog services stand_in; then looper loops
+    for ever and starves lower, below it. At round 11's tick the watchdog
+    names both, highest priority first, and stops servicing; three ticks
+    later stand_in reports that the hardware would now reset the board. QEMU
+    proves the heartbeat logic only: the Pi 5's is pm-watchdog-test's.
+
+        watchdog_supervisor  the supervisor, parent of every other PD (254)
+        watchdog             the watchdog PD (250), above all it watches but
+                             the supervisor
+        timer                times stand_in's ticks (240)
+        stand_in             stands in for the hardware watchdog (230)
+        upper, looper, lower heartbeat probes (200, 150, 100); looper loops
+                             after ten rounds with a full budget
+
+    Every grant is listed in watchdog-test.grants, which tools/check-system
+    compares with this file and the kernel objects (make qemu-test).
+-->
+<system>
+    <protection_domain name="watchdog_supervisor" priority="254" stack_size="0x10000" smc="true">
+        <program_image path="nowayos-supervisor.elf" />
+
+        <protection_domain name="watchdog" id="0" priority="250" stack_size="0x10000">
+            <program_image path="nowayos-watchdog.elf" />
+        </protection_domain>
+
+        <protection_domain name="timer" id="1" priority="240" stack_size="0x10000">
+            <program_image path="nowayos-timer.elf" />
+            <irq irq="@phys_timer" id="0" trigger="@phys_timer" />
+        </protection_domain>
+
+        <protection_domain name="stand_in" id="2" priority="230" stack_size="0x10000">
+            <program_image path="nowayos-watchdog-stand-in.elf" />
+        </protection_domain>
+
+        <protection_domain name="upper" id="3" priority="200" stack_size="0x10000">
+            <program_image path="nowayos-heartbeat-probe.elf" />
+        </protection_domain>
+
+        <protection_domain name="looper" id="4" priority="150" stack_size="0x10000">
+            <program_image path="nowayos-heartbeat-probe.elf" />
+        </protection_domain>
+
+        <protection_domain name="lower" id="5" priority="100" stack_size="0x10000">
+            <program_image path="nowayos-heartbeat-probe.elf" />
+        </protection_domain>
+    </protection_domain>
+
+    <!-- The heartbeats: notification-only, both ways - the watchdog pings,
+         each PD answers. -->
+    <channel>
+        <end pd="watchdog" id="0" />
+        <end pd="watchdog_supervisor" id="1" />
+    </channel>
+    <channel>
+        <end pd="watchdog" id="1" />
+        <end pd="upper" id="0" />
+    </channel>
+    <channel>
+        <end pd="watchdog" id="2" />
+        <end pd="looper" id="0" />
+    </channel>
+    <channel>
+        <end pd="watchdog" id="3" />
+        <end pd="lower" id="0" />
+    </channel>
+    <!-- The hardware watchdog's stand-in: its ticks in, servicing out. -->
+    <channel>
+        <end pd="watchdog" id="4" />
+        <end pd="stand_in" id="0" />
+    </channel>
+    <!-- stand_in calls the timer; the timer notifies it of each tick. -->
+    <channel>
+        <end pd="stand_in" id="1" pp="true" notify="false" />
+        <end pd="timer" id="1" />
+    </channel>
+</system>

@@ -1,0 +1,39 @@
+[package]
+name = "nowayos-budget-probe"
+description = "Test instrument: a heartbeat on the timer and a PD that loops for ever above it, for budget-test - time isolation shown, not assumed"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "nowayos-budget-probe"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+nowayos-timer-api = { workspace = true, features = ["client"] }
+sel4-microkit.workspace = true
+
+[lints.rust]
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+missing_docs = "warn"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+unreachable = "deny"
+undocumented_unsafe_blocks = "deny"
+multiple_unsafe_ops_per_block = "deny"
+# No panic inside a function that returns Result, and every #[allow] says why.
+panic_in_result_fn = "deny"
+allow_attributes_without_reason = "deny"
+# No out-of-bounds panics and no unchecked arithmetic on lengths and offsets.
+indexing_slicing = "deny"
+arithmetic_side_effects = "deny"

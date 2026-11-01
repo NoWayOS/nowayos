@@ -1,0 +1,36 @@
+# Lines tools/qemu-test must see, in this order, as whole serial lines.
+# The supervisor reads its stand-in counts before any child runs, and
+# they are below both limits, so every child runs; when faulter faults, the
+# supervisor reports the counts the next boot would hold and resets the
+# board. The read-only stand-in stores nothing, so the next boot reads the
+# same counts. The "fault detail" and "had run" lines are not checked.
+NOWAYOS: supervisor: starting; children faulter (0) and trigger (1)
+NOWAYOS: supervisor: counts read from the test stand-in, which stores nothing: restart count 1, sensitive count 0
+NOWAYOS: supervisor: this start: a reset whose cause was not written down
+NOWAYOS: supervisor: restart count 2 of 4, sensitive count 0 of 2: restart, counted
+NOWAYOS: isolation-probe: faulter: no marker - this boot's memory is fresh
+NOWAYOS: isolation-probe: faulter wrote its marker; waiting for the trigger
+NOWAYOS: isolation-probe: trigger notifying faulter
+NOWAYOS: isolation-probe: faulter triggered
+NOWAYOS: supervisor: faulter stopped: data write at 0x40001000: permission fault (the mapping does not allow it)
+NOWAYOS: supervisor: the next boot would hold restart count 3 of 4, sensitive count 1 of 2: restart, counted
+NOWAYOS: supervisor: resetting the board
+NOWAYOS: supervisor: starting; children faulter (0) and trigger (1)
+NOWAYOS: supervisor: counts read from the test stand-in, which stores nothing: restart count 1, sensitive count 0
+NOWAYOS: supervisor: restart count 2 of 4, sensitive count 0 of 2: restart, counted
+NOWAYOS: isolation-probe: faulter: no marker - this boot's memory is fresh
+
+# Output that fails the test at once if it appears anywhere (substring match):
+# the fail-safe state, the marker surviving the reset, the reset returning, a
+# fault the monitor had to handle, a kernel error message, or the supervisor
+# or a probe failing.
+!fail-safe
+!SURVIVED
+!the reset returned
+!NOT stopped
+!MON|ERROR
+!seL4(CPU
+!ISOLATION FAILURE
+!no probe is defined
+!no children are defined
+!cannot

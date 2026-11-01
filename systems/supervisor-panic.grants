@@ -1,0 +1,42 @@
+# Everything systems/supervisor-panic.system grants, one fact per line.
+# tools/check-system fails the build if the system description grants anything
+# not listed here, or lists anything it does not grant, and checks the map
+# rights again in the kernel objects the Microkit tool generates (format: see
+# tools/check-system). A change here is a security change: call it out in the
+# pull request.
+
+# The kind of system, and each PD's role (tools/grant-rules.toml): only a
+# supervisor may hold the SMC capability, and only a test system may give it
+# memory or a channel to anything but a watchdog - here, the console it
+# reports through.
+system test
+role panic_supervisor supervisor
+role console test
+role panicker test
+
+# The supervisor highest, so it acts on a fault at once; the console above
+# the panicker, so it prints each report before anything else runs. Full
+# budgets.
+pd panic_supervisor priority=254 budget=1000 period=1000
+pd console priority=200 budget=1000 period=1000
+pd panicker priority=100 budget=1000 period=1000
+
+# The supervisor: its children, and the SMC capability for PSCI SYSTEM_RESET
+# (unbadged in Microkit 2.3.1: it could make any firmware call).
+child panic_supervisor console
+child panic_supervisor panicker
+smc panic_supervisor
+
+# The report ring: lines written by the supervisor only, the console's index
+# written by the console only; and "printed" back.
+map panic_supervisor console_messages rw
+map panic_supervisor console_control r
+map console console_control rw
+map console console_messages r
+channel console panic_supervisor
+
+# The console: the debug UART's registers, uncached, this PD only.
+device console debug_uart rw
+# The board's facts about it (device-debug_uart.bin), read-only: which
+# PL011 it is, and how many bytes of its page are registers.
+map console uart_facts r

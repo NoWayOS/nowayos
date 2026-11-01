@@ -1,0 +1,4 @@
+# The Microkit configurations make qemu-test-all boots this system in: the
+# supervisor stops an empty slot one way in the debug kernel and another in
+# the release kernel, which is what a product uses, and prints nothing itself.
+debug release

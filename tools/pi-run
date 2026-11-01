@@ -1,0 +1,1510 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT OR Apache-2.0
+"""Run Microkit images on a Raspberry Pi 5 over its debug UART, unattended.
+
+Usage:
+    pi-run run --device DEV --logs DIR [--expect-dir DIR] [--watchdog SECONDS]
+               NAME[=EXPECT]@IMAGE ...
+    pi-run show --device DEV --logs DIR [--expect-dir DIR] [--hold SECONDS]
+                [--type] NAME[=EXPECT]@IMAGE
+    pi-run uboot --device DEV --log FILE [--wait-boot] [--allow-write] COMMAND ...
+
+`run` takes the board from U-Boot's prompt, where a run leaves it, and for
+each image in turn:
+
+  1. resets the board, and stops U-Boot's autoboot at the next boot;
+  2. sends the image gzip-compressed with `loady` (YMODEM) to 0x18000000 and
+     unzips it to 0x10000000, where the Microkit loader runs, checking the
+     size U-Boot received, the unzipped size and U-Boot's CRC-32 of it;
+  3. reads BCM2712's PM registers (RSTC, RSTS, WDOG) and arms the PM
+     watchdog for --watchdog seconds only if they read as the bootloader
+     reported at this boot: RSTC 0x00000202, WDOG 0 (not running), and no
+     bit set in RSTS that the bootloader's PM_RSTS did not show; then reads
+     them back, and goes on only if RSTC holds what was written and WDOG is
+     counting down from no more than the time asked for;
+  4. checks that the framebuffer the firmware set up at this boot - its
+     boot log's FB0 line and U-Boot's bdinfo - is the one the board facts
+     give (`firmware_fb` in platforms/rpi5b_2gb.toml; --board-facts), and
+     stops if not: grants-check rule 14 and a display PD's window hold only
+     for that mode. With no monitor at boot the firmware sets up no
+     framebuffer, and there is nothing to check - which assumes U-Boot's
+     bdinfo then prints no FB size, not yet seen on the board (were it to
+     print one, the run would stop: it fails safe);
+  5. starts the image with `go 0x10000000`, and follows its output live
+     against systems/EXPECT.expect (EXPECT defaults to NAME), by the rules
+     check-serial and qemu-test share (serial_expect.py) - playing
+     systems/NAME.qmp's steps as it goes, where the system has that script:
+     what a terminal attached to the debug UART would type.
+
+A system's script is qemu-test's (tools/qemu-test, --qmp-script): on the
+board pi-run plays its `wait` steps (a line of the image's output), its
+`pause` steps, and its `serial` steps, whose bytes it writes to the board
+through the Debug Probe - to the debug UART's receive side, where a
+development system's UART input PD reads them as keys. A script with any
+other step - a QMP command, a click, a QEMU key, a screen - is QEMU's alone,
+and the run refuses it before touching the board; so it does a script whose
+first step is not a wait, one with a serial step straight after a pause, or
+one whose pauses add up to more than --watchdog. A serial step is typed only
+within 0.25 s (SERIAL_FRESH) of the line its wait matched, which shows the
+image ran then: a system that resets itself is silent at first, so an older
+line proves nothing, and the script is abandoned instead.
+Keys must never reach U-Boot. A pause keeps reading the board, and the
+script is abandoned, typing nothing more, as soon as the board shows it no
+longer runs the image - a boot's banner or reset report, the bootloader's or
+U-Boot's lines, its countdown, `go` returning ("## Application
+terminated"), or its prompt at any line's start since `go` - and what is
+still queued for the board is dropped. The verdict sticks until the next
+`go`. And a script types nothing within 1.5 s of the watchdog's reset
+(WATCHDOG_MARGIN): the bootloader is silent at first, so the reset itself
+shows nothing in time. show --type stops typing on the same signs, checked
+on every read and again just before every write.
+
+The watchdog resets the board whether the image ends, hangs or runs on, and
+the next image follows. A system can ask for a longer run: its
+description prefills test-run-length-N.bin into its ticker, and its watchdog
+PD keeps the PM watchdog armed - PM_SERVICE_SECONDS at a time - for N
+seconds, after which the ticker stops, the watchdog PD services no more and
+the board resets. The run reads N from the description built beside the
+image (NAME.system), waits for that reset instead, and types no script step
+within WATCHDOG_MARGIN of N. A reset the system makes itself, well before the
+watchdog's time, loads the same image again (a system whose expect file
+asks for a second boot). After the last image the board is left at U-Boot's
+prompt. Then each image's log, DIR/NN-NAME.log, is checked by check-serial,
+which gives the verdict; DIR/session.log holds every byte the board sent.
+
+A failed transfer, a size or checksum that does not match, or a register
+that does not read as expected stops the run there, saying why and what is
+true of the board: before any write to the PM registers, nothing is armed
+and the run says whether U-Boot's prompt answers; after one, the watchdog
+may be running, so the run waits for the reset it causes and parks the
+board. If the board stops answering - no prompt, no boot - the run stops
+and says so: it needs a person to power-cycle it.
+
+`show` is for a person to watch: it loads one image as `run` does but arms
+no watchdog, so the image runs until someone power-cycles the board (or it
+resets the board itself). If the board boots again within --hold seconds,
+the run parks it at U-Boot's prompt and checks the log as `run` does; if
+--hold runs out first, the image is left running and the run says how to
+park the board. With --type it is for a person to drive: instead of
+playing the system's script, it passes what is typed on this terminal to
+the board once the image has started - nothing before U-Boot's echo of
+go's Enter or the image's first line, so no key lands on U-Boot's line; keys
+typed before are dropped, and it says so - each key as the terminal sends it,
+arrows and all, to the debug UART's receive side - and prints the image's
+output as it comes; Ctrl-] or Ctrl-C stops the typing, leaving the image
+running. It needs a terminal on stdin.
+
+Every command is typed, its echo checked against what was typed, and only
+then entered: a line U-Boot did not echo as typed is abandoned (Ctrl-C),
+never run, and nothing more is sent until U-Boot shows a fresh prompt. The
+prompt is looked for with Ctrl-C, never a bare carriage return, so no half-
+typed line is ever entered; and the board is reported parked only after a
+Ctrl-C and a fresh prompt, so a key that crossed - echoed a moment after
+U-Boot's prompt - is abandoned unrun. The board may stop at U-Boot's prompt by
+itself ("lab mode": a saved environment whose bootcmd only prints a line):
+every wait for a countdown also takes a prompt found instead. A countdown is
+stopped with U-Boot's stop word (platforms/rpi5b_2gb-u-boot.config),
+or with a space on a U-Boot built before it, which any key stops.
+
+`uboot` runs U-Boot commands at the prompt (or, with --wait-boot, after
+stopping the next autoboot) and prints each one's output; a command
+argument may hold several, separated by ';'. Each must be printable ASCII
+- no control character, which U-Boot's line editor would act on - and only
+commands that read are allowed - bdinfo, coninfo, printenv, version, help, md, crc32 and fdt's
+addr, list, print and header - unless --allow-write also allows mw, cls and
+setcurs, for a deliberate display test. go, reset and every boot or write
+to storage are always refused: only `run` starts images.
+
+One run at a time drives the board: each takes an exclusive lock on the file
+PI_BOARD_LOCK names (default: nowayos-pi-board.lock in the temporary
+directory), waiting up to --lock-wait seconds for it, and opens the serial
+device for itself alone (TIOCEXCL), so no other program can open it while
+it runs.
+
+Runs on the host, where the probe is plugged in: Podman's VM cannot see USB
+serial devices. Nothing to install: Python 3.11 or later, standard library
+only. Sources: the PM block's node and base address from the pinned device tree; its
+register offsets, password and the values written as run by hand on the
+board on 2026-10-07, whose documented source is still to be found (the
+Product Owner's list); Chuck
+Forsberg's XMODEM/YMODEM Protocol Reference (1988) for YMODEM batch
+transfers with CRC-16 and 1 KiB blocks; U-Boot's documented commands.
+
+Exit status: 0 every image passed check-serial (run, show) or every
+command ran (uboot); 1 an image failed; 3 this Python is older than 3.11; 2 usage error, the board busy or not answering,
+or a run stopped before its last image.
+"""
+
+import argparse
+import fcntl
+import gzip
+import importlib.machinery
+import importlib.util
+import os
+import re
+import select
+import struct
+import subprocess
+import sys
+import tempfile
+import termios
+import time
+import zlib
+
+sys.dont_write_bytecode = True  # keep tools/ free of __pycache__
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from serial_expect import ExpectError, Matcher, read_expectations  # noqa: E402
+
+EXIT_PASS = 0
+EXIT_FAIL = 1
+EXIT_ERROR = 2
+EXIT_PYTHON = 3
+# check-system, which pi-run reads the board facts with, needs tomllib.
+MIN_PYTHON = (3, 11)
+
+BAUD = 115200
+# Where U-Boot puts the compressed image, and where it unzips it: the
+# Microkit 2.3.1 manual's load address for the Pi.
+STAGING_ADDR = 0x1800_0000
+LOADER_ADDR = 0x1000_0000
+MAX_IMAGE = STAGING_ADDR - LOADER_ADDR
+
+# BCM2712's power management block.
+# From the pinned
+# device tree, its node and base address: /soc@107c000000/watchdog@7d200000,
+# brcm,bcm2712-pm, at 0x10_7d20_0000. Its registers as FreeBSD's BCM2835
+# watchdog driver gives them (BSD-2-Clause, facts only; nowayos-hw's
+# pm_watchdog), and as run by hand on the board on 2026-10-07: RSTC,
+# RSTS and WDOG at these offsets; each write's top byte the password; WDOG
+# written with the seconds times 65,536 (0x5a0c0000 reset the board after
+# 12 s, and 15 s worked); RSTC, read as 0x00000202, written as 0x5a000222 -
+# a full reset when WDOG runs out.
+PM_BASE = 0x10_7D20_0000
+RSTC = PM_BASE + 0x1C
+RSTS = PM_BASE + 0x20
+WDOG = PM_BASE + 0x24
+PASSWORD = 0x5A00_0000
+TICKS_PER_SECOND = 65536
+# RSTC as read at every boot on the board, power-on and after a reset alike
+# (2026-10-07, 28 boots), and the value written to it to arm the watchdog.
+RSTC_EXPECTED = 0x0000_0202
+RSTC_ARM = 0x5A00_0222
+# The longest time run on the board.
+MAX_WATCHDOG = 15
+# A system's run length: a test system on the Pi asks for one by
+# prefilling test-run-length-N.bin into its ticker (the watchdog stand-in's
+# ticker part), and its watchdog PD keeps the PM watchdog armed - for
+# PM_SERVICE_SECONDS at each of the ticker's ticks, RUN_TICK_SECONDS apart -
+# until the ticker stops after N seconds; the board resets within
+# PM_SERVICE_SECONDS of the last tick. The run reads N from the system
+# description built beside the image (NAME.system), and waits that long.
+RUN_LENGTH_RE = re.compile(r'prefill_path="test-run-length-([1-9][0-9]{0,4})\.bin"')
+PM_SERVICE_SECONDS = 6  # nowayos_watchdog::PM_TIMEOUT_SECS
+RUN_TICK_SECONDS = 2  # the ticker's TICKER_PERIOD_MS
+
+# What the board prints. The EEPROM bootloader's first line at every boot;
+# its reset report (AON_RESET ... PM_RSTS xxxxxxxx; POWER_OFF_ON_HALT ...
+# power-on-reset N); U-Boot's countdown and prompt.
+BOOT_BANNER = "RPi: BOOTSYS release"
+PM_RSTS_RE = re.compile(r"PM_RSTS ([0-9a-fA-F]{8})")
+POWER_ON_RE = re.compile(r"power-on-reset (\d)")
+# Both of U-Boot's countdowns end so: the one any key stops ("Hit any key to
+# stop autoboot: 3"), and the one only the stop word stops ("Type stopboot
+# within 3 seconds to stop autoboot").
+COUNTDOWN = "to stop autoboot"
+ANY_KEY_COUNTDOWN = "Hit any key"
+# CONFIG_AUTOBOOT_STOP_STR in platforms/rpi5b_2gb-u-boot.config (a test holds
+# the two the same): not a secret - it keeps the floating receive line's junk
+# from stopping a demo at U-Boot when no probe is attached.
+STOP_WORD = "stopboot"
+# U-Boot's prompt, at the start of a line - or straight after an escape
+# sequence, as `cls` leaves it - never the `==> ` inside crc32's output.
+PROMPT_RE = re.compile(r"(?:\A|\n|\x1b\[[0-9;]*[A-Za-z]|<INTERRUPT>)(?:=> |U-Boot> )\Z")
+# U-Boot's prompt anywhere at a line's start in what was printed, whatever
+# followed it - a key echoed after it, say.
+PROMPT_ANYWHERE_RE = re.compile(r"(?:\A|\n|\x1b\[[0-9;]*[A-Za-z]|<INTERRUPT>)(?:=> |U-Boot> )")
+# Once an image runs, any of these in its output means the board is no
+# longer running it - it is booting again, or back at U-Boot - so nothing
+# more may be typed: it could reach U-Boot's prompt.
+REBOOT_SIGNS = ("RPi: BOOT", "U-Boot 20", COUNTDOWN, "## Application terminated")
+# A script types nothing this close to the watchdog's reset: the bootloader
+# is silent for its first 0.8 s, so the reset itself shows nothing in time.
+WATCHDOG_MARGIN = 1.5
+# A serial step is typed only this soon after the line its wait matched
+# arrived: that line shows the image ran then, and a system that resets
+# itself is silent for its first 0.8 s, so an older line proves nothing.
+SERIAL_FRESH = 0.25
+TOTAL_SIZE_RE = re.compile(r"## Total Size\s*=\s*0x[0-9a-fA-F]+\s*=\s*(\d+) Bytes")
+UNZIPPED_RE = re.compile(r"Uncompressed size: (\d+) = 0x[0-9a-fA-F]+")
+CRC32_RE = re.compile(r"==>\s*([0-9a-fA-F]{8})")
+# The firmware's framebuffer: its boot log, and U-Boot's bdinfo.
+FB0_RE = re.compile(r"FB0 disp \d+ max-fb \d+ (\d+)x(\d+) stride (\d+) base (0x[0-9a-fA-F]+)")
+BDINFO_FB_BASE_RE = re.compile(r"FB base\s*=\s*(0x[0-9a-fA-F]+)")
+BDINFO_FB_SIZE_RE = re.compile(r"FB size\s*=\s*(\d+)x(\d+)x(\d+)")
+# Bits a pixel of each framebuffer format the board facts name.
+FORMAT_DEPTH = {"r5g6b5": 16}
+MD_RE = re.compile(r"^([0-9a-fA-F]+):((?:\s+[0-9a-fA-F]{8}){1,4})", re.MULTILINE)
+# Lines of the reset report kept back until it says whether the reset was a
+# power-on; the report comes within a few lines of the banner.
+REPORT_LINES = 12
+
+# YMODEM (Forsberg 1988): control bytes, and the CRC-16 it uses.
+SOH, STX, EOT, ACK, NAK, CAN, CRC_REQUEST = 0x01, 0x02, 0x04, 0x06, 0x15, 0x18, ord("C")
+PAD = 0x1A
+RETRIES = 10
+
+# U-Boot commands `uboot` runs: these read only; --allow-write adds the
+# second set; nothing else is ever run.
+READ_COMMANDS = {"bdinfo", "coninfo", "printenv", "version", "help", "?", "md", "crc32", "fdt"}
+FDT_READ = {"addr", "list", "print", "header"}
+WRITE_COMMANDS = {"mw", "cls", "setcurs"}
+
+
+class BoardError(Exception):
+    """The run cannot go on; the message says why and in what state."""
+
+
+def python_too_old(version):
+    """Why this Python cannot run pi-run, or None."""
+    if tuple(version[:2]) < MIN_PYTHON:
+        return (f"pi-run needs Python {MIN_PYTHON[0]}.{MIN_PYTHON[1]} or later (it reads the board facts with "
+                f"tomllib); this is {version[0]}.{version[1]}: run it with a newer python3")
+    return None
+
+
+def printable(text):
+    """Whether `text` is all printable ASCII: no control character U-Boot's
+    line editor would act on (erase, kill, history, Ctrl-C)."""
+    return all(" " <= char <= "~" for char in text)
+
+
+def crc16(data):
+    """CRC-16/XMODEM: polynomial 0x1021, initial value 0, as YMODEM uses."""
+    crc = 0
+    for byte in data:
+        crc ^= byte << 8
+        for _ in range(8):
+            crc = ((crc << 1) ^ 0x1021) & 0xFFFF if crc & 0x8000 else (crc << 1) & 0xFFFF
+    return crc
+
+
+def ymodem_packets(name, data):
+    """The packets of a one-file YMODEM batch: block 0 (the file's name and
+    size), the data in 1 KiB blocks padded with 0x1A, then the empty block 0
+    that ends the batch. Each is (kind, number, payload, packet bytes)."""
+    safe = os.path.basename(name).encode("ascii", "replace")[:64]
+    header = safe + b"\0" + str(len(data)).encode() + b"\0"
+    payloads = [(SOH, 0, header.ljust(128, b"\0"))]
+    for number, offset in enumerate(range(0, len(data), 1024), start=1):
+        payloads.append((STX, number & 0xFF, data[offset:offset + 1024].ljust(1024, bytes([PAD]))))
+    payloads.append((SOH, 0, bytes(128)))
+    return [(kind, number, payload,
+             bytes([kind, number, 0xFF - number]) + payload + struct.pack(">H", crc16(payload)))
+            for kind, number, payload in payloads]
+
+
+def check_pm_registers(rstc, rsts, wdog, reported_rsts):
+    """Return None if the PM registers read as the bootloader reported at
+    this boot, else why not."""
+    if reported_rsts is None:
+        return "the bootloader's reset report (PM_RSTS) was not seen at this boot"
+    if rstc != RSTC_EXPECTED:
+        return f"RSTC reads {rstc:#010x}, not {RSTC_EXPECTED:#010x}"
+    if wdog != 0:
+        return f"WDOG reads {wdog:#010x}: the watchdog is already running"
+    if rsts & ~reported_rsts:
+        return (f"RSTS reads {rsts:#010x}, with bits the bootloader did not report "
+                f"(PM_RSTS {reported_rsts:08x})")
+    return None
+
+
+def watchdog_writes(seconds):
+    """The two writes that arm the PM watchdog, as run by hand: WDOG with
+    the time, then RSTC."""
+    if not 1 <= seconds <= MAX_WATCHDOG:
+        raise ValueError(f"watchdog of {seconds} s: 1 to {MAX_WATCHDOG}")
+    return [(WDOG, PASSWORD | seconds * TICKS_PER_SECOND), (RSTC, RSTC_ARM)]
+
+
+def check_armed(rstc, wdog, seconds):
+    """Return None if the PM registers, read back after arming, hold what
+    was written - RSTC without the password, WDOG counting down from no
+    more than the time asked for - else why not."""
+    if rstc != RSTC_ARM & 0x00FF_FFFF:
+        return f"RSTC reads back {rstc:#010x}, not {RSTC_ARM & 0x00FF_FFFF:#010x}"
+    if not 0 < wdog <= seconds * TICKS_PER_SECOND:
+        return f"WDOG reads back {wdog:#010x}, not a count below {seconds * TICKS_PER_SECOND:#x}"
+    return None
+
+
+def board_framebuffer(path):
+    """The framebuffer the board facts in `path` give - (base, width,
+    height, stride, depth) - or None when they give none."""
+    tools = os.path.dirname(os.path.abspath(__file__))
+    loader = importlib.machinery.SourceFileLoader("check_system", os.path.join(tools, "check-system"))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    try:
+        devices = module.read_board(path)
+    except module.InputError as err:
+        raise BoardError(str(err)) from err
+    for device in devices.values():
+        mode = device.framebuffer
+        if mode is not None:
+            base = device.address - mode["first_row"] * mode["stride"]
+            return (base, mode["width"], mode["height"], mode["stride"], FORMAT_DEPTH[mode["format"]])
+    return None
+
+
+def framebuffer_mismatch(expected, boot_fb, bdinfo):
+    """Return (problem, note): problem None if the framebuffer the firmware
+    set up at this boot - `boot_fb` (width, height, stride, base) from its
+    boot log, and U-Boot's `bdinfo` output - is the `expected` one (base,
+    width, height, stride, depth), or there is none; note what was found."""
+    base = BDINFO_FB_BASE_RE.search(bdinfo)
+    size = BDINFO_FB_SIZE_RE.search(bdinfo)
+    if boot_fb is None and size is None:
+        return None, "no framebuffer at this boot (no monitor attached at boot): nothing is scanned out"
+    if expected is None:
+        return None, "a framebuffer, and no board fact to check it against"
+    if boot_fb is None or base is None or size is None:
+        return ("the firmware's boot log and U-Boot's bdinfo do not both describe a framebuffer", None)
+    width, height, stride, boot_base = boot_fb
+    found = (int(base.group(1), 16), int(size.group(1)), int(size.group(2)), stride, int(size.group(3)))
+    if (boot_base, width, height) != found[:3] or found != tuple(expected):
+        exp_base, exp_w, exp_h, exp_stride, exp_depth = expected
+        return (f"the firmware's framebuffer at this boot is {found[1]}x{found[2]}x{found[4]}, stride {stride}, "
+                f"at {found[0]:#x} (boot log: {width}x{height} at {boot_base:#x}), not the board facts' "
+                f"{exp_w}x{exp_h}x{exp_depth}, stride {exp_stride}, at {exp_base:#x}: grants-check rule 14 and "
+                f"a display PD's window hold only for that mode", None)
+    return None, f"the framebuffer is the board facts' {found[1]}x{found[2]}x{found[4]} at {found[0]:#x}"
+
+
+def parse_md(output, address, count):
+    """The `count` words `md.l address count` printed, or None."""
+    words = []
+    for match in MD_RE.finditer(output):
+        if not words and int(match.group(1), 16) != address:
+            continue
+        words += [int(word, 16) for word in match.group(2).split()]
+        if len(words) >= count:
+            return words[:count]
+    return None
+
+
+def uboot_command_refusal(command, allow_write):
+    """None if `uboot` may run this command, else why not."""
+    if not printable(command):
+        return "printable ASCII only: a control character could edit the line U-Boot runs"
+    if any(c in command for c in ";&|#`\\") or "$(" in command:
+        return "one plain command: no ';', '&', '|', '#', '`', '\\' or '$('"
+    words = command.split()
+    if not words:
+        return "an empty command"
+    verb = words[0].split(".")[0]
+    if verb == "fdt":
+        if len(words) < 2 or words[1] not in FDT_READ:
+            return f"fdt is allowed only as: fdt {' | '.join(sorted(FDT_READ))}"
+        return None
+    if verb == "crc32" and len(words) > 3:
+        return "crc32 is allowed without a store address"
+    if verb in READ_COMMANDS:
+        return None
+    if verb in WRITE_COMMANDS:
+        return None if allow_write else f"{verb} writes: allowed only with --allow-write"
+    return f"{verb} is not run by pi-run uboot (only commands that read; go, reset and boots never)"
+
+
+class Lock:
+    """The exclusive lock on the board: one run at a time."""
+
+    def __init__(self, path, wait, say):
+        self.path = path
+        self.handle = open(path, "a")
+        start = time.monotonic()
+        told = False
+        while True:
+            try:
+                fcntl.flock(self.handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                return
+            except BlockingIOError:
+                if time.monotonic() - start >= wait:
+                    self.handle.close()
+                    raise BoardError(f"the board is busy: another run holds {path}")
+                if not told:
+                    say(f"waiting for the board: another run holds {path}")
+                    told = True
+                time.sleep(min(2.0, max(0.05, wait / 10)))
+
+    def release(self):
+        self.handle.close()
+
+
+class Port:
+    """The serial device, raw at 115200 baud 8N1, held open throughout:
+    on macOS, settings made on another open handle do not stay."""
+
+    def __init__(self, path):
+        try:
+            self.fd = os.open(path, os.O_RDWR | os.O_NOCTTY | os.O_NONBLOCK)
+        except OSError as err:
+            raise BoardError(f"cannot open {path}: {err}") from err
+        exclusive = getattr(termios, "TIOCEXCL", None)
+        if exclusive is not None:
+            # No other program may open the device while this one has it.
+            fcntl.ioctl(self.fd, exclusive)
+        attrs = termios.tcgetattr(self.fd)
+        attrs[0] = attrs[1] = attrs[3] = 0
+        attrs[2] = termios.CS8 | termios.CREAD | termios.CLOCAL
+        attrs[4] = attrs[5] = termios.B115200
+        attrs[6][termios.VMIN] = attrs[6][termios.VTIME] = 0
+        termios.tcsetattr(self.fd, termios.TCSANOW, attrs)
+        termios.tcflush(self.fd, termios.TCIOFLUSH)
+
+    def read(self, timeout):
+        ready, _, _ = select.select([self.fd], [], [], max(0.0, timeout))
+        if not ready:
+            return b""
+        try:
+            return os.read(self.fd, 65536)
+        except BlockingIOError:
+            return b""
+
+    def write(self, data):
+        view = memoryview(data)
+        while view:
+            try:
+                view = view[os.write(self.fd, view):]
+            except BlockingIOError:
+                select.select([], [self.fd], [], 1.0)
+
+    def close(self):
+        os.close(self.fd)
+
+
+class Board:
+    """U-Boot and whatever runs after it, over the port: every byte goes to
+    the session log; text is cut into lines for `on_line`, and the last few
+    thousand characters are kept for prompts and countdowns."""
+
+    def __init__(self, port, session_log, say, type_delay=0.004):
+        self.port = port
+        self.session = session_log
+        self.say = say
+        self.type_delay = type_delay
+        self.recent = ""
+        self.partial = ""
+        self.raw = None  # a bytearray while a YMODEM transfer reads bytes
+        self.on_line = None
+        # Called on every read, once `recent` holds it, before its lines.
+        self.on_data = None
+        # Called between reads while waiting: does what has fallen due and
+        # returns the seconds until it next needs calling (a script's pause).
+        self.on_idle = None
+        # A line U-Boot may still hold - abandoned without its confirming that
+        # it was: nothing but Ctrl-C is sent while it may.
+        self.line_live = False
+
+    def pump(self, timeout):
+        data = self.port.read(timeout)
+        if not data:
+            return False
+        self.session.write(data)
+        self.session.flush()
+        if self.raw is not None:
+            self.raw.extend(data)
+        else:
+            self.feed(data)
+        return True
+
+    def feed(self, data):
+        text = data.decode("latin-1").replace("\r", "")
+        self.recent = (self.recent + text)[-4000:]
+        if self.on_data is not None:
+            self.on_data()
+        *lines, self.partial = (self.partial + text).split("\n")
+        for line in lines:
+            if self.on_line is not None:
+                self.on_line(line)
+
+    def wait_for(self, predicate, timeout):
+        end = time.monotonic() + timeout
+        while True:
+            if predicate():
+                return True
+            left = end - time.monotonic()
+            if left <= 0:
+                return False
+            due = self.on_idle() if self.on_idle is not None else 0.2
+            self.pump(max(0.0, min(0.2, left, due)))
+
+    def at_prompt(self):
+        return bool(PROMPT_RE.search(self.recent))
+
+    def type(self, text):
+        for char in text:
+            self.port.write(char.encode("latin-1"))
+            if self.type_delay:
+                time.sleep(self.type_delay)
+
+    def enter(self, command):
+        """Type `command` at the prompt, check U-Boot echoed it exactly, and
+        only then enter it. A line not echoed as typed is abandoned with
+        Ctrl-C, unrun."""
+        if not printable(command):
+            raise BoardError(f"refused to type {command!r}: printable ASCII only")
+        if self.line_live:
+            raise BoardError(f"refused to type {command!r}: an abandoned line may still be live")
+        self.recent = ""
+        self.type(command)
+        if not self.wait_for(lambda: self.recent.endswith(command), 5):
+            echoed = self.recent
+            self.type("\x03")
+            if self.wait_for(self.at_prompt, 5):
+                raise BoardError(f"U-Boot did not echo {command!r} as typed (it echoed {echoed[-80:]!r}): "
+                                 f"the line was abandoned, not run")
+            self.line_live = True
+            raise BoardError(f"U-Boot did not echo {command!r} as typed (it echoed {echoed[-80:]!r}), and "
+                             f"showed no fresh prompt after Ctrl-C: the line may still be live, so nothing "
+                             f"more is sent - the board needs a person to look at it")
+        self.type("\r")
+
+    def command(self, command, timeout=30):
+        """Run one command at the prompt; return what it printed."""
+        self.enter(command)
+        return self.output(command, timeout)
+
+    def output(self, command, timeout=30):
+        """What the command just entered printed, once U-Boot's prompt is
+        back."""
+        if not self.wait_for(lambda: self.at_prompt() and "\n" in self.recent, timeout):
+            raise BoardError(f"no prompt within {timeout} s after '{command}' "
+                             f"(last output: {self.recent.strip()[-160:]!r})")
+        output = self.recent.split("\n", 1)[1]
+        return PROMPT_RE.sub("", output).rstrip()
+
+    def stop_autoboot(self, timeout):
+        """Wait for U-Boot's countdown and stop it - with the stop word, or a
+        space where any key stops it - or for its prompt, where a board in
+        lab mode stops by itself; and wait for the prompt."""
+        if not self.wait_for(lambda: self.at_prompt() or COUNTDOWN in self.recent, timeout):
+            raise BoardError(f"no U-Boot countdown or prompt within {timeout} s")
+        if self.at_prompt():
+            return
+        key = " " if ANY_KEY_COUNTDOWN in self.recent else STOP_WORD
+        self.recent = ""
+        self.type(key)
+        if self.wait_for(self.at_prompt, 10):
+            return
+        # The countdown ran out before the key, and the board stopped at its
+        # prompt by itself: the key is then on its line - abandon it.
+        if not self.find_prompt(5):
+            raise BoardError("no U-Boot prompt after stopping autoboot")
+
+    def find_prompt(self, timeout=3):
+        """True if U-Boot is at its prompt now. Asks with Ctrl-C, which
+        abandons any line U-Boot holds (and stops a countdown that any key
+        stops), and never runs anything."""
+        self.recent = ""
+        self.type("\x03")
+        found = self.wait_for(self.at_prompt, timeout)
+        if found:
+            self.line_live = False
+        return found
+
+    # -- YMODEM ---------------------------------------------------------------
+
+    def _next_byte(self, timeout):
+        end = time.monotonic() + timeout
+        while not self.raw:
+            left = end - time.monotonic()
+            if left <= 0:
+                return None
+            self.pump(min(0.2, left))
+        return self.raw.pop(0)
+
+    def _wait_byte(self, wanted, timeout):
+        end = time.monotonic() + timeout
+        while True:
+            left = end - time.monotonic()
+            if left <= 0:
+                return None
+            byte = self._next_byte(left)
+            if byte is None or byte in wanted:
+                return byte
+
+    def ymodem_send(self, name, data):
+        """Send `data` to U-Boot's loady as a one-file YMODEM batch. Return
+        None, or why the transfer failed (U-Boot is then told to cancel)."""
+        self.raw = bytearray()
+        try:
+            error = self._ymodem(name, data)
+            if error:
+                self.port.write(bytes([CAN] * 5))
+            return error
+        finally:
+            leftover, self.raw = bytes(self.raw), None
+            self.recent = ""
+            self.feed(leftover)
+
+    def _ymodem(self, name, data):
+        if self._wait_byte({CRC_REQUEST}, 60) is None:
+            return "U-Boot never asked for the first block ('C')"
+        packets = ymodem_packets(name, data)
+        for index, (_kind, _number, _payload, packet) in enumerate(packets[:-1]):
+            for _ in range(RETRIES):
+                self.port.write(packet)
+                answer = self._wait_byte({ACK, NAK, CAN}, 10)
+                if answer == ACK:
+                    break
+                if answer == CAN:
+                    return f"U-Boot cancelled the transfer at block {index}"
+            else:
+                return f"block {index} not acknowledged after {RETRIES} tries"
+            if index == 0 and self._wait_byte({CRC_REQUEST}, 10) is None:
+                return "U-Boot did not ask for the data after the header block"
+        for _ in range(RETRIES):
+            self.port.write(bytes([EOT]))
+            answer = self._wait_byte({ACK, NAK, CAN}, 10)
+            if answer == ACK:
+                break
+            if answer == CAN:
+                return "U-Boot cancelled the transfer at its end"
+        else:
+            return "the end of the file was not acknowledged"
+        if self._wait_byte({CRC_REQUEST}, 10) is None:
+            return "U-Boot did not ask for the batch's closing block"
+        self.port.write(packets[-1][3])
+        if self._wait_byte({ACK}, 10) is None:
+            return "U-Boot did not acknowledge the batch's closing block"
+        return None
+
+
+class Image:
+    """One image of the series, its expected output and its log."""
+
+    def __init__(self, number, name, expect, path, expect_dir):
+        self.number = number
+        self.name = name
+        self.expect = expect
+        self.path = path
+        self.expect_file = os.path.join(expect_dir, expect + ".expect")
+        self.script_file = os.path.join(expect_dir, name + ".qmp")
+        self.script = []  # the board's steps of systems/NAME.qmp: wait, pause and serial
+        self.run_seconds = None # the system's run length, if it asks for one
+        self.log_path = None
+        self.verdict = "not reached"
+
+
+# The keys that stop show --type: Ctrl-] and Ctrl-C.
+STOP_KEYS = {0x1D, 0x03}
+
+# The steps of a system's script (qemu-test's) that the board can play.
+BOARD_STEPS = {"wait", "pause", "serial"}
+
+
+def board_script(path):
+    """The steps of qemu-test's script at `path` - ("wait", text), ("pause",
+    seconds), ("serial", bytes) - refused if any is QEMU's alone."""
+    tools = os.path.dirname(os.path.abspath(__file__))
+    loader = importlib.machinery.SourceFileLoader("qemu_test", os.path.join(tools, "qemu-test"))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    try:
+        steps = module.read_qmp_script(path)
+    except (OSError, ValueError) as err:
+        raise BoardError(str(err)) from err
+    for verb, _ in steps:
+        if verb not in BOARD_STEPS:
+            raise BoardError(f"{path}: a {verb} step is QEMU's alone: on the board a script plays only "
+                             f"wait, pause and serial steps")
+    if steps and steps[0][0] != "wait":
+        raise BoardError(f"{path}: on the board a script starts with a wait step, so nothing is typed until "
+                         f"the image's own output shows it running")
+    for before, (verb, _) in zip(steps, steps[1:]):
+        if verb == "serial" and before[0] == "pause":
+            raise BoardError(f"{path}: on the board a serial step follows a wait, never a pause: a pause alone "
+                             f"cannot show the image still runs - after it, wait for a line again")
+    return steps
+
+
+def script_pauses(steps):
+    """The seconds a script's pauses add up to, the pace after each serial
+    step included."""
+    return sum(value for verb, value in steps if verb == "pause")
+
+
+def run_length(image_path, name):
+    """The run length the system description built beside `image_path`
+    (NAME.system) asks for, in seconds, or None if it asks for none - or if
+    there is no description there to read."""
+    sdf = os.path.join(os.path.dirname(os.path.abspath(image_path)), name + ".system")
+    try:
+        with open(sdf, encoding="utf-8") as handle:
+            text = handle.read()
+    except OSError:
+        return None
+    asked = {int(seconds) for seconds in RUN_LENGTH_RE.findall(text)}
+    if len(asked) > 1:
+        raise BoardError(f"{sdf} asks for more than one run length: {sorted(asked)}")
+    return asked.pop() if asked else None
+
+
+def parse_images(specs, expect_dir):
+    images = []
+    for number, spec in enumerate(specs, start=1):
+        if "@" not in spec:
+            raise BoardError(f"'{spec}': give NAME[=EXPECT]@IMAGE")
+        names, path = spec.split("@", 1)
+        name, _, expect = names.partition("=")
+        if not re.fullmatch(r"[A-Za-z0-9_.-]+", name) or (expect and not re.fullmatch(r"[A-Za-z0-9_./-]+", expect)):
+            raise BoardError(f"'{spec}': NAME and EXPECT are plain names")
+        image = Image(number, name, expect or name, path, expect_dir)
+        try:
+            read_expectations(image.expect_file)
+        except ExpectError as err:
+            raise BoardError(str(err)) from err
+        if os.path.isfile(image.script_file):
+            image.script = board_script(image.script_file)
+        if not os.path.isfile(path):
+            raise BoardError(f"no image {path}")
+        if os.path.getsize(path) > MAX_IMAGE:
+            raise BoardError(f"{path} is larger than the {MAX_IMAGE:#x} bytes below the staging address")
+        image.run_seconds = run_length(path, name)
+        images.append(image)
+    return images
+
+
+class Series:
+    """The run: each image loaded, checked, armed and followed in turn."""
+
+    # A reset this long before the watchdog's time was the system's own.
+    SELF_RESET_MARGIN = 0.5
+    MAX_LOADS = 4
+    # Seconds past the watchdog's time before the board counts as stuck.
+    RESET_GRACE = 30
+    BOOT_TIMEOUT = 60
+
+    def __init__(self, board, images, watchdog, say, boot_timeout=60, reset_grace=30, framebuffer=None):
+        self.board = board
+        self.framebuffer = framebuffer  # the board facts' (base, width, height, stride, depth), or None
+        self.boot_fb = None  # the FB0 line's (width, height, stride, base) at the current boot
+        self.BOOT_TIMEOUT = boot_timeout
+        self.RESET_GRACE = reset_grace
+        self.images = images
+        self.watchdog = watchdog
+        self.say = say
+        self.log = None
+        self.matcher = None
+        self.held = None  # lines of a boot's reset report, kept back
+        self.report = None  # (PM_RSTS, power-on) of the boot the board is in
+        self.new_boot = False
+        self.live = None
+        self.current = None
+        self.pm_writes = []  # the PM register writes entered for the image being loaded
+        self.script = []  # the current image's script steps still to play, once it runs
+        self.pause_until = None  # when the script's running pause ends
+        self.unread = []  # (when it arrived, line): the output since the script's last wait
+        self.waited = None  # when the line the script's last wait matched arrived
+        self.watching = False  # since go: the board's output watched for a reboot
+        self.reboot_seen = None  # why the image is no longer running: sticky until the next go
+        self.armed_at = None  # when the watchdog was armed, for the image running
+        self.lines_since_go = 0  # lines of output since go was entered: its echo, then the image's
+        board.on_data = self.watch
+        self.play_scripts = True  # show --type: the person types instead
+        board.on_idle = self.play_due
+        self.echo = None  # with show --type, where the image's lines are printed for the person
+        board.on_line = self.on_line
+
+    def runs_for(self, image):
+        """How long `image` runs before its reset is due: its system's run
+        length, or the watchdog's time pi-run arms."""
+        if image is not None and image.run_seconds:
+            return image.run_seconds
+        return self.watchdog
+
+    def resets_by(self, image):
+        """The latest its reset is due: a run length's last tick, and the PM
+        watchdog's time from it; or the watchdog's time pi-run arms."""
+        if image is not None and image.run_seconds:
+            return image.run_seconds + RUN_TICK_SECONDS + PM_SERVICE_SECONDS
+        return self.watchdog
+
+    def on_line(self, line):
+        """A boot's lines are held from its banner until the run has seen
+        its reset report and chosen the log they belong to (take_boot)."""
+        if BOOT_BANNER in line:
+            self.held = [line]
+            self.report = None
+            self.new_boot = False
+            self.boot_fb = None
+            self.mark_reboot("the board is booting again")
+            return
+        fb0 = FB0_RE.search(line)
+        if fb0:
+            self.boot_fb = (int(fb0.group(1)), int(fb0.group(2)), int(fb0.group(3)), int(fb0.group(4), 16))
+        if self.held is None:
+            self.write_log(line)
+            return
+        self.held.append(line)
+        if self.new_boot:
+            return
+        rsts = PM_RSTS_RE.search(line)
+        if rsts:
+            self.report = (int(rsts.group(1), 16), None)
+        power = POWER_ON_RE.search(line)
+        if power or len(self.held) >= REPORT_LINES:
+            reported = self.report[0] if self.report else None
+            self.report = (reported, bool(power) and power.group(1) == "1")
+            self.new_boot = True
+
+    def write_log(self, line):
+        if self.log is not None:
+            self.log.write(line + "\n")
+            self.log.flush()
+        if self.echo is not None:
+            self.echo(line)
+        if self.matcher is not None and self.live is not None:
+            before = len(self.matcher.seen)
+            self.matcher.feed(0, line)
+            if self.matcher.offending is not None and self.live == "following":
+                self.live = "forbidden"
+                self.say(f"  {self.current.name}: forbidden output: {line.strip()!r}")
+            elif len(self.matcher.seen) > before and self.matcher.complete and self.live == "following":
+                self.live = "complete"
+                self.say(f"  {self.current.name}: all {len(self.matcher.expected)} expected lines seen")
+        if self.watching:
+            self.lines_since_go += 1
+        if self.live in ("following", "complete"):
+            self.play(line)
+
+    # The most lines of output kept for the script's next wait.
+    MAX_UNREAD = 4096
+
+    def play(self, line):
+        """A line of the image's output, for the script's next wait - now,
+        or once a pause or a serial step before it is done."""
+        if not self.script:
+            return
+        if len(self.unread) >= self.MAX_UNREAD:
+            self.unread.pop(0)
+        self.unread.append((time.monotonic(), line))
+        self.play_due()
+
+    def play_due(self):
+        """Plays the script's steps now due, up to its next wait or the end
+        of a pause, and returns the seconds until a pause ends (inf if none
+        is running). A pause never sleeps: the pump goes on reading, so a
+        boot during it is seen. A serial step's bytes go to the debug UART as
+        one burst - only while nothing shows the board booting again, and
+        only within SERIAL_FRESH s of the line its wait matched; otherwise
+        the script is abandoned and nothing more is typed."""
+        while self.script:
+            verb, value = self.script[0]
+            if verb == "wait":
+                # The lines since the last wait, in order, as qemu-test reads them.
+                while self.unread and self.unread[0][1].strip() != value:
+                    self.unread.pop(0)
+                if not self.unread:
+                    return float("inf")
+                self.waited, _ = self.unread.pop(0)
+                self.script.pop(0)
+                continue
+            if verb == "pause":
+                now = time.monotonic()
+                if self.pause_until is None:
+                    self.pause_until = now + value
+                if now < self.pause_until:
+                    return self.pause_until - now
+                self.pause_until = None
+                self.script.pop(0)
+                continue
+            if (self.armed_at is not None
+                    and time.monotonic() >= self.armed_at + self.runs_for(self.current) - WATCHDOG_MARGIN):
+                self.abandon_script(f"the watchdog resets the board within {WATCHDOG_MARGIN} s")
+                return float("inf")
+            if self.rebooting():
+                self.abandon_script(self.reboot_seen)
+                return float("inf")
+            age = None if self.waited is None else time.monotonic() - self.waited
+            if age is None or age > SERIAL_FRESH:
+                self.abandon_script("no line since go shows the image running" if age is None else
+                                    f"the line its wait matched came {age:.2f} s ago, and the board may "
+                                    f"have reset since without a sign")
+                return float("inf")
+            self.board.port.write(value)
+            self.script.pop(0)
+        return float("inf")
+
+    def watch(self):
+        """Every read since `go`: notes the first sign that the board is no
+        longer running the image."""
+        if self.watching and self.reboot_seen is None:
+            self.rebooting()
+
+    def rebooting(self):
+        """Why the board is no longer running the image, or None: a boot's
+        banner or reset report, or in what it printed since `go` the
+        bootloader's or U-Boot's lines, its countdown, `go` returning, or its
+        prompt at any line's start. The verdict sticks until the next `go`:
+        once it is given nothing more is typed, and what is still queued for
+        the board is dropped - it could reach U-Boot's prompt."""
+        if self.reboot_seen is None and self.watching:
+            recent = self.board.recent
+            if self.held is not None or self.new_boot:
+                self.mark_reboot("the board is booting again")
+            else:
+                sign = next((sign for sign in REBOOT_SIGNS if sign in recent), None)
+                if sign is not None:
+                    self.mark_reboot(f"the board printed {sign!r}: it no longer runs the image")
+                elif PROMPT_ANYWHERE_RE.search(recent):
+                    self.mark_reboot("U-Boot's prompt is showing")
+        return self.reboot_seen
+
+    def mark_reboot(self, why):
+        """The board no longer runs the image: say so once, type nothing
+        more, and drop what is still queued for it."""
+        if self.reboot_seen is None and self.watching:
+            self.reboot_seen = why
+            try:
+                termios.tcflush(self.board.port.fd, termios.TCOFLUSH)
+            except (termios.error, OSError):
+                pass
+        self.abandon_script(why)
+
+    def abandon_script(self, why):
+        """Plays nothing more of the script, saying so once."""
+        if self.script:
+            self.say(f"  {self.current.name if self.current else 'image'}: script abandoned, nothing more typed: "
+                     f"{why}")
+        self.script = []
+        self.pause_until = None
+        self.unread = []
+        self.waited = None
+
+    def take_boot(self):
+        """The boot just reported: its held lines go to the current log."""
+        lines, self.held, self.new_boot = self.held or [], None, False
+        for line in lines:
+            self.write_log(line)
+        return self.report
+
+    def wait_boot(self, timeout):
+        if not self.board.wait_for(lambda: self.new_boot, timeout):
+            return None
+        return self.report
+
+    def open_log(self, image, logs):
+        if self.log is not None:
+            self.log.close()
+        image.log_path = os.path.join(logs, f"{image.number:02d}-{image.name}.log")
+        self.log = open(image.log_path, "w", encoding="latin-1")
+        expected, forbidden = read_expectations(image.expect_file)
+        self.matcher = Matcher(expected, forbidden)
+        self.live = None
+        self.current = image
+        self.script = []
+
+    def close_log(self):
+        if self.log is not None:
+            self.log.close()
+        self.log = None
+        self.matcher = None
+        self.script = []
+        self.pause_until = None
+        self.unread = []
+        self.live = None
+        self.watching = False
+        self.armed_at = None
+
+    def boot_first(self):
+        """Reset the board from U-Boot's prompt (or wait for it to boot);
+        return None, or why the run cannot start."""
+        board = self.board
+        if not board.find_prompt():
+            self.say("no U-Boot prompt: waiting for the board to boot")
+            board.wait_for(lambda: self.new_boot or COUNTDOWN in board.recent or board.at_prompt(),
+                           self.BOOT_TIMEOUT)
+            if self.new_boot:
+                return None
+            # A countdown or a prompt without a boot's banner: the run began
+            # part-way through a boot. Stop there, and start again from a reset,
+            # for the bootloader's reset report.
+            try:
+                if COUNTDOWN in board.recent:
+                    board.stop_autoboot(10)
+                elif not (board.at_prompt() or board.find_prompt()):
+                    return (f"no boot within {self.BOOT_TIMEOUT} s and no U-Boot prompt: the board is not "
+                            f"answering and needs a person to power-cycle it")
+            except BoardError as err:
+                return f"the board was part-way through a boot, and could not be stopped: {err}"
+        self.say("U-Boot is at its prompt: resetting the board")
+        board.enter("reset")
+        if self.wait_boot(self.BOOT_TIMEOUT) is None:
+            return (f"no boot within {self.BOOT_TIMEOUT} s of U-Boot's reset: the board is not answering and "
+                    f"needs a person to power-cycle it")
+        return None
+
+    def stopped(self, image, error):
+        """Why `image` stopped, and what is true of the board now: before any
+        PM write, nothing is armed and U-Boot's prompt answers or not; after
+        one, the watchdog may be running, so the reset it causes is awaited
+        and the board parked."""
+        image.verdict = f"STOPPED: {error}"
+        self.close_log()
+        if not self.pm_writes:
+            if self.board.line_live:
+                return (f"{image.name}: {error}; nothing was written to the PM registers, nothing is armed, "
+                        f"and nothing more was sent")
+            if self.board.find_prompt(10):
+                return (f"{image.name}: {error}; nothing was written to the PM registers, nothing is armed, "
+                        f"and the board is at U-Boot's prompt")
+            return (f"{image.name}: {error}; nothing was written to the PM registers, nothing is armed, but "
+                    f"U-Boot's prompt does not answer: the board may need a person to power-cycle it")
+        written = "; ".join(self.pm_writes)
+        self.say(f"  {image.name}: stopped after entering {written}: waiting for the watchdog's reset")
+        if self.wait_boot(self.resets_by(image) + self.RESET_GRACE) is None:
+            return (f"{image.name}: {error}; the PM writes entered ({written}) did not reset the board within "
+                    f"{self.resets_by(image) + self.RESET_GRACE} s: it needs a person to power-cycle it")
+        self.take_boot()
+        try:
+            self.board.stop_autoboot(30)
+        except BoardError as err:
+            return f"{image.name}: {error}; the watchdog reset the board, but it could not be parked: {err}"
+        return (f"{image.name}: {error}; after the PM writes entered ({written}) the watchdog reset the "
+                f"board, and it is parked at U-Boot's prompt")
+
+    def park(self):
+        """Stop the boot that follows the last image at U-Boot's prompt - or,
+        where the board came back to U-Boot with no boot (`go` returned, or a
+        banner too garbled to read), find the prompt it is at."""
+        booted = self.held is not None or self.new_boot
+        self.take_boot()
+        try:
+            if booted or COUNTDOWN in self.board.recent:
+                self.board.stop_autoboot(30)
+            # Always Ctrl-C and a fresh prompt, even at a prompt already: a
+            # key that crossed may be echoed a moment after it, on U-Boot's
+            # line, and Ctrl-C abandons that line unrun.
+            if not self.board.find_prompt(5):
+                raise BoardError("no fresh prompt after Ctrl-C")
+        except BoardError as err:
+            return f"could not park the board at U-Boot's prompt: {err}"
+        self.say("the board is parked at U-Boot's prompt")
+        return None
+
+    def run(self, logs):
+        """Run every image; return None, or why the run stopped early."""
+        why = self.boot_first()
+        if why:
+            return why
+        for image in self.images:
+            self.open_log(image, logs)
+            self.take_boot()
+            self.say(f"image {image.number}/{len(self.images)}: {image.name} "
+                     f"({len(self.matcher.expected)} lines expected from {image.expect}.expect)")
+            loads = 0
+            while True:
+                loads += 1
+                error = self.load_and_start(image, self.report, arm=True)
+                if error:
+                    return self.stopped(image, error)
+                started = time.monotonic()
+                if self.wait_boot(self.resets_by(image) + self.RESET_GRACE) is None:
+                    image.verdict = "STOPPED: no reset"
+                    self.close_log()
+                    return (f"{image.name}: the board did not reset within "
+                            f"{self.resets_by(image) + self.RESET_GRACE} s of go - the watchdog did not fire; "
+                            f"it needs a person to power-cycle it")
+                since = time.monotonic() - started
+                _, power_on = self.report
+                own_reset = (not power_on and since < self.runs_for(image) - self.SELF_RESET_MARGIN
+                             and not self.matcher.complete and self.matcher.offending is None)
+                if image.run_seconds:
+                    self.say(f"  {image.name}: the board reset {since:.1f} s after go, its run length "
+                             f"{image.run_seconds} s")
+                if own_reset and loads < self.MAX_LOADS:
+                    self.say(f"  {image.name}: the system reset the board itself after {since:.1f} s; "
+                             f"loading it again")
+                    self.take_boot()
+                    continue
+                if power_on:
+                    self.say(f"  {image.name}: the board was powered on again after {since:.1f} s")
+                image.verdict = "ran"
+                break
+            self.close_log()
+        return self.park()
+
+    def show(self, logs, hold, keyboard=None):
+        """Run the one image with no watchdog, for a person to watch, until
+        the next boot - a power cycle, or the system's own reset - or `hold`
+        seconds; then park the board. With `keyboard` (a terminal's file
+        descriptor) the person drives it instead: what they type goes to the
+        board until they stop. Return None, or why it stopped."""
+        image = self.images[0]
+        why = self.boot_first()
+        if why:
+            return why
+        self.open_log(image, logs)
+        self.take_boot()
+        self.say(f"showing {image.name} ({len(self.matcher.expected)} lines expected from {image.expect}.expect)")
+        self.play_scripts = keyboard is None
+        error = self.load_and_start(image, self.report, arm=False)
+        if error:
+            return self.stopped(image, error)
+        self.say(f"  {image.name} is running with no watchdog: power-cycle the board to end it "
+                 f"(waiting up to {hold:.0f} s)")
+        ended = None
+        if keyboard is not None:
+            self.say("  what you type now goes to the board's debug UART, as keys; Ctrl-] or Ctrl-C stops")
+            ended = self.type_along(keyboard, hold)
+            if ended == "boot":
+                self.say(f"  {image.name}: typing stopped: {self.reboot_seen or 'the board is booting again'}")
+                if self.held is not None and not self.new_boot:
+                    self.wait_boot(self.BOOT_TIMEOUT)
+        if ended == "stopped" or (ended != "boot" and self.wait_boot(0 if ended == "hold" else hold) is None):
+            image.verdict = "ran"
+            self.close_log()
+            still = (": typing stopped, and the image is" if ended == "stopped"
+                     else f" still runs after {hold:.0f} s, and is")
+            return (f"{image.name}{still} left running. To park the board: in "
+                    f"lab mode (the card's uboot.env stops it at U-Boot's prompt), power-cycle it, then run "
+                    f"`make pi-uboot`; otherwise start `pi-run uboot --wait-boot` first, then power-cycle it, "
+                    f"so the waiting run stops the autoboot")
+        image.verdict = "ran"
+        self.close_log()
+        return self.park()
+
+    def type_along(self, keyboard, hold):
+        """Pass what is typed on `keyboard` to the board, and print the
+        image's lines, until the board boots again ("boot"), `hold` seconds
+        pass ("hold"), or Ctrl-] or Ctrl-C, or the end of the input, stops
+        it ("stopped"). The keyboard is read a key at a time, unechoed, with
+        no line editing or signals, and restored afterwards; the bytes go to
+        the board as the terminal sent them, CR for Enter."""
+        saved = termios.tcgetattr(keyboard)
+        attrs = termios.tcgetattr(keyboard)
+        attrs[0] &= ~(termios.BRKINT | termios.ICRNL | termios.INLCR | termios.IGNCR | termios.ISTRIP
+                      | termios.IXON)
+        attrs[3] &= ~(termios.ECHO | termios.ICANON | termios.IEXTEN | termios.ISIG)
+        attrs[6][termios.VMIN], attrs[6][termios.VTIME] = 1, 0
+        self.echo = lambda line: print(f"  | {line}", flush=True)
+        end = time.monotonic() + hold
+        dropped = False
+        try:
+            termios.tcsetattr(keyboard, termios.TCSAFLUSH, attrs)
+            while not self.new_boot:
+                left = end - time.monotonic()
+                if left <= 0:
+                    return "hold"
+                port = self.board.port.fd
+                ready, _, _ = select.select([port, keyboard], [], [], min(0.2, left))
+                if port in ready:
+                    self.board.pump(0)
+                if self.rebooting():
+                    return "boot"
+                if keyboard in ready:
+                    try:
+                        data = os.read(keyboard, 1024)
+                    except OSError:
+                        data = b""  # the terminal went away
+                    if not data:
+                        return "stopped"  # the end of the input
+                    stop = next((at for at, byte in enumerate(data) if byte in STOP_KEYS), None)
+                    # Read what the board sent meanwhile, and type nothing
+                    # if it shows a reboot: the keys could reach U-Boot.
+                    for _ in range(64):
+                        if not self.board.pump(0):
+                            break
+                    if self.rebooting():
+                        return "boot"
+                    if data[:stop] and self.lines_since_go == 0:
+                        # Nothing yet shows that U-Boot took go's Enter -
+                        # its echo, or the image's first line: the keys
+                        # could still land on U-Boot's line.
+                        if not dropped:
+                            dropped = True
+                            self.say("  (keys typed before the image started are not sent)")
+                    elif data[:stop]:
+                        self.board.port.write(data[:stop])
+                    if stop is not None:
+                        return "stopped"
+            return "boot"
+        finally:
+            try:
+                termios.tcsetattr(keyboard, termios.TCSAFLUSH, saved)
+            except termios.error:
+                pass  # the terminal is gone: nothing to set back
+            self.echo = None
+
+    def load_and_start(self, image, report, arm):
+        """Load `image` and start it - after arming the watchdog, if `arm` -
+        and return None, or why not."""
+        board = self.board
+        self.pm_writes = []
+        self.watching = False
+        self.armed_at = None
+        try:
+            board.stop_autoboot(self.BOOT_TIMEOUT)
+            with open(image.path, "rb") as handle:
+                data = handle.read()
+            blob = gzip.compress(data, 9, mtime=0)
+            board.enter(f"loady {STAGING_ADDR:#x}")
+            started = time.monotonic()
+            error = board.ymodem_send(os.path.basename(image.path) + ".gz", blob)
+            if error is None and not board.wait_for(board.at_prompt, 15):
+                board.type("\r")
+                if not board.wait_for(board.at_prompt, 5):
+                    error = "no U-Boot prompt after the transfer"
+            if error is not None:
+                return f"the transfer failed: {error}"
+            seconds = max(time.monotonic() - started, 0.001)
+            total = TOTAL_SIZE_RE.search(board.recent)
+            if total is None or int(total.group(1)) != len(blob):
+                return (f"U-Boot received {total.group(1) if total else 'an unknown number of'} bytes, "
+                        f"not {len(blob)}")
+            self.say(f"  sent {len(blob)} bytes in {seconds:.0f} s ({len(blob) / seconds / 1024:.1f} KiB/s)")
+            output = board.command(f"unzip {STAGING_ADDR:#x} {LOADER_ADDR:#x}")
+            unzipped = UNZIPPED_RE.search(output)
+            if unzipped is None or int(unzipped.group(1)) != len(data):
+                return f"unzip did not give {len(data)} bytes: {output.strip()[-120:]!r}"
+            output = board.command(f"crc32 {LOADER_ADDR:#x} {len(data):#x}")
+            crc = CRC32_RE.search(output)
+            want = zlib.crc32(data) & 0xFFFF_FFFF
+            if crc is None or int(crc.group(1), 16) != want:
+                return f"U-Boot's CRC-32 of the image is not {want:08x}: {output.strip()[-120:]!r}"
+            problem, note = framebuffer_mismatch(self.framebuffer, self.boot_fb, board.command("bdinfo"))
+            if problem:
+                return problem
+            self.say(f"  {note}")
+            words = self.read_pm()
+            if words is None:
+                return "could not read the PM registers"
+            rstc, rsts, wdog = words
+            why = check_pm_registers(rstc, rsts, wdog, report[0] if report else None)
+            if why:
+                return f"the PM registers are not as the bootloader reported: {why}"
+            if arm:
+                # The watchdog counts from here at the earliest.
+                self.armed_at = time.monotonic()
+                for address, value in watchdog_writes(self.watchdog):
+                    write = f"mw.l {address:x} {value:08x}"
+                    board.enter(write)  # raises, unentered, if not echoed as typed
+                    self.pm_writes.append(write)
+                    board.output(write)
+                words = self.read_pm()
+                if words is None:
+                    return "could not read the PM registers back after arming the watchdog"
+                why = check_armed(words[0], words[2], self.watchdog)
+                if why:
+                    return f"the watchdog did not read back as armed: {why}"
+                if image.run_seconds:
+                    self.say(f"  watchdog armed for {self.watchdog} s, read back as armed; starting it, for "
+                             f"its system's run length, {image.run_seconds} s: its watchdog PD keeps the PM "
+                             f"watchdog armed until then")
+                else:
+                    self.say(f"  watchdog armed for {self.watchdog} s, read back as armed; starting it")
+            else:
+                self.say("  no watchdog armed; starting it")
+            self.live = "following"
+            self.script = list(image.script) if self.play_scripts else []
+            self.pause_until = None
+            self.unread = []
+            self.waited = None
+            self.lines_since_go = 0
+            board.enter(f"go {LOADER_ADDR:#x}")
+            # From here on `recent` holds only what follows go: U-Boot's
+            # prompt, countdown or banner in it means the board rebooted.
+            board.recent = ""
+            self.reboot_seen = None
+            self.watching = True
+            return None
+        except BoardError as err:
+            return str(err)
+
+    def read_pm(self):
+        """RSTC, RSTS and WDOG as U-Boot reads them, or None."""
+        output = self.board.command(f"md.l {RSTC:x} 3")
+        return parse_md(output, RSTC, 3)
+
+
+def check_logs(images, say):
+    """check-serial on each image's log: the verdict."""
+    failed = False
+    tool = os.path.join(os.path.dirname(os.path.abspath(__file__)), "check-serial")
+    for image in images:
+        if image.log_path is None or image.verdict != "ran":
+            failed = True
+            continue
+        result = subprocess.run([sys.executable, tool, "--expect", image.expect_file, "--log", image.log_path],
+                                capture_output=True, text=True)
+        verdict = [line for line in (result.stdout + result.stderr).splitlines()
+                   if line.startswith(("check-serial: PASS", "check-serial: FAIL"))]
+        image.verdict = ("PASS" if result.returncode == 0 else "FAIL") + (
+            f" ({verdict[0].split(' - ', 1)[-1]})" if verdict else "")
+        failed |= result.returncode != 0
+    return failed
+
+
+def stamp_say(text):
+    print(f"[{time.strftime('%H:%M:%S')}] {text}", flush=True)
+
+
+def default_lock():
+    return os.environ.get("PI_BOARD_LOCK") or os.path.join(tempfile.gettempdir(), "nowayos-pi-board.lock")
+
+
+def cmd_run(args, show=False):
+    if not show and not 1 <= args.watchdog <= MAX_WATCHDOG:
+        stamp_say(f"pi-run: --watchdog must be 1 to {MAX_WATCHDOG} seconds")
+        return EXIT_ERROR
+    try:
+        images = parse_images(args.images, args.expect_dir)
+        framebuffer = board_framebuffer(args.board_facts)
+    except BoardError as err:
+        stamp_say(f"pi-run: {err}")
+        return EXIT_ERROR
+    if show and len(images) != 1:
+        stamp_say("pi-run: show runs one image")
+        return EXIT_ERROR
+    if not show:
+        for image in images:
+            runs_for = image.run_seconds or args.watchdog
+            if script_pauses(image.script) > runs_for:
+                stamp_say(f"pi-run: {image.script_file}'s pauses add up to {script_pauses(image.script):.2f} s, "
+                          f"more than the {runs_for} s the image runs: the board would reset part-way through")
+                return EXIT_ERROR
+    if show and args.type and not os.isatty(sys.stdin.fileno()):
+        stamp_say("pi-run: --type passes on what is typed on a terminal: run it with one on stdin")
+        return EXIT_ERROR
+    os.makedirs(args.logs, exist_ok=True)
+    stale = [name for name in os.listdir(args.logs) if name.endswith(".log")]
+    if stale:
+        stamp_say(f"pi-run: {args.logs} already holds logs ({', '.join(sorted(stale)[:3])}...): "
+                  f"give a new folder")
+        return EXIT_ERROR
+    try:
+        lock = Lock(args.lock, args.lock_wait, stamp_say)
+    except BoardError as err:
+        stamp_say(f"pi-run: {err}")
+        return EXIT_ERROR
+    stopped = None
+    try:
+        port = Port(args.device)
+        try:
+            with open(os.path.join(args.logs, "session.log"), "ab") as session:
+                board = Board(port, session, stamp_say, args.type_delay)
+                series = Series(board, images, MAX_WATCHDOG if show else args.watchdog, stamp_say,
+                                args.boot_timeout, args.reset_grace, framebuffer)
+                keyboard = sys.stdin.fileno() if show and args.type else None
+                stopped = series.show(args.logs, args.hold, keyboard) if show else series.run(args.logs)
+        finally:
+            port.close()
+    except BoardError as err:
+        stopped = str(err)
+    finally:
+        lock.release()
+    if stopped:
+        stamp_say(f"pi-run: stopped: {stopped}")
+    failed = check_logs(images, stamp_say)
+    stamp_say(f"summary ({args.logs}):")
+    for image in images:
+        stamp_say(f"  {image.name}: {image.verdict}")
+    if stopped:
+        return EXIT_ERROR
+    return EXIT_FAIL if failed else EXIT_PASS
+
+
+def cmd_uboot(args):
+    commands = [part.strip() for arg in args.commands for part in arg.split(";") if part.strip()]
+    if not commands:
+        print("pi-run: name at least one command", file=sys.stderr)
+        return EXIT_ERROR
+    for command in commands:
+        why = uboot_command_refusal(command, args.allow_write)
+        if why:
+            print(f"pi-run: refused '{command}': {why}", file=sys.stderr)
+            return EXIT_ERROR
+    try:
+        lock = Lock(args.lock, args.lock_wait, stamp_say)
+    except BoardError as err:
+        print(f"pi-run: {err}", file=sys.stderr)
+        return EXIT_ERROR
+    try:
+        port = Port(args.device)
+        try:
+            with open(args.log, "ab") as session:
+                board = Board(port, session, stamp_say, args.type_delay)
+                if args.wait_boot:
+                    if not board.find_prompt():
+                        stamp_say("waiting for U-Boot's countdown or its prompt")
+                        board.stop_autoboot(args.boot_wait)
+                elif not board.find_prompt(10):
+                    raise BoardError("no U-Boot prompt: the board is not parked at U-Boot (pi-run run parks "
+                                     "it; --wait-boot waits for the next boot; otherwise it needs a power cycle)")
+                for command in commands:
+                    output = board.command(command, args.command_timeout)
+                    print(f"=> {command}\n{output}\n", flush=True)
+        finally:
+            port.close()
+    except BoardError as err:
+        print(f"pi-run: {err}", file=sys.stderr)
+        return EXIT_ERROR
+    finally:
+        lock.release()
+    return EXIT_PASS
+
+
+def main():
+    too_old = python_too_old(sys.version_info)
+    if too_old:
+        print(f"pi-run: {too_old}", file=sys.stderr)
+        return EXIT_PYTHON
+    parser = argparse.ArgumentParser(description="Run Microkit images on a Raspberry Pi 5 over its debug UART.")
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument("--device", required=True, help="the probe's serial device, e.g. /dev/cu.usbmodemXXXX")
+    common.add_argument("--lock", default=default_lock(),
+                        help="the board's lock file (default: $PI_BOARD_LOCK, or one in the temporary directory)")
+    common.add_argument("--lock-wait", type=float, default=3600.0, help="seconds to wait for the lock")
+    common.add_argument("--type-delay", type=float, default=0.004, help=argparse.SUPPRESS)
+    sub = parser.add_subparsers(dest="mode", required=True)
+    images = argparse.ArgumentParser(add_help=False)
+    images.add_argument("--logs", required=True, help="a new folder for the logs")
+    images.add_argument("--expect-dir", default=os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                                            os.pardir, "systems"),
+                        help="where EXPECT.expect files are (default: systems/ beside tools/)")
+    images.add_argument("--board-facts", default=os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                                             os.pardir, "platforms", "rpi5b_2gb.toml"),
+                        help="the board's facts, whose framebuffer must be the firmware's (default: "
+                             "platforms/rpi5b_2gb.toml beside tools/)")
+    images.add_argument("--boot-timeout", type=float, default=60.0, help=argparse.SUPPRESS)
+    images.add_argument("--reset-grace", type=float, default=30.0, help=argparse.SUPPRESS)
+    run = sub.add_parser("run", parents=[common, images], help="run images, one boot each")
+    run.add_argument("--watchdog", type=int, default=12, help=f"seconds per boot, 1 to {MAX_WATCHDOG} (12)")
+    run.add_argument("images", nargs="+", metavar="NAME[=EXPECT]@IMAGE")
+    show = sub.add_parser("show", parents=[common, images],
+                          help="run one image with no watchdog, until a person power-cycles the board")
+    show.add_argument("--hold", type=float, default=4 * 3600.0,
+                      help="the longest to wait for the power cycle, in seconds (4 hours)")
+    show.add_argument("--type", action="store_true",
+                      help="pass what is typed on this terminal to the board's debug UART once the image runs, "
+                           "instead of the system's script (Ctrl-] or Ctrl-C stops)")
+    show.add_argument("images", nargs=1, metavar="NAME[=EXPECT]@IMAGE")
+    uboot = sub.add_parser("uboot", parents=[common], help="run U-Boot commands that read")
+    uboot.add_argument("--log", required=True, help="the session log (appended)")
+    uboot.add_argument("--wait-boot", action="store_true",
+                       help="if U-Boot's prompt does not answer, wait for the next boot and stop its autoboot")
+    uboot.add_argument("--boot-wait", type=float, default=3600.0, help=argparse.SUPPRESS)
+    uboot.add_argument("--command-timeout", type=float, default=60.0, help=argparse.SUPPRESS)
+    uboot.add_argument("--allow-write", action="store_true", help="also allow mw, cls and setcurs")
+    uboot.add_argument("commands", nargs="+", metavar="COMMAND")
+    args = parser.parse_args()
+    if args.mode == "uboot":
+        return cmd_uboot(args)
+    return cmd_run(args, show=args.mode == "show")
+
+
+if __name__ == "__main__":
+    sys.exit(main())

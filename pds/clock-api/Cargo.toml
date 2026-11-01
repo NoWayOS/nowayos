@@ -1,0 +1,24 @@
+[package]
+name = "nowayos-clock-api"
+description = "The clock PD's interface: wall-clock time for other PDs, read by protected procedure call and moved only by samples on a source's ring"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+# The records, their rings and the clock's bookkeeping.
+nowayos-ipc.workspace = true
+nowayos-time.workspace = true
+# Only for the `client` feature: the call itself. The protocol and the
+# clock's service need no seL4, so `make pds-test` tests them on the host
+# without this feature.
+sel4-microkit = { workspace = true, optional = true }
+
+[features]
+# `Client`: reads the clock PD over a channel, from inside a PD.
+client = ["dep:sel4-microkit"]
+
+[lints]
+workspace = true

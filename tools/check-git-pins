@@ -1,0 +1,145 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT OR Apache-2.0
+"""Git sources in a PD workspace only at the commits NoWayOS pins.
+
+Usage:
+    check-git-pins --lock PDS/Cargo.lock --pins nowayos/pds/Cargo.toml
+
+rust-sel4 is not on crates.io, so the protection-domain workspaces take it
+from git. cargo-deny allows its repository's URL ([sources]
+allow-git), but not one commit of it. This check does: every package in
+the lock file (--lock) whose source is git must come from a repository that
+NoWayOS's PD workspace manifest (--pins, [workspace.dependencies]) names
+with a full commit hash (`rev = "..."`, 40 hex digits), at exactly that
+commit. NoWayOS's own pds/ passes trivially; a product's pds/ passes only
+while it uses the rust-sel4 commit NoWayOS is built and tested with, so
+moving to another is a change to NoWayOS first.
+
+A product's own git dependency - one from a repository NoWayOS does not
+pin, such as a fork of a protocol library - passes when the product's
+PD workspace manifest (the Cargo.toml beside --lock, [workspace.dependencies])
+pins it the same way, with a full commit hash, and the lock holds exactly
+that commit; its deny.toml must still allow the URL. A product cannot pin a
+repository NoWayOS pins at another commit: that is refused as an input
+error.
+
+Exit status: 0 pass; 1 a git source is at another commit or from another
+repository; 2 usage or input error. Python 3.11 or later (tomllib),
+standard library only.
+"""
+
+import argparse
+import os
+import re
+import sys
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python before 3.11
+    tomllib = None
+
+EXIT_PASS = 0
+EXIT_FAIL = 1
+EXIT_ERROR = 2
+
+FULL_HASH = re.compile(r"^[0-9a-f]{40}$")
+
+
+class InputError(Exception):
+    """A file could not be read or parsed."""
+
+
+def load_toml(path):
+    try:
+        with open(path, "rb") as handle:
+            return tomllib.load(handle)
+    except (OSError, tomllib.TOMLDecodeError) as err:
+        raise InputError(f"cannot read {path}: {err}") from err
+
+
+def normalise(url):
+    """A repository URL without a trailing slash or .git."""
+    url = url.rstrip("/")
+    return url[:-len(".git")] if url.endswith(".git") else url
+
+
+def pinned(manifest_path):
+    """{repository URL: commit} from [workspace.dependencies] git entries."""
+    manifest = load_toml(manifest_path)
+    pins = {}
+    for name, spec in manifest.get("workspace", {}).get("dependencies", {}).items():
+        if not isinstance(spec, dict) or "git" not in spec:
+            continue
+        rev = spec.get("rev")
+        if not isinstance(rev, str) or not FULL_HASH.match(rev):
+            raise InputError(f"{manifest_path}: {name} is a git dependency without a full commit hash (rev = \"<40 hex digits>\")")
+        url = normalise(spec["git"])
+        if pins.get(url, rev) != rev:
+            raise InputError(f"{manifest_path}: {url} is pinned at two commits, {pins[url]} and {rev}")
+        pins[url] = rev
+    return pins
+
+
+def product_pins(lock_path, pins_path, pins):
+    """{repository URL: commit} the product's own PD workspace manifest - the
+    Cargo.toml beside the lock - pins, for repositories NoWayOS does not pin.
+    Nothing when that manifest is NoWayOS's own or there is none."""
+    manifest = os.path.join(os.path.dirname(os.path.abspath(lock_path)), "Cargo.toml")
+    if not os.path.exists(manifest) or os.path.samefile(manifest, pins_path):
+        return {}
+    own = pinned(manifest)
+    for url, rev in own.items():
+        if url in pins and pins[url] != rev:
+            raise InputError(f"{manifest}: {url} is pinned at {rev}, but {pins_path} pins {pins[url]}: NoWayOS's pin rules")
+    return {url: rev for url, rev in own.items() if url not in pins}
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n", 1)[0])
+    parser.add_argument("--lock", required=True, help="the PD workspace's Cargo.lock")
+    parser.add_argument("--pins", required=True, help="NoWayOS's pds/Cargo.toml")
+    args = parser.parse_args()
+    if tomllib is None:
+        print("check-git-pins: needs Python 3.11 or later (tomllib); run it in the dev container", file=sys.stderr)
+        return EXIT_ERROR
+    try:
+        pins = pinned(args.pins)
+        own = product_pins(args.lock, args.pins, pins)
+        packages = load_toml(args.lock).get("package", [])
+    except InputError as err:
+        print(f"check-git-pins: {err}", file=sys.stderr)
+        return EXIT_ERROR
+    problems = []
+    used = set()
+    for package in packages:
+        source = package.get("source", "")
+        if not source.startswith("git+"):
+            continue
+        location, _, commit = source[len("git+"):].partition("#")
+        url = normalise(location.split("?", 1)[0])
+        label = f"{package.get('name')} {package.get('version')}"
+        if url in pins:
+            if commit != pins[url]:
+                problems.append(f"{label}: from {url} at {commit or 'no recorded commit'}, but {args.pins} pins {pins[url]}")
+            else:
+                used.add(url)
+        elif url in own:
+            if commit != own[url]:
+                problems.append(f"{label}: from {url} at {commit or 'no recorded commit'}, but the product's manifest pins {own[url]}")
+            else:
+                used.add(url)
+        else:
+            problems.append(f"{label}: from {url}, a git repository neither {args.pins} nor the product's manifest pins")
+    if problems:
+        print("check-git-pins: FAIL", file=sys.stderr)
+        for problem in problems:
+            print(f"    {problem}", file=sys.stderr)
+        return EXIT_FAIL
+    detail = "; ".join(f"{url} at {pins.get(url) or own[url]}" + ("" if url in pins else " (the product's own pin)")
+                       for url in sorted(used)) or "no git sources"
+    print(f"check-git-pins: PASS - {args.lock}: {detail}")
+    return EXIT_PASS
+
+
+if __name__ == "__main__":
+    sys.exit(main())

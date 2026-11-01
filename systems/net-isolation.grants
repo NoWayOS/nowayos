@@ -1,0 +1,47 @@
+# Everything systems/net-isolation.system grants, one fact per line.
+# tools/check-system fails the build if the system description grants anything
+# not listed here, or lists anything it does not grant, and checks the map
+# rights again in the kernel objects the Microkit tool generates (format: see
+# tools/check-system). A change here is a security change: call it out in the
+# pull request.
+
+# The kind of system, and each PD's role (tools/grant-rules.toml). Each probe
+# has the role of the PD whose maps it holds - net_client, the driver's
+# client in net-test - so the network role's rules apply to it; the parent
+# and driver_side are test instruments.
+system test
+role net_isolation_parent test
+role driver_side test
+role net_writes_driver_dma network
+role net_writes_rx_buffers network
+
+pd net_isolation_parent priority=100 budget=1000 period=1000
+pd driver_side priority=50 budget=1000 period=1000
+pd net_writes_driver_dma priority=30 budget=1000 period=1000
+pd net_writes_rx_buffers priority=20 budget=1000 period=1000
+
+# The parent receives every probe's faults and stops the probe.
+child net_isolation_parent net_writes_driver_dma
+child net_isolation_parent net_writes_rx_buffers
+
+# net_client's maps in net-test.grants.
+map net_writes_driver_dma rx_free rw
+map net_writes_driver_dma rx_active rw
+map net_writes_driver_dma tx_free rw
+map net_writes_driver_dma tx_active rw
+map net_writes_driver_dma rx_buffers r
+map net_writes_driver_dma tx_buffers rw
+
+# net_client's maps again.
+map net_writes_rx_buffers rx_free rw
+map net_writes_rx_buffers rx_active rw
+map net_writes_rx_buffers tx_free rw
+map net_writes_rx_buffers tx_active rw
+map net_writes_rx_buffers rx_buffers r
+map net_writes_rx_buffers tx_buffers rw
+
+# driver_side's private page, which no probe may reach.
+map driver_side driver_dma rw
+
+# "Are you still running?" and the answer.
+channel driver_side net_isolation_parent

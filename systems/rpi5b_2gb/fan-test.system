@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    The Pi 5 only: the fan PD runs the board's active cooler.
+
+        timer   times the fan PD's seconds (240), on the system timer
+        fan     the fan PD (200): PWM1's clock on, GPIO45 handed to PWM1's
+                channel 3, the fan at full speed for 3 s; then the device
+                tree's cooling curve on the SoC's temperature, which it asks
+                the firmware for through the VideoCore mailbox, from its own
+                uncached buffer; a report every 10 s
+
+    A run lasts PI_WATCHDOG seconds (pi-run arms the PM watchdog at go): the
+    start, the switch to the curve and the first report fit in 15. Every
+    grant is listed in fan-test.grants, which tools/check-system compares with
+    this file and the kernel objects.
+-->
+<system>
+    <memory_region name="system_timer_regs" size="@system_timer" phys_addr="@system_timer" />
+    <memory_region name="clocks_regs" size="@rp1_clocks_main" phys_addr="@rp1_clocks_main" />
+    <memory_region name="gpio_bank2_regs" size="@rp1_gpio_bank2" phys_addr="@rp1_gpio_bank2" />
+    <memory_region name="pwm1_regs" size="@rp1_pwm1" phys_addr="@rp1_pwm1" />
+    <memory_region name="mailbox_regs" size="@vc_mailbox" phys_addr="@vc_mailbox" />
+    <memory_region name="mailbox_buffer" size="0x1000" />
+
+    <protection_domain name="timer" priority="240" stack_size="0x10000">
+        <program_image path="nowayos-timer.elf" />
+        <map mr="system_timer_regs" vaddr="0x200_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_device_0_vaddr" setvar_size="nowayos_device_0_size" />
+        <irq irq="@system_timer[1]" id="0" trigger="@system_timer" />
+    </protection_domain>
+
+    <protection_domain name="fan" priority="200" stack_size="0x10000">
+        <program_image path="nowayos-fan.elf" />
+        <map mr="clocks_regs" vaddr="0x200_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_device_0_vaddr" setvar_size="nowayos_device_0_size" />
+        <map mr="gpio_bank2_regs" vaddr="0x201_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_device_1_vaddr" setvar_size="nowayos_device_1_size" />
+        <map mr="pwm1_regs" vaddr="0x202_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_device_2_vaddr" setvar_size="nowayos_device_2_size" />
+        <map mr="mailbox_regs" vaddr="0x203_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_device_3_vaddr" setvar_size="nowayos_device_3_size" />
+        <map mr="mailbox_buffer" vaddr="0x300_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_dma_0_vaddr" setvar_size="nowayos_dma_0_size" />
+        <setvar symbol="nowayos_dma_0_paddr" region_paddr="mailbox_buffer" />
+    </protection_domain>
+
+    <!-- The fan PD calls the timer; the timer notifies it of each second. -->
+    <channel>
+        <end pd="fan" id="0" pp="true" notify="false" />
+        <end pd="timer" id="1" />
+    </channel>
+</system>

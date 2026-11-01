@@ -1,0 +1,4 @@
+# The Microkit configurations make qemu-test-all boots this system in: the
+# SMP kernel with its console; a single-core kernel cannot place a
+# PD on core 1.
+smp-debug

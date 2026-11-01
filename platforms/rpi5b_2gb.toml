@@ -1,0 +1,220 @@
+# Devices a protection domain can be granted on Microkit's rpi5b_2gb board:
+# the Raspberry Pi 5 (BCM2712). Read by tools/check-system (rules 6, 7 and 8)
+# and by tools/board-system, which fills these facts into the system
+# descriptions in systems/ (they name devices, never addresses). The
+# entry format is described in qemu_virt_aarch64.toml.
+#
+# Only what a system uses is listed, each fact with its source. Both have
+# run on the board: the system timer with timer-demo's Pi variant, the debug
+# UART with the bring-up runs of 2026-10-07 (which found its 0x200 bytes of
+# registers end before a PL011's identification registers).
+#
+# Not listed: the CPU's EL1 physical timer (phys_timer), which Microkit 2.3.1
+# does not export to user level on this board, so the systems
+# that take its interrupt are QEMU only - the timer PD takes BCM2712's system
+# timer here instead (system_timer, below; systems/rpi5b_2gb/timer-demo.system); the GIC and the timers the kernel keeps for itself; and everything
+# behind RP1 but its two USB host controllers (xhci0, xhci1,
+# below), which are reached through PCIe as U-Boot leaves it.
+
+board = "rpi5b_2gb"
+
+[[device]]
+name = "debug_uart"
+compatible = "arm,pl011-axi"
+address = 0x10_7d00_1000
+size = 0x1000
+registers = 0x200
+irqs = [153]
+trigger = "level"
+source = "The Raspberry Pi firmware's bcm2712-rpi-5-b.dtb, release 1.20260915 (pinned in the dev image for make sdcard), decoded 2026-10-03: /soc@107c000000/serial@7d001000 (aliases serial10 and uart10), compatible arm,pl011-axi, arm,pl011, arm,primecell; reg = <0x7d001000 0x200> on a simple-bus whose ranges = <0x0 0x10 0x0 0x80000000> put bus address 0 at physical 0x10_0000_0000; interrupts = <0 121 4> on the GIC-400 (#interrupt-cells 3): SPI 121, level-high, INTID 32 + 121 = 153. No other device of the SoC bus lies in this page"
+note = "BCM2712's own UART, wired to the dedicated 3-pin debug connector: the board's debug UART. Its registers are 0x200 bytes, alone in this page (registers): a PL011's identification registers, at 0xFE0 to 0xFFC, lie outside them and read as 0 on the board (2026-10-07), so nowayos-hw's PL011 view identifies it by its compatible string and reads nothing past UARTCR. The seL4 kernel's debug console in Microkit's debug configuration writes to the same UART, as on QEMU (seen on the board)."
+
+[[device]]
+name = "system_timer"
+compatible = "brcm,bcm2835-system-timer"
+address = 0x10_7c00_3000
+size = 0x1000
+irqs = [96, 97, 98, 99]
+trigger = "level"
+source = "The Raspberry Pi firmware's bcm2712-rpi-5-b.dtb, release 1.20260915 (pinned in the dev image for make sdcard; sha256 a5165cb562035f479ea9f5a81cedf7b6596ea32a0598608c4dc3b77ada909c60), decoded 2026-10-06 with a standard-library FDT reader written from the Devicetree Specification v0.4, chapter 5: /soc@107c000000/timer@7c003000, compatible brcm,bcm2835-system-timer, no status property (so okay), clock-frequency = <1000000> (1 MHz); reg = <0x7c003000 0x1000> on a simple-bus (#address-cells 1, #size-cells 1) whose ranges = <0x0 0x10 0x0 0x80000000> put bus address 0 at physical 0x10_0000_0000; interrupts = <0 64 4>, <0 65 4>, <0 66 4>, <0 67 4> on the root's interrupt parent, the GIC-400 at /soc@107c000000/interrupt-controller@7fff9000 (#interrupt-cells 3): SPIs 64 to 67, level-high, INTIDs 32 + 64 = 96 to 99, one per compare channel 0 to 3. No other node of the device tree lies in this page. Microkit 2.3.1's rpi5b_2gb kernel does not use it: its platform_gen.json gives user level the device memory from 0x3fc0_0000 to the GIC at 0x10_7fff_9000, this page included, and it keeps the CPU's generic timer for itself (gen_config: TIMER_FREQUENCY 54000000). The registers - CS, CLO, CHI and C0 to C3 at 0x00 to 0x18 - and which channels are the ARM's are from Broadcom's BCM2835 ARM Peripherals (2012): chapter 12, System Timer, and chapter 7, Interrupts, whose table gives the ARM system timer matches 1 and 3 only"
+note = "BCM2712's system timer: a free-running 64-bit counter at 1 MHz and four 32-bit compare channels, each with its own interrupt in irqs, in channel order. The timer PD uses channel 1 for deadlines (irq @system_timer[1], INTID 97). Channels 0 and 2 are traditionally the VideoCore firmware's and share this page and the CS register, so nowayos-hw's view reaches channels 1 and 3 only, and a match bit is cleared by writing that bit alone. BCM2712 has no public peripherals datasheet: that it keeps BCM2835's layout and channel use rests on the compatible string, to confirm on the board (not yet run there)."
+
+[[device]]
+name = "pm_watchdog"
+compatible = "brcm,bcm2712-pm"
+address = 0x10_7d20_0000
+size = 0x1000
+registers = 0x308
+irqs = []
+trigger = "level"
+source = "The Raspberry Pi firmware's bcm2712-rpi-5-b.dtb, release 1.20260915 (pinned in the dev image for make sdcard; sha256 a5165cb562035f479ea9f5a81cedf7b6596ea32a0598608c4dc3b77ada909c60), decoded 2026-10-14 with the standard-library FDT reader of system_timer: /soc@107c000000/watchdog@7d200000, compatible brcm,bcm2712-pm, reg = <0x7d200000 0x308> (reg-names pm), #power-domain-cells 1, #reset-cells 1, system-power-controller, on the simple-bus whose ranges put bus address 0 at physical 0x10_0000_0000; no interrupts. No other node lies in this page (the next, rng@7d208000, is 32 KiB on). The watchdog's registers within it - RSTC, RSTS and WDOG at 0x1c, 0x20 and 0x24, the password 0x5a in a write's top byte, WDOG's time in bits 19:0 at 65,536 a second, RSTC's reset configuration in bits 5:4 - are from FreeBSD's sys/arm/broadcom/bcm2835/bcm2835_wdog.c (BSD-2-Clause), facts only; Broadcom's BCM2835 ARM Peripherals has no chapter on the PM block. Read and armed by hand from U-Boot's prompt on the board, 2026-10-07 (tools/pi-run): RSTC 0x202 at every boot, WDOG 0x5a0c0000 and RSTC 0x5a000222 reset the board 12 s later"
+note = "BCM2712's power management block: the PM watchdog - which tools/pi-run arms from U-Boot for each image it starts, and the watchdog PD keeps from firing - and the SoC's power domain and reset controls, in the same page. Only a watchdog PD may hold it (grant-rules.toml, pm-watchdog-only-watchdog); nowayos-hw's view reads and writes the watchdog's three registers only, and can arm it but never stop it."
+
+[[device]]
+name = "firmware_fb"
+compatible = "simple-framebuffer"
+address = 0x3f80_f000
+size = 0x3e_6000
+registers = 0x3e_5800
+irqs = []
+trigger = "level"
+framebuffer = { width = 1920, height = 1080, stride = 3840, format = "r5g6b5", first_row = 16, reserved = 0x80_0000 }
+source = "Found on the board on 2026-10-07 with an HDMI monitor attached at boot, firmware 1.20260915 and EEPROM bootloader 2025/06/13: the firmware's boot log, 'HDMI0: best-mode 2 (limit 2) 1920x1080 60 Hz' and 'FB0 disp 0 max-fb 1 1920x1080 stride 3840 base 0x3f800000'; U-Boot 2026.07's bdinfo, 'FB base = 0x000000003f800000', 'FB size = 1920x1080x16'; the device tree the firmware passed on, whose root holds memreserve = <0x3f800000 0x00800000> and whose memory@0 leaves out 0x3f800000 to 0x40000000, and whose bootargs give the 16 bits a pixel (bcm2708_fb.fbdepth=16). So 1920 x 1080 pixels of 2 bytes, 3840 bytes a row, 4,147,200 bytes from 0x3f80_0000. The format's name is the devicetree simple-framebuffer binding's: r5g6b5, a 16-bit little-endian pixel with red in bits 15-11, green 10-5, blue 4-0; written into the framebuffer from U-Boot's prompt (mw.w), bands of 0xf800, 0x07e0, 0x001f and 0xffff, a quarter of the screen each from the top, showed red, green, blue and white on the monitor, top to bottom, filling the screen (seen by the hardware lead, 2026-10-07): red and blue are not swapped. The window starts at row 16 (0x3f80_f000, the first page boundary at a row boundary past 0x3f80_8080; it ends with the framebuffer, at 0x3fbf_4800, so its registers are rows 16 to 1079): with Microkit 2.3.1's release SDK the kernel's objects for the capDL initialiser lay from 0x3f40_0000 to 0x3f80_8080, into the framebuffer's first rows. The dev image's kernel ends seL4's RAM at 0x3f40_0000, so no kernel object lies in the framebuffer, and the rows above the window stay unused until the whole framebuffer is shown on the board. The firmware reserves 0x80_0000 bytes from the first row (memreserve, above): reserved, which grants-check rule 14 keeps every other kernel object out of"
+note = "Not a device but RAM: the framebuffer the firmware sets up at boot when a monitor is attached, which the display hardware scans out to HDMI. It lies inside seL4's RAM on this board ([0x80000, 0x3fc00000)), so Microkit makes the window's frames from RAM; only a display PD may map it (grant-rules.toml). Its mode is the monitor's: another monitor can give another, and with none attached the firmware sets up no framebuffer at all (the boot log has no FB0 line), so drawing here shows nothing. The mode and these addresses are what the firmware chose for one monitor (1920 x 1080): tools/pi-run checks, before it starts an image, that the firmware's framebuffer at that boot is this one, and stops if not. Rows 0 to 15 lie outside the window: the first 0x8080 bytes (32,896) hold the kernel's objects, which the screen shows as rows 0 to 7 and part of row 8."
+# RP1's two xHCI USB host controllers. RP1 is a PCIe
+# endpoint behind BCM2712's PCIe controller pcie@1000120000; U-Boot 2026.07
+# (pinned), whose preboot runs `pci enum`, trains the link, places
+# RP1's BARs and leaves them so after `go` - U-Boot has no RP1 USB driver and
+# never touches the controllers. Read on the board from U-Boot's prompt on
+# 2026-10-07: `pci` - RP1 is 01.00.00,
+# vendor 0x1de4, device 0x0001; `pci bar 1.0.0` - BAR0 at bus address
+# 0x0010_0000 (16 KiB: the MSI-X table), BAR1 at 0x0040_0000 (4 MiB: the
+# peripherals), BAR2 at 0x0080_0000 (64 KiB: shared SRAM); `pci regions` -
+# bus address 0 is physical 0x1f_0000_0000 (and DRAM's bus addresses are its
+# physical addresses: sysmem regions). RP1 Peripherals (Raspberry Pi,
+# 2023-11-07, build b9b6f74), section 2.3.1: "The AP accesses Peripherals and
+# Shared SRAM over PCIe as offsets from the assigned base addresses in BAR1
+# and BAR2", from RP1's 0x4000_0000; chapter 5: usbhost0 at 0x4020_0000 and
+# usbhost1 at 0x4030_0000, each xHCI with 64 device slots and four interrupt
+# vectors. The pinned firmware's device tree agrees: the rp1 node's usb@200000
+# and usb@300000, compatible snps,dwc3, dr_mode host, 1 MiB each. So the
+# controllers are at 0x1f_0040_0000 + 0x20_0000 and + 0x30_0000.
+#
+# Only each window's first page is granted: every register the xHCI driver
+# uses lies in it (read on the board: CAPLENGTH 0x20, the ports' registers to
+# 0x450, RTSOFF 0x460, DBOFF 0x500, the extended capabilities at 0x900 to
+# 0x92f); the rest of the 1 MiB is the controller's own (Synopsys)
+# registers, which no public document describes.
+#
+# Their DMA: RP1 sees DRAM at bus address physical + 0x10_0000_0000
+# (dma_offset), through the PCIe controller's inbound window that U-Boot
+# sets up as the device tree's dma-ranges for pcie@1000120000 say,
+# <0x43000000 0x10 0x0  0x0 0x0  0x10 0x0>: bus 0x10_0000_0000 is physical 0,
+# 64 GiB. Confirmed on the board, 2026-10-07: a No Op command's completion
+# came back through DMA with the offset, and none without it (U-Boot's own
+# `pci regions` lists DRAM's bus addresses as its physical ones: not what
+# the hardware does).
+#
+# Not granted yet: their interrupts. RP1 signals each as an MSI-X vector -
+# usb@200000's interrupt is RP1's 31, usb@300000's 36, edge (the device
+# tree) - which reaches the GIC through BCM2712's MSI controller,
+# brcm,bcm2712-mip at 0x10_0013_0000 (SPIs 128 to 191), whose registers have
+# no public description; and enabling MSI-X needs a write to RP1's
+# configuration space through BCM2712's PCIe controller, likewise
+# undocumented. The driver polls.
+
+[[device]]
+name = "xhci0"
+compatible = "snps,dwc3"
+address = 0x1f_0060_0000
+size = 0x1000
+dma_offset = 0x10_0000_0000
+irqs = []
+trigger = "edge"
+source = "RP1's usbhost0 (RP1 Peripherals, 2023-11-07, chapter 5 and table 2: 0x4020_0000 in BAR1's window) at BAR1's physical address as U-Boot 2026.07 placed it on the board, 2026-10-07 (pci bar 1.0.0: bus 0x0040_0000; pci regions: bus 0 = physical 0x1f_0000_0000): 0x1f_0040_0000 + 0x20_0000. The pinned firmware's bcm2712-rpi-5-b.dtb (release 1.20260915): /axi/pcie@1000120000/rp1/usb@200000, compatible snps,dwc3, reg = <0xc0 0x40200000 0x0 0x100000>. Its capability registers read there, from U-Boot's prompt: HCIVERSION 0x0110, HCSPARAMS1 0x03000440 (64 slots, 4 interrupters, 3 ports), RTSOFF 0x460, DBOFF 0x500, xECP 0x900 (USB 2.0 on ports 1-2, USB 3.0 on port 3)"
+note = "The first page of RP1's first USB host controller, an xHCI (Synopsys dwc_usb3 3.30b, RP1 Peripherals chapter 5): every register the driver uses. The firmware leaves it running (USBCMD Run/Stop set, its rings in DRAM below 0x3c00_0000, seen 2026-10-07): the driver halts and resets it first. Polled: no interrupt (MSI-X only, through an undocumented MSI controller)."
+
+[[device]]
+name = "xhci1"
+compatible = "snps,dwc3"
+address = 0x1f_0070_0000
+size = 0x1000
+dma_offset = 0x10_0000_0000
+irqs = []
+trigger = "edge"
+source = "As xhci0: RP1's usbhost1 at 0x4030_0000 (RP1 Peripherals chapter 5), so physical 0x1f_0040_0000 + 0x30_0000; /axi/pcie@1000120000/rp1/usb@300000 in the pinned device tree, compatible snps,dwc3, reg = <0xc0 0x40300000 0x0 0x100000>; its capability registers read the same as usbhost0's on the board"
+note = "The first page of RP1's second USB host controller; the same as xhci0's."
+
+# RP1's Ethernet MAC, reached as xhci0 is, through PCIe as U-Boot's
+# enumeration left it, and polled (no interrupt reaches the CPU). Its PHY
+# sits in reset until a PD releases it, through two pages of RP1's GPIO
+# (rp1_gpio_bank1 and rp1_pads_bank1, below): only the NIC driver PD holds
+# any of the three.
+
+[[device]]
+name = "rp1_eth"
+compatible = "cdns,macb"
+address = 0x1f_0050_0000
+size = 0x4000
+dma_offset = 0x10_0000_0000
+irqs = []
+trigger = "edge"
+source = "RP1's Ethernet MAC, eth at 0x4010_0000 (RP1 Peripherals, 2023-11-07, chapter 7, table 132), in BAR1's window as for xhci0: physical 0x1f_0040_0000 + 0x10_0000. The pinned firmware's bcm2712-rpi-5-b.dtb (release 1.20260915): /axi/pcie@1000120000/rp1/ethernet@100000, compatible raspberrypi,rp1-gem and cdns,macb, reg = <0xc0 0x40100000 0x0 0x4000>, phy-mode rgmii-id, its PHY ethernet-phy@1 (MDIO address 1). Read there from U-Boot's prompt, 2026-10-14: revision_reg (0xfc) 0x00070109 - module 7, a GEM_GXL, revision 1p09, as RP1 Peripherals says; designcfg_debug6 (0x294) 0x08820000 - 64-bit DMA addresses, no priority queue but the first; network_config 0x00540000"
+note = "A Cadence GEM_GXL's 16 KiB register window: every register the NIC driver uses (nowayos-gem's regs, up to upper_rx_q_base_addr at 0x4d4). It sees memory at bus address physical + 0x10_0000_0000, as xhci0 does. Polled: its interrupt is RP1's 6, MSI-X only (the device tree's interrupts = <6 4>), through the undocumented MSI controller."
+
+[[device]]
+name = "rp1_gpio_bank1"
+compatible = "raspberrypi,rp1-gpio"
+address = 0x1f_004d_4000
+size = 0x1000
+irqs = []
+trigger = "edge"
+source = "RP1's io_bank1 at 0x400d_4000 (RP1 Peripherals, 2023-11-07, table 2), in BAR1's window: physical 0x1f_0040_0000 + 0xd_4000. The datasheet calls banks 1 and 2 reserved for internal use (section 3.1) and documents bank 0's layout - per pin a STATUS and a CTRL word, 8 bytes a pin; the pinned device tree's /axi/pcie@1000120000/rp1/gpio@d0000 (reg <0xc0 0x400d0000 0x0 0xc000 ...>) names line 32 ETH_RST_N, and the ethernet node's phy-reset-gpios = <&rp1_gpio 32 GPIO_ACTIVE_LOW>, so bank 1 runs from GPIO 28 and the PHY's reset is its pin 4 (STATUS 0x20, CTRL 0x24). Read and written from U-Boot's prompt, 2026-10-14: STATUS 0x04400000 (the pin low), CTRL 0x9f; with CTRL 0xf09f (OUTOVER and OEOVER: driven high) and the pad's output enabled, the PHY answered on MDIO (identifier 600d:84a2)"
+note = "RP1's GPIO bank 1, GPIO 28 to 33: PCIE_RP1_WAKE, FAN_TACH, HOST_SDA, HOST_SCL, ETH_RST_N and one unnamed. The NIC driver writes only ETH_RST_N's CTRL (nowayos-hw's rp1)."
+
+[[device]]
+name = "rp1_pads_bank1"
+compatible = "raspberrypi,rp1-gpio"
+address = 0x1f_004f_4000
+size = 0x1000
+irqs = []
+trigger = "edge"
+source = "RP1's pads_bank1 at 0x400f_4000 (RP1 Peripherals, 2023-11-07, table 2), in BAR1's window: physical 0x1f_0040_0000 + 0xf_4000. Bank 0's layout (section 3.1.4, table 21: VOLTAGE_SELECT at 0, then a pad register a pin, OD at bit 7), so ETH_RST_N's pad is at 0x14. Read from U-Boot's prompt, 2026-10-14: 0xd6 - output disabled, pulled down; written 0x56, the PHY came out of reset"
+note = "The pads of RP1's GPIO bank 1. The NIC driver writes only ETH_RST_N's pad register: its output no longer disabled (nowayos-hw's rp1)."
+
+# The fan: RP1's PWM1 drives it on GPIO 45, from a clock in RP1's
+# clocks_main; the firmware gives the SoC's temperature through the
+# VideoCore mailbox. Only the fan PD holds any of the four.
+
+[[device]]
+name = "rp1_clocks_main"
+compatible = "raspberrypi,rp1-clocks"
+address = 0x1f_0041_8000
+size = 0x1000
+irqs = []
+trigger = "edge"
+source = "RP1's clocks_main at 0x4001_8000 (RP1 Peripherals, 2023-11-07, section 2.5.6, table 3), in BAR1's window: physical 0x1f_0040_0000 + 0x1_8000; the pinned device tree's /axi/pcie@1000120000/rp1/clocks@18000. The datasheet describes no register in it. PWM1's clock - CLK_PWM1_CTRL at 0x84 (ENABLE bit 11, the auxiliary source in bits 9:5, 2 the 50 MHz crystal), its dividers at 0x88 and 0x8c - from a third-party description the Product Owner allowed, facts only (2026-10-16), checked from U-Boot's prompt: read disabled (0x0100_0000), dividers 1 and 0; enabled from the crystal, PWM1 ranged at 50,000,000 ran a 1 Hz wave (measured 0.998 s): 50 MHz"
+note = "The first page of RP1's clock generators. The fan PD writes only CLK_PWM1_CTRL, and only if PWM1's clock is off (nowayos-hw's rp1_fan); every other clock - USB's, Ethernet's - is in this page too."
+
+[[device]]
+name = "rp1_gpio_bank2"
+compatible = "raspberrypi,rp1-gpio"
+address = 0x1f_004d_8000
+size = 0x1000
+irqs = []
+trigger = "edge"
+source = "RP1's io_bank2 at 0x400d_8000 (RP1 Peripherals, 2023-11-07, table 2), in BAR1's window: physical 0x1f_0040_0000 + 0xd_8000. Bank 0's layout (section 3.1.4). Read from U-Boot's prompt, 2026-10-16: bank 1 holds 6 pins (GPIO 28-33; its words past pin 5 read 0), bank 2 20 (GPIO 34-53), so GPIO 45 - the pinned device tree's FAN_PWM, and the cooling_fan node's pwms on pwm@9c000 channel 3 - is bank 2's pin 11: CTRL 0x85 (SYS_RIO), STATUS driven high, the fan off; function 0 gives the pin to PWM1's channel 3"
+note = "RP1's GPIO bank 2, GPIO 34 to 53 - USB power and over-current lines, the fan, the status LED and others. The fan PD writes only GPIO 45's CTRL (nowayos-hw's rp1_fan)."
+
+[[device]]
+name = "rp1_pwm1"
+compatible = "raspberrypi,rp1-pwm"
+address = 0x1f_0049_c000
+size = 0x1000
+irqs = []
+trigger = "edge"
+source = "RP1's pwm1 at 0x4009_c000 (RP1 Peripherals, 2023-11-07, section 3.4, tables 24 and 25), in BAR1's window: physical 0x1f_0040_0000 + 0x9_c000; the pinned device tree's /axi/pcie@1000120000/rp1/pwm@9c000, its assigned clock rate 50 MHz, and the cooling_fan node's 41,566 ns inverted period on channel 3. RP1's firmware leaves the fan's speed in rpm in CHAN2_PHASE (0x3c): read from U-Boot's prompt, 2026-10-16, 0 stopped and rising to 9,121 at full speed"
+note = "RP1's second PWM block, channel 3 the fan's. The fan PD writes GLOBAL_CTRL (channel 3's enable and the update), channel 3's CTRL, RANGE and DUTY, and INTR's CHAN3_RELOAD (nowayos-hw's rp1_fan)."
+
+# The display's scan: where the HVS is in scanning out the
+# framebuffer, read by the display PD so it copies clear of the scan.
+
+[[device]]
+name = "hvs"
+compatible = "brcm,bcm2712-hvs"
+address = 0x10_7c58_0000
+size = 0x1000
+irqs = []
+trigger = "level"
+source = "The pinned firmware's bcm2712-rpi-5-b.dtb (release 1.20260915): /hvs@107c580000, compatible brcm,bcm2712-hvs, reg = <0x10 0x7c580000 0x0 0x1a000> at the root (#address-cells 2), status disabled - the firmware, not an OS, drives it; this page is the first of its 0x1a000 bytes and holds nothing else. Its words read from U-Boot's prompt on 2026-10-21 with the desk's monitor at 1920 x 1080, 60 Hz: three display channels 0x40 apart from 0x100, each's first word its size less one (bits 27:16 and 11:0) under an enable bit 31 - 0x877f0437 for the monitor's, 0x827f01df for the unconnected HDMI output's 640 x 480 - and its word at 0x18 the frame (bits 21:16, wrapping at 64, at the refresh rate) and the line (bits 11:0, read 8 to 1074 in sixty reads); reading changed nothing on the monitor. The firmware's property tag 0x0004800e (wait for vertical sync) went unanswered there. No other source"
+note = "The first page of BCM2712's HVS, which scans out the firmware's framebuffer. The display PD maps it read-only and reads two words of each display channel: its size, to find the monitor's, and where its scan is (nowayos-hw's hvs); nothing writes to it."
+
+[[device]]
+name = "vc_mailbox"
+compatible = "brcm,bcm2835-mbox"
+address = 0x10_7c01_3000
+size = 0x1000
+irqs = []
+trigger = "level"
+source = "The pinned firmware's bcm2712-rpi-5-b.dtb (release 1.20260915): /soc@107c000000/mailbox@7c013880, compatible brcm,bcm2835-mbox, reg = <0x7c013880 0x40> on the simple-bus whose ranges put bus address 0 at physical 0x10_0000_0000; the only node in its page. The mailbox registers and the property interface from Raspberry Pi's firmware wiki (Mailboxes, Mailbox property interface): read mailbox 0 at 0x00 and 0x18, write mailbox 1 at 0x20 and 0x38; channel 8, physical addresses; get temperature, tag 0x0003_0006. From U-Boot's prompt, 2026-10-16: a message on channel 8 answered with its own address"
+note = "The VideoCore mailbox, at 0x880 in this page. The fan PD makes one property call through it, get temperature, from its own DMA buffer (nowayos-hw's vc_mailbox). Its interrupt is not taken: the PD polls."

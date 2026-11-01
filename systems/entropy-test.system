@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    In QEMU: the entropy PD seeds one
+    consumer from QEMU's virtio-rng over a one-way seed ring.
+
+        entropy        the entropy PD (200): alone holds the page the board
+                       file names rng - virtio-rng on transport 8, fed from
+                       the host's /dev/urandom (entropy-test.qemu) - its
+                       interrupt and the DMA region of its request queue.
+                       It health-tests and conditions every byte, discards the
+                       first 1,024, keeps the consumer's ring full, and
+                       overwrites each seed the consumer has taken
+        seed_consumer  a test PD (100) in a PD's place that makes keys:
+                       refused before its first seed, then keyed from one, it
+                       prints the SHA-256 of a draw, never the bytes, and
+                       checks the slot it took was overwritten
+
+    The seed ring: its messages region read-write in the entropy PD and
+    read-only in the consumer, the consumer's index the other way round. The
+    entropy PD runs above the PD it seeds, calls no PD and has no channel to
+    a ui PD. Every grant is listed in entropy-test.grants (checked by
+    tools/check-system).
+-->
+<system>
+    <memory_region name="rng_regs" size="@rng" phys_addr="@rng" />
+    <memory_region name="rng_requests" size="0x1000" />
+    <memory_region name="seed_ring" size="0x1000" />
+    <memory_region name="seed_ring_control" size="0x1000" />
+
+    <protection_domain name="entropy" priority="200" stack_size="0x10000">
+        <program_image path="nowayos-entropy-source.elf" />
+        <map mr="rng_regs" vaddr="0x200_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_device_0_vaddr" setvar_size="nowayos_device_0_size" />
+        <map mr="rng_requests" vaddr="0x300_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_dma_0_vaddr" setvar_size="nowayos_dma_0_size" />
+        <setvar symbol="nowayos_dma_0_paddr" region_paddr="rng_requests" />
+        <map mr="seed_ring" vaddr="0x4000_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+        <map mr="seed_ring_control" vaddr="0x4000_1000" perms="r"
+             setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+        <irq irq="@rng[0]" id="8" trigger="@rng" />
+    </protection_domain>
+
+    <protection_domain name="seed_consumer" priority="100" stack_size="0x10000">
+        <program_image path="nowayos-seed-consumer.elf" />
+        <map mr="seed_ring_control" vaddr="0x4000_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+        <map mr="seed_ring" vaddr="0x4000_1000" perms="r"
+             setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+    </protection_domain>
+
+    <!-- The entropy PD notifies the consumer when a seed waits; the consumer
+         notifies it when it has taken one. -->
+    <channel>
+        <end pd="entropy" id="0" />
+        <end pd="seed_consumer" id="0" />
+    </channel>
+</system>

@@ -1,0 +1,34 @@
+# Everything systems/rpi5b_2gb/timer-demo.system grants, one fact per line:
+# the Raspberry Pi 5's timer-demo. The same as ../timer-demo.grants
+# but for the timer PD's hardware timer: BCM2712's system timer page and
+# channel 1's interrupt, in place of the CPU's EL1 physical timer's
+# interrupt. tools/check-system fails the build if the system description
+# grants anything not listed here, or lists anything it does not grant, and
+# checks the grants again in the kernel objects the Microkit tool generates
+# (format: see tools/check-system). A change here is a security change: call
+# it out in the pull request.
+
+# The kind of system, and each PD's role (tools/grant-rules.toml).
+system demo
+role timer driver
+role client_alpha app
+role client_beta app
+
+# As ../timer-demo.grants: the timer PD runs above every client, with a full
+# budget; the clients keep the default.
+pd timer priority=200 budget=1000 period=1000
+pd client_alpha priority=100 budget=1000 period=1000
+pd client_beta priority=90 budget=1000 period=1000
+
+# Only the timer PD holds the system timer: its register page, read-write
+# and uncached (it sets channel 1's compare value and clears its match), and
+# channel 1's interrupt. The page also holds the VideoCore firmware's
+# channels 0 and 2, which nowayos-hw's view of it never reaches.
+device timer system_timer rw
+irq timer system_timer 97
+
+# Each client may call the timer PD and be notified by it, and nothing else.
+channel client_alpha timer notify=timer
+call client_alpha timer
+channel client_beta timer notify=timer
+call client_beta timer

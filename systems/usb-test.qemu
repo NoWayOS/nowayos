@@ -1,0 +1,4 @@
+# Two of QEMU's xHCI controllers, on PCI bus 0 as devices 2 and 3: where
+# platforms/qemu_virt_aarch64.toml's xhci0_config and xhci1_config are.
+-device qemu-xhci,id=xhci0,addr=2
+-device qemu-xhci,id=xhci1,addr=3

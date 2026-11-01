@@ -1,0 +1,40 @@
+# Lines tools/qemu-test must see, in this order, as whole serial lines.
+# Two Rust PDs
+# exchange typed messages under Microkit. The malformed record (5) must be
+# rejected, and the queue must carry on after it.
+#
+# The order follows from the priorities in ipc-demo.system (producer above
+# consumer, one core) and from the turn the producer hands over with each
+# notification: the consumer prints nothing, its start-up line included,
+# until notified, so no two lines mix on a real UART. The consumer's
+# lines are also checked on the host against the same sequence (pds/ipc-demo
+# tests): change them together.
+NOWAYOS: ipc-producer: starting; ring of 4 slots of 32 bytes, messages region read-write here
+NOWAYOS: ipc-producer: sent records 0..=3
+NOWAYOS: ipc-consumer: starting; ring of 4 slots of 32 bytes, messages region read-only here
+NOWAYOS: ipc-consumer: record 0: PointerMove { x: 120, y: 80 }
+NOWAYOS: ipc-consumer: record 1: PointerButton { button: 0, down: true }
+NOWAYOS: ipc-consumer: record 2: PointerButton { button: 0, down: false }
+NOWAYOS: ipc-consumer: record 3: KeyDown(KeyCode(43))
+NOWAYOS: ipc-producer: sent records 4..=7
+NOWAYOS: ipc-consumer: record 4: KeyUp(KeyCode(43))
+NOWAYOS: ipc-consumer: record 5 rejected: malformed: invalid value in field `tag`
+NOWAYOS: ipc-consumer: record 6: KeyDown(KeyCode(40))
+NOWAYOS: ipc-consumer: record 7: KeyUp(KeyCode(40))
+NOWAYOS: ipc-producer: sent records 8..=10
+NOWAYOS: ipc-producer: all 11 records sent
+NOWAYOS: ipc-consumer: record 8: Touch { id: 0, x: 300, y: 200, phase: Start }
+NOWAYOS: ipc-consumer: record 9: Touch { id: 0, x: 300, y: 200, phase: End }
+NOWAYOS: ipc-consumer: end of sequence: 10 records announced, 9 accepted, 1 rejected
+
+# Output that fails the test at once if it appears anywhere (substring match):
+# a fault reported by the Microkit monitor, a kernel error message, a panic,
+# or a PD giving up.
+!MON|ERROR
+!seL4(CPU
+!panicked
+!cannot start
+!ring failed
+!send failed
+!MISMATCH
+!unexpected channels

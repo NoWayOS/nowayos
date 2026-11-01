@@ -1,0 +1,17 @@
+[package]
+name = "nowayos-gem"
+description = "A Cadence GEM Ethernet MAC's rules, with no hardware: its registers, clause 22 MDIO frames, the PHY's link resolved, and descriptor rings whose every device-written word is checked"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+nowayos-net.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true

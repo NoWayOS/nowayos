@@ -1,0 +1,36 @@
+# Everything systems/supervisor-counts.system grants, one fact per line.
+# tools/check-system fails the build if the system description grants anything
+# not listed here, or lists anything it does not grant, and checks the map
+# rights again in the kernel objects the Microkit tool generates (format: see
+# tools/check-system). A change here is a security change: call it out in the
+# pull request.
+
+# The kind of system, and each PD's role (tools/grant-rules.toml): only a test
+# system may give the supervisor memory - here, its stand-in counts - and only
+# a test system may prefill a region from test-counts-*.bin (rule 12).
+system test
+role counts_supervisor supervisor
+role faulter storage
+role trigger test
+
+# The supervisor has the highest priority, so it acts on a fault at once and
+# its start-up - reading the counts - runs before any child's. Full budgets.
+pd counts_supervisor priority=254 budget=1000 period=1000
+pd faulter priority=100 budget=1000 period=1000
+pd trigger priority=50 budget=1000 period=1000
+
+# The supervisor: its children, and the SMC capability for PSCI SYSTEM_RESET
+# (unbadged in Microkit 2.3.1: it could make any firmware call).
+child counts_supervisor faulter
+child counts_supervisor trigger
+smc counts_supervisor
+
+# The stand-in counts: prefilled at build time, read-only (rule 12).
+map counts_supervisor counts r
+
+# faulter: the marker page it checks and writes, and the page it must not write.
+map faulter marker rw
+map faulter read_only_page r
+
+# trigger notifies faulter.
+channel faulter trigger notify=trigger

@@ -1,0 +1,20 @@
+[package]
+name = "nowayos-hello"
+description = "The smallest NoWayOS protection domain; prints two lines on the debug console"
+version.workspace = true
+edition.workspace = true
+license = "BSD-2-Clause"
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "nowayos-hello"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+sel4-microkit.workspace = true
+
+[lints]
+workspace = true

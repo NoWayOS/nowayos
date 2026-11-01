@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    the first driver PD. nowayos-pl011 drives the
+    PL011 UART through nowayos-hw's typed view of its registers, with no
+    unsafe code of its own, and sends two lines through the UART's own data
+    register.
+
+    One source for every board: debug_uart is named, never
+    addressed, and tools/board-system fills in each board's window from
+    platforms/BOARD.toml - QEMU's PL011 at 0x900_0000, the Pi 5's BCM2712
+    debug UART at 0x10_7d00_1000. In
+    Microkit's debug configuration the seL4 kernel writes its debug console
+    to the same UART.
+
+    The driver identifies the UART by the board's facts about it:
+    debug_uart_facts, prefilled from device-debug_uart.bin, which
+    tools/board-system writes from the board file - QEMU's arm,pl011, its
+    whole page registers, whose identification registers it then checks;
+    the Pi 5's arm,pl011-axi, 0x200 bytes of registers and no
+    identification registers to read. It never reads past them.
+
+    Capabilities: the UART's register window - exactly that page, uncached,
+    read-write - and its facts, read-only; nothing else: no interrupt yet
+    (the driver polls), no channel, no other memory. The map binds
+    nowayos-hw's device-0 symbols, which tools/check-system allows only on
+    an uncached map of a device's exact register window; the facts bind
+    read-only region 5 (nowayos_region::device_facts), which it lets only
+    the PD holding that device map (rule 12).
+
+    Every grant above is also listed in pl011-demo.grants, which
+    tools/check-system compares with this file and with the kernel objects
+    the Microkit tool generates (make image, make qemu-test).
+-->
+<system>
+    <memory_region name="debug_uart_regs" size="@debug_uart" phys_addr="@debug_uart" />
+    <memory_region name="debug_uart_facts" prefill_path="device-debug_uart.bin" />
+
+    <protection_domain name="pl011" priority="1" stack_size="0x10000">
+        <program_image path="nowayos-pl011.elf" />
+        <map mr="debug_uart_regs" vaddr="0x200_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_device_0_vaddr" setvar_size="nowayos_device_0_size" />
+        <map mr="debug_uart_facts" vaddr="0x4000_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_5_vaddr" setvar_size="nowayos_ro_region_5_size" />
+    </protection_domain>
+</system>

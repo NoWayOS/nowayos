@@ -1,0 +1,347 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT OR Apache-2.0
+"""Shows that Kani's proofs can fail.
+
+`make kani` proves the checks in each crate's src/proofs.rs. This tool takes
+named mutations, each the removal of one check those proofs are about. For
+each, it copies NoWayOS's root workspace to OUT/mutant-NAME, removes that
+check in the copy, and runs one proof on it, which must fail - and fail as
+the missing check would show, not elsewhere. If it passed, the proofs would
+not be testing what they claim. `make kani` has just proved the same harness
+on the real crate, and the mutation is the only difference.
+
+The mutations (`--list` prints them):
+
+* read-bytes-length: nowayos-ipc's Reader::read_bytes indexes the
+  buffer instead of asking for the range with get(). Header::parse's proof
+  must fail on an out-of-bounds slice index. Kani reports such a panic where
+  core raises it (core::slice::index), not at the caller; the index can only
+  be read_bytes'.
+* data-region-bounds: nowayos-net's DataRegion::buffer no longer
+  checks that an offset lies inside the region. The region's proof must fail
+  on its assertion "a descriptor outside the region was accepted".
+* dequeue-in-flight: nowayos-net's Consumer::dequeue no longer
+  refuses a producer index that puts more than the capacity in flight. The
+  dequeue proof must fail on its assertion "a descriptor read past the
+  capacity".
+
+Each mutation is an exact piece of text: when the code changes, the tool
+fails and says so, rather than mutating nothing and passing.
+
+A product repo names its own mutations in a JSON file, given with
+--mutations-file and --root REPO: an object whose "mutations" list holds,
+for each, name, crate, path (from the repo's root), harness, what,
+checked and unchecked as above, expected_text, and what the failure must
+show - "expect_where", text in the failed check's location (a panic in
+core's slice code: "slice/mod.rs"), and/or "assertion", the proof's own
+assertion message. Its mutant is a copy of the repo's root workspace with
+every "../" path in its Cargo.toml made absolute, so the sibling nowayos
+clone it depends on is still found. NoWayOS's own mutations are the
+defaults, for NoWayOS's root.
+
+Run: python3 tools/kani-mutation --out build/kani [--mutation NAME ...]
+     python3 tools/kani-mutation --root REPO --mutations-file FILE --out DIR
+     (in the dev container: make kani, KANI_MUTATIONS="NAME ..." for some)
+Python 3.11 or later, standard library only.
+"""
+
+import json
+
+import argparse
+import os
+import shutil
+import subprocess
+import sys
+from dataclasses import dataclass
+from typing import Callable
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+NOWAYOS = os.path.dirname(HERE)
+
+
+@dataclass(frozen=True)
+class Mutation:
+    """One check removed: where it is, its exact text and what replaces it,
+    and the proof that must fail without it, as `expected` says."""
+
+    name: str
+    crate: str
+    path: str
+    harness: str
+    what: str
+    checked: str
+    unchecked: str
+    # Whether a failed check - its description and location - is the one
+    # the missing check must cause.
+    expected: Callable[[str, str], bool]
+    # What `expected` looks for, for the messages.
+    expected_text: str
+    # The proof's own assertion message the failure must carry, if it is one.
+    assertion: str = ""
+
+
+def _out_of_bounds_in_read_bytes(description, where):
+    return ("codec.rs" in where and "read_bytes" in where) or "slice_index_fail" in where
+
+
+def _assertion_in_proofs(message):
+    def expected(description, where):
+        return message in description and "proofs.rs" in where
+    return expected
+
+
+# The messages of the assertions in nowayos-net's proofs (src/proofs.rs)
+# that its two mutants must fail.
+REGION_ASSERTION = "a descriptor outside the region was accepted"
+DEQUEUE_ASSERTION = "a descriptor read past the capacity"
+
+MUTATIONS = (
+    Mutation(
+        name="read-bytes-length",
+        crate="nowayos-ipc",
+        path=os.path.join("crates", "nowayos-ipc", "src", "codec.rs"),
+        harness="header_parse_any_input",
+        what="read_bytes' length check",
+        checked="""        let bytes = self.buf.get(self.pos..end).ok_or(DecodeError::Truncated {
+            needed: end,
+            available: self.buf.len(),
+        })?;
+""",
+        unchecked="""        let bytes = &self.buf[self.pos..end];
+""",
+        expected=_out_of_bounds_in_read_bytes,
+        expected_text="an out-of-bounds slice index",
+    ),
+    Mutation(
+        name="data-region-bounds",
+        crate="nowayos-net",
+        path=os.path.join("crates", "nowayos-net", "src", "queue.rs"),
+        harness="data_region_accepts_only_buffers_inside_it",
+        what="DataRegion::buffer's bounds check",
+        checked="""        let inside = usize::try_from(offset)
+            .ok()
+            .filter(|inside| *inside < self.len)
+            .ok_or(DescriptorError::OutsideRegion { offset })?;
+""",
+        unchecked="""        let inside = usize::try_from(offset)
+            .ok()
+            .ok_or(DescriptorError::OutsideRegion { offset })?;
+""",
+        expected=_assertion_in_proofs(REGION_ASSERTION),
+        expected_text=f"its assertion '{REGION_ASSERTION}'",
+        assertion=REGION_ASSERTION,
+    ),
+    Mutation(
+        name="dequeue-in-flight",
+        crate="nowayos-net",
+        path=os.path.join("crates", "nowayos-net", "src", "queue.rs"),
+        harness="dequeue_reads_only_what_is_in_flight",
+        what="dequeue's in-flight check",
+        checked="""        let pending = tail.wrapping_sub(self.head);
+        if pending > self.capacity {
+            return Err(QueueError::CorruptIndex {
+                tail,
+                head: self.head,
+            });
+        }
+""",
+        unchecked="""        let pending = tail.wrapping_sub(self.head);
+""",
+        expected=_assertion_in_proofs(DEQUEUE_ASSERTION),
+        expected_text=f"its assertion '{DEQUEUE_ASSERTION}'",
+        assertion=DEQUEUE_ASSERTION,
+    ),
+)
+
+BY_NAME = {mutation.name: mutation for mutation in MUTATIONS}
+
+
+def _where_contains(text):
+    def expected(description, where):
+        return text in where
+    return expected
+
+
+def _both(first, second):
+    def expected(description, where):
+        return first(description, where) and second(description, where)
+    return expected
+
+
+def load_mutations(path):
+    """A product repo's own mutations, from its JSON file (see the module
+    documentation), or MutationError."""
+    try:
+        with open(path, encoding="utf-8") as handle:
+            data = json.load(handle)
+    except (OSError, ValueError) as err:
+        raise MutationError(f"cannot read the mutations file {path}: {err}") from err
+    loaded = []
+    for entry in data.get("mutations", []) if isinstance(data, dict) else []:
+        try:
+            where = entry.get("expect_where", "")
+            assertion = entry.get("assertion", "")
+            if not where and not assertion:
+                raise KeyError("expect_where or assertion")
+            checks = [check for check in (where and _where_contains(where),
+                                          assertion and _assertion_in_proofs(assertion)) if check]
+            expected = checks[0] if len(checks) == 1 else _both(*checks)
+            loaded.append(Mutation(
+                name=entry["name"], crate=entry["crate"],
+                path=os.path.join(*entry["path"].split("/")), harness=entry["harness"],
+                what=entry["what"], checked=entry["checked"], unchecked=entry["unchecked"],
+                expected=expected, expected_text=entry["expected_text"], assertion=assertion))
+        except (KeyError, TypeError, AttributeError) as err:
+            raise MutationError(f"{path}: a mutation lacks {err}") from err
+    if not loaded:
+        raise MutationError(f"{path} names no mutation")
+    return loaded
+
+
+class MutationError(Exception):
+    """The mutant could not be made, or did not fail as it must."""
+
+
+def select(names, mutations=MUTATIONS):
+    """The mutations named, in the order given, or all of them for none."""
+    if not names:
+        return list(mutations)
+    by_name = {mutation.name: mutation for mutation in mutations}
+    unknown = [name for name in names if name not in by_name]
+    if unknown:
+        raise MutationError(f"no mutation named {', '.join(unknown)}: the mutations are "
+                            f"{', '.join(by_name)}")
+    return [by_name[name] for name in dict.fromkeys(names)]
+
+
+def mutate(mutation, text):
+    """`text` (the mutation's file) with its check removed."""
+    if text.count(mutation.checked) != 1:
+        raise MutationError(f"{mutation.name}: {mutation.path} no longer has {mutation.what} as this tool "
+                            f"expects it: update the mutation's checked text in tools/kani-mutation to the "
+                            f"new code")
+    return text.replace(mutation.checked, mutation.unchecked)
+
+
+def failed_checks(log):
+    """The descriptions and locations Kani gives for the checks that failed."""
+    lines = log.splitlines()
+    found = []
+    for index, line in enumerate(lines):
+        if line.startswith("Failed Checks: "):
+            where = lines[index + 1].strip() if index + 1 < len(lines) else ""
+            found.append((line.removeprefix("Failed Checks: ").strip(), where))
+    return found
+
+
+def judge(mutation, returncode, log):
+    """A one-line verdict on the mutant's run, or MutationError."""
+    checks = failed_checks(log)
+    if returncode == 0 or "VERIFICATION:- FAILED" not in log:
+        raise MutationError(f"{mutation.name}: the proof {mutation.harness} passed on a copy of "
+                            f"{mutation.crate} without {mutation.what}: the proofs do not test what they "
+                            f"claim")
+    expected = [check for check in checks if mutation.expected(*check)]
+    if not expected:
+        raise MutationError(f"{mutation.name}: the proof {mutation.harness} failed on the mutant, but not on "
+                            f"{mutation.expected_text}: {checks}")
+    where = expected[0][1].removeprefix("File: ")
+    return (f"{mutation.name}: without {mutation.what}, {mutation.harness} fails as it must, on "
+            f"{mutation.expected_text} ({where})")
+
+
+# What a product's mutant leaves out of its copy of the repo: history,
+# build output and the PDs' separate workspace.
+_PRODUCT_SKIP = shutil.ignore_patterns(".git", "target", "build", "pds", "node_modules")
+
+
+def absolute_paths(manifest, parent):
+    """`manifest` (a Cargo.toml's text) with each "../" path made absolute,
+    from `parent`, the repo's parent folder: so a copy elsewhere still finds
+    the sibling clones it depends on."""
+    return manifest.replace('path = "../', f'path = "{parent.rstrip(os.sep)}/')
+
+
+def copy_workspace(mutation, out, root=NOWAYOS):
+    """A fresh copy of `root`'s workspace in OUT/mutant-NAME, with the
+    mutation: NoWayOS's root workspace, or a product repo's."""
+    mutant = os.path.join(out, f"mutant-{mutation.name}")
+    shutil.rmtree(mutant, ignore_errors=True)
+    if os.path.abspath(root) == NOWAYOS:
+        os.makedirs(mutant)
+        for name in ("Cargo.toml", "Cargo.lock", "rust-toolchain.toml"):
+            shutil.copy2(os.path.join(NOWAYOS, name), mutant)
+        shutil.copytree(os.path.join(NOWAYOS, "crates"), os.path.join(mutant, "crates"),
+                        ignore=shutil.ignore_patterns("target"))
+    else:
+        shutil.copytree(root, mutant, ignore=_PRODUCT_SKIP)
+        manifest = os.path.join(mutant, "Cargo.toml")
+        with open(manifest, encoding="utf-8") as handle:
+            text = handle.read()
+        with open(manifest, "w", encoding="utf-8") as handle:
+            handle.write(absolute_paths(text, os.path.dirname(os.path.abspath(root))))
+    path = os.path.join(mutant, mutation.path)
+    with open(path, encoding="utf-8") as handle:
+        text = handle.read()
+    with open(path, "w", encoding="utf-8") as handle:
+        handle.write(mutate(mutation, text))
+    return mutant
+
+
+def run(mutation, out, root=NOWAYOS):
+    """Makes the mutant, runs its proof and returns the verdict."""
+    mutant = copy_workspace(mutation, out, root)
+    env = dict(os.environ)
+    # The mutants build in a target directory of their own, so they never
+    # replace the real crates' build.
+    target = env.get("CARGO_TARGET_DIR", os.path.join(root, "target"))
+    env["CARGO_TARGET_DIR"] = target + "-kani-mutant"
+    result = subprocess.run(["cargo", "kani", "-p", mutation.crate, "--harness", mutation.harness],
+                            cwd=mutant, env=env, capture_output=True, text=True, check=False)
+    log = result.stdout + result.stderr
+    with open(os.path.join(out, f"mutant-{mutation.name}.log"), "w", encoding="utf-8") as handle:
+        handle.write(log)
+    return judge(mutation, result.returncode, log)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--out", help="where the mutants and their logs go (build/kani)")
+    parser.add_argument("--mutation", action="append", default=[], metavar="NAME",
+                        help="a mutation to run (repeatable; all of them if none is named)")
+    parser.add_argument("--list", action="store_true", help="list the mutations and stop")
+    parser.add_argument("--root", default=NOWAYOS,
+                        help="the repo whose workspace the mutants copy (NoWayOS's by default)")
+    parser.add_argument("--mutations-file", metavar="FILE",
+                        help="a product repo's own mutations (JSON), in place of NoWayOS's")
+    args = parser.parse_args()
+    try:
+        known = load_mutations(args.mutations_file) if args.mutations_file else MUTATIONS
+    except MutationError as err:
+        print(f"kani-mutation: FAIL - {err}", file=sys.stderr)
+        return 1
+    if args.list:
+        for mutation in known:
+            print(f"{mutation.name}: {mutation.crate}, {mutation.what}; "
+                  f"{mutation.harness} must fail")
+        return 0
+    if not args.out:
+        parser.error("--out is required")
+    try:
+        mutations = select(args.mutation, known)
+    except MutationError as err:
+        print(f"kani-mutation: FAIL - {err}", file=sys.stderr)
+        return 1
+    failed = 0
+    for mutation in mutations:
+        try:
+            print(f"kani-mutation: PASS - {run(mutation, args.out, os.path.abspath(args.root))}",
+                  flush=True)
+        except (MutationError, OSError) as err:
+            print(f"kani-mutation: FAIL - {err}", file=sys.stderr, flush=True)
+            failed += 1
+    return 1 if failed else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

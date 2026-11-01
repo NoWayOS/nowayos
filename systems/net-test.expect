@@ -1,0 +1,20 @@
+# Lines tools/qemu-test must see, in this order, as whole serial lines.
+# In QEMU: the virtio-net driver PD finds the card, reads
+# its MAC address and sets up its queues; net_client gives it every receive
+# buffer, five descriptors it must drop and count, and an ARP request for
+# QEMU's gateway; the gateway's reply comes back through the driver.
+NOWAYOS: virtio-net: starting
+NOWAYOS: virtio-net: ready on transport 7, MAC 52:54:00:12:34:56
+NOWAYOS: net-client: starting: 10.0.2.15 at 52:54:00:12:34:56
+NOWAYOS: net-client: sent 4 malformed descriptors, an ARP request (who has 10.0.2.2? tell 10.0.2.15) and the request's buffer again: 6 descriptors
+NOWAYOS: virtio-net: dropped so far: 0 oversize frames, 0 malformed frames, 5 bad descriptors, 0 corrupt queue indices, 0 bad used entries
+NOWAYOS: net-client: 10.0.2.2 is at 52:55:0a:00:02:02
+
+# Output that fails the test at once if it appears anywhere (substring match):
+# a fault reported by the Microkit monitor, a kernel error message, a panic,
+# or a PD giving up.
+!MON|ERROR
+!seL4(CPU
+!panicked
+!gave up
+!queue:

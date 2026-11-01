@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    two Rust protection domains exchange typed messages.
+
+    input_producer (standing in for an input PD) sends a fixed, synthetic
+    sequence of canonical input events - nowayos-input InputEvent records,
+    encoded by nowayos-ipc - through a ring in shared memory, and notifies
+    input_consumer (standing in for a UI PD). The consumer copies each record
+    into private memory, then validates, decodes and reports it. One record is
+    deliberately malformed and must be rejected. The ring holds four records,
+    so the eleven-record sequence laps it: the consumer notifies the producer
+    each time it has drained the ring.
+
+    Narrowest rights: the ring spans two regions so that each PD can write
+    only what it owns.
+
+        input_ring_messages   producer index + slots   producer rw, consumer r
+        input_ring_control    consumer index           consumer rw, producer r
+
+    Each map binds a nowayos-region symbol pair whose name states the rights
+    the map must grant: nowayos_rw_region_N_* only on perms="rw",
+    nowayos_ro_region_N_* only on perms="r" (pds/region/src/lib.rs). No PD
+    maps anything else; neither has a device, an interrupt or a protected
+    procedure. A change here is a security change.
+
+    Scheduling, both ways round: the producer runs above the consumer, as an
+    input PD would run above the UI, so a busy UI cannot starve input; and
+    the producer's budget is half its period (5 ms of every 10 ms), so an
+    input PD that is compromised or stuck in a loop cannot starve the UI
+    either. Placeholder values, to be tuned with the input PDs. The
+    consumer keeps Microkit's default (budget = period = 1 ms: unthrottled),
+    being the lower priority.
+
+    Who prints when: on a real UART the producer's printing is real
+    work - a line takes about 8 ms at 115200 baud - so its budget can hold
+    it mid-line, and the consumer then runs. The kernel's debug output is
+    not whole lines across PDs, so the consumer prints only while it holds
+    the turn: the producer prints its lines, then notifies, and the
+    consumer's start-up line waits for that first notification; the
+    consumer prints its lines, then notifies back. The two never print at
+    once, so the order the expect file checks holds on the Pi 5 too.
+
+    Every grant above is also listed in ipc-demo.grants, which
+    tools/check-system compares with this file and with the kernel objects
+    the Microkit tool generates (make image, make qemu-test).
+-->
+<system>
+    <memory_region name="input_ring_messages" size="0x1000" />
+    <memory_region name="input_ring_control" size="0x1000" />
+
+    <protection_domain name="input_producer" priority="2" budget="5000" period="10000"
+                       stack_size="0x10000">
+        <program_image path="nowayos-ipc-producer.elf" />
+        <map mr="input_ring_messages" vaddr="0x4000_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+        <map mr="input_ring_control" vaddr="0x4000_1000" perms="r"
+             setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+    </protection_domain>
+
+    <protection_domain name="input_consumer" priority="1" stack_size="0x10000">
+        <program_image path="nowayos-ipc-consumer.elf" />
+        <map mr="input_ring_messages" vaddr="0x4000_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+        <map mr="input_ring_control" vaddr="0x4000_1000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+    </protection_domain>
+
+    <!-- Notifications both ways: "records waiting" and "ring drained". -->
+    <channel>
+        <end pd="input_producer" id="0" />
+        <end pd="input_consumer" id="0" />
+    </channel>
+</system>

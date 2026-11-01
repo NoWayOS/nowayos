@@ -1,0 +1,20 @@
+# Lines tools/qemu-test must see, in this order, as whole serial lines.
+# The virtio console driver PD, both ways. It refuses and counts the
+# client's malformed record; the client's two lines go out through the
+# console, QEMU loops them back (virtio-console-test.qemu), and they reach
+# the client, control characters printed as dots.
+NOWAYOS: virtio-console: starting
+NOWAYOS: virtio-console: ready: transmit and receive, on transport 7
+NOWAYOS: serial-test: starting
+NOWAYOS: virtio-console: refused so far: 1 malformed chunk(s) from the client, 0 malformed queue entries from the device, 0 corrupt ring(s)
+NOWAYOS: serial-test: sent two lines
+NOWAYOS: serial-test: received: a line from the guest, out through the console and back
+NOWAYOS: serial-test: received: control characters: . a bell, . a tab
+
+# Output that fails the test at once if it appears anywhere (substring match):
+# a fault reported by the Microkit monitor, a kernel error message, a panic,
+# or the driver or client giving up.
+!MON|ERROR
+!seL4(CPU
+!panicked
+!gave up

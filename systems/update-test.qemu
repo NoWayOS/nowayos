@@ -1,0 +1,6 @@
+# The run's bundles, for update-test's bundle server: QEMU hands
+# tools/update-bundles' all.bundles to the guest as fw_cfg's file
+# opt/nowayos/bundles, at run time, so keys made for each run are in no
+# build. The path is the repository's build/, where make image has
+# just written it.
+-fw_cfg name=opt/nowayos/bundles,file=build/update-bundles/all.bundles

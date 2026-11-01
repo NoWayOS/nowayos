@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Spike S2, on the Raspberry Pi 5 only: can a display PD use the
+    framebuffer the Pi's firmware sets up when a monitor is attached at boot?
+    One PD draws the display test pattern QEMU's display-test draws, scaled
+    to fit and centred, into the board's framebuffer, reads it back and
+    prints the hashes fb-test.expect checks; the monitor shows the pattern.
+
+    A board's own system, with no QEMU counterpart: QEMU has no firmware
+    framebuffer (its display-test takes ramfb instead).
+
+    Capabilities: the framebuffer's window - the board's device firmware_fb,
+    RAM the display hardware scans out, from screen row 16 - uncached,
+    read-write; and the board's facts about it (its mode), read-only. No
+    interrupt, no channel. Every grant is also listed in fb-test.grants.
+-->
+<system>
+    <memory_region name="firmware_fb" size="@firmware_fb" phys_addr="@firmware_fb" />
+    <memory_region name="firmware_fb_facts" prefill_path="device-firmware_fb.bin" />
+
+    <protection_domain name="fb_test" priority="1" stack_size="0x10000">
+        <program_image path="nowayos-fb-test.elf" />
+        <map mr="firmware_fb" vaddr="0x2000_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_device_0_vaddr" setvar_size="nowayos_device_0_size" />
+        <map mr="firmware_fb_facts" vaddr="0x4000_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_5_vaddr" setvar_size="nowayos_ro_region_5_size" />
+    </protection_domain>
+</system>

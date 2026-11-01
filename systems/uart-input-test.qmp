@@ -1,0 +1,53 @@
+# What uart-input-test's terminal types: `serial` steps, each one
+# burst of bytes written to the debug UART's receive side as a terminal
+# writes a key - by tools/qemu-test into QEMU's serial port, and by
+# tools/pi-run through the Pi 5's Debug Probe - each after the lines it waits
+# for. Escapes: \e is ESC, \r CR, \n LF, \t HT, \b BS, \xNN any byte, \\ a
+# backslash.
+
+wait NOWAYOS: uart-input: reading keys from the debug UART every 10 ms; the kernel keeps its transmitter
+
+# Printable characters: "Ada", the A with Shift.
+serial Ada
+wait NOWAYOS: input-print: key up 0x07
+wait NOWAYOS: input-print: key up 0x04
+
+# Enter; Backspace as DEL and as BS; Tab; Shift-Tab (CSI Z).
+serial \r
+wait NOWAYOS: input-print: key up 0x28
+serial \x7f
+wait NOWAYOS: input-print: key up 0x2a
+serial \b
+wait NOWAYOS: input-print: key up 0x2a
+serial \t
+wait NOWAYOS: input-print: key up 0x2b
+serial \e[Z
+wait NOWAYOS: input-print: key up 0xe1
+
+# The arrows, as a terminal sends them in normal cursor mode, all in one
+# burst; then Up in application mode (SS3).
+serial \e[A\e[B\e[C\e[D
+wait NOWAYOS: input-print: key up 0x50
+serial \eOA
+wait NOWAYOS: input-print: key up 0x52
+
+# Escape alone: sent once a poll finds the line quiet.
+serial \e
+wait NOWAYOS: input-print: key up 0x29
+
+# Malformed and unknown input, dropped and counted: Ctrl-Up (a parameter),
+# F1 (SS3 P) and a byte above 0x7E.
+serial \e[1;5A\eOP\x80
+wait NOWAYOS: uart-input: dropped so far - bytes of no key: 1, sequences of no key: 2, cut short: 0, bad bytes: 0, overruns: 0, presses with no room: 0
+
+# A sequence cut short by CR, which is still Enter.
+serial \e[1\r
+wait NOWAYOS: input-print: key up 0x28
+
+# A sequence left open: cut short once a poll finds the line quiet.
+serial \e[2
+wait NOWAYOS: uart-input: dropped so far - bytes of no key: 1, sequences of no key: 2, cut short: 2, bad bytes: 0, overruns: 0, presses with no room: 0
+
+# The keys still work after it all.
+serial z
+wait NOWAYOS: input-print: key up 0x1d

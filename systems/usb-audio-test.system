@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Isochronous transfers: the USB host PD streams a USB speaker.
+    usb0 runs nowayos-usb-tone, a test instrument: the USB host PD
+    (nowayos-usb-host) started to stream every USB audio interface it finds.
+    It drives xhci0, QEMU's qemu-xhci, as usb-test's usb0 does, and
+    enumerates QEMU's USB audio device (usb-audio-test.qemu): it sets up the
+    isochronous OUT endpoint of the device's audio streaming interface,
+    selects that interface's alternate setting, and plays a 440 Hz tone to
+    it, keeping 48 ms of transfers queued ahead of the controller and
+    topping them up on every 8 ms tick. Every 10 s it reports how long the
+    stream has run and how many intervals it missed. QEMU writes what the
+    speaker plays to a WAV file beside the image (build/BOARD/usb-audio-test).
+
+    The expect file waits for the first 10 s with no interval missed; any
+    missed interval fails the test. The ten-minute run is the same test with ten minutes' settling:
+    make qemu-test SYSTEM=usb-audio-test QEMU_SETTLE=600. On the Pi 5,
+    usb-stream-test streams real devices.
+
+    Capabilities, for usb0: xhci0's register window and its PCI
+    configuration page, uncached, read-write; its DMA region, 188 KiB -
+    usb-test's 76 KiB and, after it, each of four streams' ring and buffers
+    and a large control buffer for long configurations
+    (nowayos_hw::xhci::DMA_SIZE_STREAMING) - uncached, whose physical address
+    it learns to give the controller; the board's facts about xhci0,
+    read-only; its channel to the timer PD, which it calls for its tick. No
+    interrupt, no ring to an input broker and no screen: none is mapped, and
+    the PD says so and carries on. The timer PD holds the CPU's timer
+    interrupt and runs above it.
+
+    Every grant above is also listed in usb-audio-test.grants, which
+    tools/check-system compares with this file and with the kernel objects
+    the Microkit tool generates (make image, make qemu-test).
+-->
+<system>
+    <protection_domain name="timer" priority="200" stack_size="0x10000">
+        <program_image path="nowayos-timer.elf" />
+        <irq irq="@phys_timer" id="0" trigger="@phys_timer" />
+    </protection_domain>
+
+    <memory_region name="xhci0_regs" size="@xhci0" phys_addr="@xhci0" />
+    <memory_region name="xhci0_config_regs" size="@xhci0_config" phys_addr="@xhci0_config" />
+    <memory_region name="xhci0_facts" prefill_path="device-xhci0.bin" />
+    <memory_region name="usb0_memory" size="0x2f000" />
+
+    <protection_domain name="usb0" priority="100" stack_size="0x10000">
+        <program_image path="nowayos-usb-tone.elf" />
+        <map mr="xhci0_regs" vaddr="0x200_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_device_0_vaddr" setvar_size="nowayos_device_0_size" />
+        <map mr="xhci0_config_regs" vaddr="0x210_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_device_1_vaddr" setvar_size="nowayos_device_1_size" />
+        <map mr="usb0_memory" vaddr="0x300_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_dma_0_vaddr" setvar_size="nowayos_dma_0_size" />
+        <setvar symbol="nowayos_dma_0_paddr" region_paddr="usb0_memory" />
+        <map mr="xhci0_facts" vaddr="0x4000_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_5_vaddr" setvar_size="nowayos_ro_region_5_size" />
+    </protection_domain>
+
+    <!-- usb0 calls the timer, which notifies it of its tick. -->
+    <channel>
+        <end pd="usb0" id="0" pp="true" notify="false" />
+        <end pd="timer" id="1" />
+    </channel>
+</system>

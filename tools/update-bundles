@@ -1,0 +1,297 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT OR Apache-2.0
+"""Throwaway test keys, and the signed trust lists, manifests and bundles the
+update tests read.
+
+Usage:
+    update-bundles --out DIR
+
+Makes new P-256 key pairs with the dev image's openssl, in a temporary folder
+(the container's /tmp) that is deleted when the run ends, whatever happens:
+no private key is ever written anywhere else, so none can reach a repository
+(not even a test key). Only public keys and signed records
+reach DIR - `build/update-bundles/` by default:
+
+    anchors.bin            the root key's coordinates, x then y: the trust
+                           anchor a test image is built with
+    list-v0.rec ... v2     trust lists, as records (nowayos-update's TrustList),
+                           each signed by the root key
+    image-a.bin            the release's image (synthetic bytes)
+    NAME.bundle            a bundle: its trust list, manifest and image as
+                           chunk records (nowayos-update's Chunk), in order
+    bundles.json           each bundle's name, what it holds and the refusal
+                           the update PD must give it ("accepted" for none)
+    all.bundles            every bundle, the bad ones first and `good` last,
+                           for update-test's bundle server: a 32-bit
+                           little-endian count, each bundle's length the same
+                           way, then the bundles
+    state-initial.bin      the device's update state, as one copy
+                           (nowayos-update's state module): generation 1,
+                           slot A boots, no trial, rollback index 3, holding
+                           list-v1.rec - what update-test's storage stand-in
+                           starts with
+
+The device the bundles are made for holds `list-v1.rec` and rollback index 3,
+and its product is `kiosk`. Its bundles:
+
+    good             trust list v2 (removes the old image key), a manifest by
+                     the image key, security version 5: accepted
+    unsigned         the manifest's signature is zeros, naming the image key
+    unknown-key      the manifest is signed by a key no list names
+    removed-key      signed by the old image key, which list v2 removed
+    list-version     trust list v0, lower than the one held
+    development      a development manifest under a production list
+    security-version security version 1, below the rollback index
+    hash             an image whose SHA-256 is not the manifest's
+
+OpenSSL signs; NoWayOS's RustCrypto check verifies (nowayos-update's
+`openssl_bundles` test), so a signature from another implementation, as an
+HSM's will be, is shown to verify. Python 3.11 or later, standard library
+only; openssl on PATH.
+"""
+
+import argparse
+import hashlib
+import json
+import os
+import struct
+import subprocess
+import sys
+import tempfile
+import zlib
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+NOWAYOS = os.path.dirname(HERE)
+
+HEADER_LEN = 8
+KEY_LEN = 64
+KEY_ID_LEN = 32
+SIGNATURE_LEN = 64
+DIGEST_LEN = 32
+
+# The trust list (crates/nowayos-update/src/trust_list.rs).
+TRUST_LIST_KIND = 1
+MAX_KEYS = 8
+MAX_SIGNATURES = 2
+LIST_CONTENTS_LEN = 4 + 1 + 1 + 2 + 72 * MAX_KEYS
+LIST_PAYLOAD_LEN = LIST_CONTENTS_LEN + 8 + 96 * MAX_SIGNATURES
+PURPOSE = {"trust-list": 1, "image": 2, "configuration": 3}
+
+# The manifest (manifest.rs).
+MANIFEST_KIND = 2
+MAX_PRODUCT_LEN = 32
+MAX_REFERENCE_VALUES = 32
+MANIFEST_CONTENTS_LEN = 96 + DIGEST_LEN * MAX_REFERENCE_VALUES
+MANIFEST_PAYLOAD_LEN = MANIFEST_CONTENTS_LEN + KEY_ID_LEN + SIGNATURE_LEN
+
+# A chunk (chunk.rs).
+CHUNK_KIND = 3
+CHUNK_LEN = 488
+CHUNK_PAYLOAD_LEN = 16 + CHUNK_LEN
+PART = {"trust-list": 1, "manifest": 2, "image": 3}
+
+PRODUCT = "kiosk"
+HELD_LIST_VERSION = 1
+ROLLBACK_INDEX = 3
+
+# The update state (state.rs): one copy is the generation, the state record,
+# the held trust list's record (or zeros) and a CRC-32 (IEEE) of all before it.
+STATE_KIND = 4
+STATE_PAYLOAD_LEN = 16 + KEY_ID_LEN
+SLOT_A = 1
+
+
+def header(kind, payload_len):
+    """A nowayos-ipc record header: kind, layout version 1, payload length,
+    two reserved zero bytes, all little-endian."""
+    return struct.pack("<HHHH", kind, 1, payload_len, 0)
+
+
+class Key:
+    """A P-256 key pair whose private half lives only in `folder`."""
+
+    def __init__(self, folder, name):
+        self.path = os.path.join(folder, name + ".pem")
+        openssl("ecparam", "-name", "prime256v1", "-genkey", "-noout", "-out", self.path)
+        spki = openssl("ec", "-in", self.path, "-pubout", "-outform", "DER")
+        point = spki[-65:]
+        if point[0] != 0x04 or len(spki) != 91:
+            raise SystemExit(f"update-bundles: openssl gave an unexpected public key ({len(spki)} bytes)")
+        self.public = point[1:]
+        self.id = hashlib.sha256(point).digest()
+
+    def sign(self, message):
+        """The key's ECDSA P-256 SHA-256 signature over `message`, r then s,
+        32 bytes each, big-endian."""
+        der = openssl("dgst", "-sha256", "-sign", self.path, input_bytes=message)
+        return der_signature(der)
+
+
+def openssl(*args, input_bytes=None):
+    """Runs openssl, returning its standard output; stops on any error."""
+    result = subprocess.run(["openssl", *args], input=input_bytes, capture_output=True, check=False)
+    if result.returncode != 0:
+        raise SystemExit(f"update-bundles: openssl {args[0]} failed: {result.stderr.decode(errors='replace').strip()}")
+    return result.stdout
+
+
+def der_signature(der):
+    """An ECDSA-Sig-Value (SEQUENCE of two INTEGERs, DER) as r then s."""
+
+    def integer(at):
+        if at + 2 > len(der) or der[at] != 0x02:
+            raise SystemExit("update-bundles: not a DER INTEGER in the signature")
+        length = der[at + 1]
+        if at + 2 + length > len(der):
+            raise SystemExit("update-bundles: a truncated signature")
+        value = der[at + 2:at + 2 + length].lstrip(b"\x00")
+        if len(value) > 32:
+            raise SystemExit("update-bundles: a signature integer longer than 32 bytes")
+        return value.rjust(32, b"\x00"), at + 2 + length
+
+    if len(der) < 2 or der[0] != 0x30 or der[1] != len(der) - 2:
+        raise SystemExit("update-bundles: not a DER SEQUENCE signature")
+    r, at = integer(2)
+    s, at = integer(at)
+    if at != len(der):
+        raise SystemExit("update-bundles: bytes after the signature")
+    return r + s
+
+
+def list_contents(version, development, keys):
+    """A trust list's signed part: its header and contents."""
+    head = struct.pack("<IBBH", version, int(development), len(keys), 0)
+    entries = b"".join(bytes([PURPOSE[purpose]]) + bytes(7) + key.public for purpose, key in keys)
+    contents = head + entries.ljust(72 * MAX_KEYS, b"\x00")
+    return header(TRUST_LIST_KIND, LIST_PAYLOAD_LEN) + contents
+
+
+def trust_list(version, development, keys, signers):
+    """A whole trust list record, signed by each of `signers`."""
+    signed = list_contents(version, development, keys)
+    signatures = b"".join(key.id + key.sign(signed) for key in signers)
+    block = bytes([len(signers)]) + bytes(7) + signatures.ljust(96 * MAX_SIGNATURES, b"\x00")
+    record = signed + block
+    assert len(record) == HEADER_LEN + LIST_PAYLOAD_LEN
+    return record
+
+
+def manifest(signer, image_sha256, image_len, security_version=5, trust_list_version=2,
+             development=False, signature=None):
+    """A whole manifest record for `PRODUCT`, version 1.1.0, signed by
+    `signer` - or carrying `signature` instead, naming `signer`."""
+    product = PRODUCT.encode()
+    fields = (
+        struct.pack("<BBHHH", len(product), int(development), 1, 1, 0)
+        + product.ljust(MAX_PRODUCT_LEN, b"\x00")
+        + struct.pack("<IIQ", security_version, trust_list_version, image_len)
+        + image_sha256
+        + bytes([0]) + bytes(7)
+        + bytes(DIGEST_LEN * MAX_REFERENCE_VALUES)
+    )
+    signed = header(MANIFEST_KIND, MANIFEST_PAYLOAD_LEN) + fields
+    assert len(signed) == HEADER_LEN + MANIFEST_CONTENTS_LEN
+    if signature is None:
+        signature = signer.sign(signed)
+    return signed + signer.id + signature
+
+
+def chunks(part, data):
+    """`data`, a whole part, as chunk records in order."""
+    out = []
+    for offset in range(0, len(data), CHUNK_LEN):
+        piece = data[offset:offset + CHUNK_LEN]
+        payload = struct.pack("<BBHIQ", PART[part], 0, len(piece), 0, offset) + piece.ljust(CHUNK_LEN, b"\x00")
+        out.append(header(CHUNK_KIND, CHUNK_PAYLOAD_LEN) + payload)
+    return b"".join(out)
+
+
+def bundle(list_record, manifest_record, image):
+    return chunks("trust-list", list_record) + chunks("manifest", manifest_record) + chunks("image", image)
+
+
+def state_copy(generation, held_list, rollback_index):
+    """One copy of the update state: slot A boots, no trial pending."""
+    record = header(STATE_KIND, STATE_PAYLOAD_LEN) + struct.pack(
+        "<BBBBIII", SLOT_A, 0, 1, 0, rollback_index, 0, 0) + bytes(KEY_ID_LEN)
+    body = struct.pack("<Q", generation) + record + held_list
+    return body + struct.pack("<I", zlib.crc32(body))
+
+
+def make(out):
+    """Makes the keys in a temporary folder, deleted on return, and writes
+    the public files to `out`. Returns the bundles' index."""
+    os.makedirs(out, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="update-keys-") as keys:
+        root = Key(keys, "root")
+        image_key = Key(keys, "image")
+        old_image = Key(keys, "old-image")
+        configuration = Key(keys, "configuration")
+        stranger = Key(keys, "stranger")
+
+        held = [("trust-list", root), ("image", image_key), ("image", old_image), ("configuration", configuration)]
+        newer = [("trust-list", root), ("image", image_key), ("configuration", configuration)]
+        lists = {
+            "list-v0.rec": trust_list(0, False, held, [root]),
+            "list-v1.rec": trust_list(HELD_LIST_VERSION, False, held, [root]),
+            "list-v2.rec": trust_list(2, False, newer, [root]),
+        }
+        image = bytes((i * 7 + 3) % 256 for i in range(3 * CHUNK_LEN + 100))
+        digest = hashlib.sha256(image).digest()
+        v2 = lists["list-v2.rec"]
+        bundles = {
+            "good": (bundle(v2, manifest(image_key, digest, len(image)), image), "accepted"),
+            "unsigned": (bundle(v2, manifest(image_key, digest, len(image), signature=bytes(SIGNATURE_LEN)), image),
+                         "manifest-not-signed"),
+            "unknown-key": (bundle(v2, manifest(stranger, digest, len(image)), image), "manifest-not-signed"),
+            "removed-key": (bundle(v2, manifest(old_image, digest, len(image)), image), "manifest-not-signed"),
+            "list-version": (bundle(lists["list-v0.rec"], manifest(image_key, digest, len(image), trust_list_version=0),
+                                    image), "trust-list-not-newer"),
+            "development": (bundle(v2, manifest(image_key, digest, len(image), development=True), image),
+                            "development"),
+            "security-version": (bundle(v2, manifest(image_key, digest, len(image), security_version=1), image),
+                                 "rollback"),
+            "hash": (bundle(v2, manifest(image_key, hashlib.sha256(b"another image").digest(), len(image)), image),
+                     "mismatch"),
+        }
+        write(out, "anchors.bin", root.public)
+        for name, record in lists.items():
+            write(out, name, record)
+        write(out, "image-a.bin", image)
+        index = {
+            "product": PRODUCT,
+            "held_list": "list-v1.rec",
+            "rollback_index": ROLLBACK_INDEX,
+            "bundles": [{"name": name, "file": name + ".bundle", "expect": expect}
+                        for name, (_, expect) in bundles.items()],
+        }
+        for name, (data, _) in bundles.items():
+            write(out, name + ".bundle", data)
+        # The bad ones first, so that only the last, good, is staged.
+        order = [name for name in bundles if name != "good"] + ["good"]
+        write(out, "all.bundles", struct.pack("<I", len(order))
+              + b"".join(struct.pack("<I", len(bundles[name][0])) for name in order)
+              + b"".join(bundles[name][0] for name in order))
+        write(out, "state-initial.bin", state_copy(1, lists["list-v1.rec"], ROLLBACK_INDEX))
+        index["order"] = order
+        write(out, "bundles.json", (json.dumps(index, indent=2) + "\n").encode())
+    return index
+
+
+def write(out, name, data):
+    with open(os.path.join(out, name), "wb") as handle:
+        handle.write(data)
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--out", default=os.path.join(NOWAYOS, "build", "update-bundles"),
+                        help="where the public keys and signed records go")
+    args = parser.parse_args(argv)
+    index = make(args.out)
+    print(f"update-bundles: {len(index['bundles'])} bundles, keys made and deleted, in {args.out}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

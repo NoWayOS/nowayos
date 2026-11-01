@@ -1,0 +1,121 @@
+# NoWayOS root workspace: the host-testable, `no_std` library crates.
+#
+# The Microkit protection-domain binaries live in `pds/`, a separate workspace
+# with its own pinned nightly toolchain (it needs build-std and rust-sel4), so
+# it is excluded here.
+
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+exclude = ["pds"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.93"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[workspace.dependencies]
+# Our own crates, by path.
+nowayos-audio = { path = "crates/nowayos-audio" }
+nowayos-bounded = { path = "crates/nowayos-bounded" }
+nowayos-demo = { path = "crates/nowayos-demo" }
+nowayos-display = { path = "crates/nowayos-display" }
+nowayos-fault-policy = { path = "crates/nowayos-fault-policy" }
+nowayos-heartbeat = { path = "crates/nowayos-heartbeat" }
+nowayos-gem = { path = "crates/nowayos-gem" }
+nowayos-glyphs = { path = "crates/nowayos-glyphs" }
+nowayos-icons = { path = "crates/nowayos-icons" }
+nowayos-input = { path = "crates/nowayos-input" }
+nowayos-ip = { path = "crates/nowayos-ip" }
+nowayos-ipc = { path = "crates/nowayos-ipc" }
+nowayos-net = { path = "crates/nowayos-net" }
+nowayos-render-eg = { path = "crates/nowayos-render-eg" }
+nowayos-seed = { path = "crates/nowayos-seed" }
+nowayos-signing = { path = "crates/nowayos-signing" }
+nowayos-serial = { path = "crates/nowayos-serial" }
+nowayos-signature = { path = "crates/nowayos-signature" }
+nowayos-socket = { path = "crates/nowayos-socket" }
+nowayos-testkit = { path = "crates/nowayos-testkit" }
+nowayos-time = { path = "crates/nowayos-time" }
+nowayos-ui = { path = "crates/nowayos-ui" }
+nowayos-update = { path = "crates/nowayos-update" }
+nowayos-usb = { path = "crates/nowayos-usb" }
+
+# Third-party crates. Every one is licence-checked before it is added
+# (house list: MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC) and again by
+# `make deny` for the whole tree.
+# MIT OR Apache-2.0 - rendering substrate. Its built-in bitmap
+# fonts, which nowayos-render-eg keeps for bring-up and debug screens only
+# (product themes draw from the glyph atlases), come from
+# public-domain X.Org fonts: outside the house list, signed off as interim.
+embedded-graphics = "0.8.2"
+# Apache-2.0 OR MIT - RustCrypto's NIST P-256 curve and ECDSA, for
+# nowayos-signature only. Default features off:
+# no `std`, `alloc`, `getrandom`, `pem` or precomputed tables. Its `ecdsa`
+# feature compiles signing (RFC 6979) too - p256 has no verify-only feature -
+# though nowayos-signature only verifies. What it brings: ecdsa,
+# elliptic-curve, primeorder, primefield, crypto-bigint, ff, group, wnaf,
+# sec1, der, const-oid, base16ct, rfc6979, hmac, signature, digest,
+# crypto-common, block-buffer, hybrid-array, typenum, ctutils, cmov, cpubits,
+# num-traits (and autocfg, at build time), rand_core and zeroize, each MIT or
+# Apache-2.0 at the user's choice, and subtle (BSD-3-Clause).
+p256 = { version = "0.14.0", default-features = false, features = ["ecdsa"] }
+# MIT OR Apache-2.0 - RustCrypto's SHA-256, default features (alloc, oid) off;
+# it adds cpufeatures and cfg-if (MIT OR Apache-2.0).
+sha2 = { version = "0.11.0", default-features = false }
+# 0BSD - the IP stack NoWayOS's network stack PD runs, for nowayos-ip only: outside
+# the house list, signed off, and pinned to
+# the version signed off. Default features off, and only what a DHCP lease
+# over Ethernet needs - medium-ethernet, proto-ipv4, proto-dhcpv4 and
+# socket-dhcpv4 - socket-tcp, for the socket client's TCP connections
+# (each turns on `socket` too), and auto-icmp-echo-reply, the answer
+# to ping; deny.toml's [[bans.features]] holds every workspace to
+# exactly those. Neither of the last two adds a crate. No std, alloc or log. What it
+# brings: managed 0.8.0 (0BSD, signed off with it; its `map` feature only),
+# heapless 0.9.3 with hash32 and stable_deref_trait, bitflags 1.3.2 and
+# cfg-if (each MIT OR Apache-2.0), and byteorder (Unlicense OR MIT: MIT
+# taken).
+smoltcp = { version = "=0.14.0", default-features = false, features = ["medium-ethernet", "proto-ipv4", "proto-dhcpv4", "socket-dhcpv4", "socket-tcp", "auto-icmp-echo-reply"] }
+proptest = { version = "1.11.0", default-features = false, features = ["std"] } # MIT OR Apache-2.0 - dev-dependency only
+# MIT OR Apache-2.0 - PNG, the golden images' format, for nowayos-testkit only:
+# a host-side test harness, never in a device build. Default features off.
+# What it brings: bitflags, crc32fast with cfg-if, fdeflate and flate2 (each
+# MIT OR Apache-2.0), miniz_oxide (MIT OR Zlib OR Apache-2.0: MIT taken),
+# adler2 (0BSD OR MIT OR Apache-2.0: MIT taken) and simd-adler32 (MIT).
+# Cargo.lock holds flate2 at 1.1.9, on png's own miniz_oxide 0.8: 1.1.10 adds
+# a second miniz_oxide and lists zlib-rs (Zlib) in the lock.
+png = { version = "0.18", default-features = false }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+# Kani's proofs are compiled only under `cfg(kani)`, which cargo-kani sets.
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(kani)"] }
+
+[workspace.lints.clippy]
+# Panicking shortcuts are not allowed in library code (tests may opt out locally).
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+unreachable = "deny"
+# No panic inside a function that returns Result, and every #[allow] says why.
+panic_in_result_fn = "deny"
+allow_attributes_without_reason = "deny"
+# No out-of-bounds panics and no unchecked arithmetic on lengths and offsets:
+# every crate, so a new one cannot forget them (tests allow them locally).
+indexing_slicing = "deny"
+arithmetic_side_effects = "deny"
+# Belt and braces: `unsafe` is forbidden above, but if a crate is ever moved to
+# the approved-unsafe list, every block must still carry a SAFETY comment.
+undocumented_unsafe_blocks = "deny"
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+overflow-checks = true
+panic = "abort"

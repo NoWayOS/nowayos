@@ -1,0 +1,17 @@
+# Lines tools/qemu-test must see, in this order, as whole serial lines.
+# QEMU's fw_cfg device writes into the PD's DMA region by the
+# physical address the PD learned, and a transfer past the end of the region
+# is refused before the device sees it.
+NOWAYOS: dma-demo: starting
+NOWAYOS: dma-demo: found QEMU's fw_cfg device, with DMA
+NOWAYOS: dma-demo: the device wrote "QEMU" into the DMA region by its physical address
+NOWAYOS: dma-demo: a transfer past the end of the region was refused before the device saw it
+NOWAYOS: dma-demo: done
+
+# Output that fails the test at once if it appears anywhere (substring match):
+# a fault reported by the Microkit monitor, a kernel error message, a panic,
+# or the PD giving up.
+!MON|ERROR
+!seL4(CPU
+!panicked
+!gave up

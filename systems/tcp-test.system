@@ -1,0 +1,161 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    In QEMU: the network stack
+    PD carries TCP connections over nowayos-socket's records for one client
+    PD, to the destinations the system allows and no others.
+
+        timer         monotonic time, as in net-stack-test
+        virtio_net    the NIC driver PD of net-test, unchanged
+        seed_source   the test seed, as in net-stack-test
+        net_stack     takes its lease as in net-stack-test, and serves its
+                      socket client: it opens a connection only to a
+                      destination its allow list holds - 10.0.2.100 port 7,
+                      where QEMU's user-mode network runs `cat` for each
+                      connection (tcp-test.qemu), an echo service on the
+                      host - and refuses any other, saying why
+        socket_test   the client, a test instrument: connects to the echo
+                      service, sends a line, checks it comes back byte for
+                      byte and closes; then asks for two destinations the
+                      list does not hold, and checks each is refused
+
+    The allow list is configuration: a read-only region prefilled from
+    tcp-allow-10.0.2.100-7.bin, which tools/board-system writes from its
+    name (nowayos_socket::AllowList). The client cannot change it.
+
+    Capabilities: as in net-stack-test, and the socket client's: two
+    nowayos-ipc rings, each a messages region (nowayos_socket's
+    RING_REGION_LEN, 32 KiB) and a control page - the
+    client's requests (the client writes the messages, the stack its
+    control) and the stack's reports (the stack writes the messages, the
+    client its control) - and a channel each way. The stack maps the allow
+    list read-only. socket_test holds nothing else: no device, interrupt,
+    physical address or other channel; it runs below the stack. Every grant
+    is also listed in tcp-test.grants.
+
+    The stack's stack_size holds the connections' buffers (nowayos_ip's
+    TcpRoom, 272 KiB), as in every system that runs it.
+-->
+<system>
+    <memory_region name="virtio_regs" size="@virtio_mmio_24_31" phys_addr="@virtio_mmio_24_31" />
+    <memory_region name="rx_ring" size="0x3000" />
+    <memory_region name="tx_ring" size="0x3000" />
+    <memory_region name="rx_buffers" size="0x40000" />
+    <memory_region name="tx_buffers" size="0x40000" />
+    <memory_region name="rx_free" size="0x1000" />
+    <memory_region name="rx_active" size="0x1000" />
+    <memory_region name="tx_free" size="0x1000" />
+    <memory_region name="tx_active" size="0x1000" />
+    <!-- The stack's seed ring: the seed (seed_source's), control (the stack's). -->
+    <memory_region name="seed_ring" size="0x1000" />
+    <memory_region name="seed_ring_control" size="0x1000" />
+    <!-- The socket client's rings: requests (the client's messages, the
+         stack's control) and reports (the stack's messages, the client's
+         control). -->
+    <memory_region name="requests" size="0x8000" />
+    <memory_region name="requests_control" size="0x1000" />
+    <memory_region name="reports" size="0x8000" />
+    <memory_region name="reports_control" size="0x1000" />
+    <!-- The destinations the stack may connect its client to. -->
+    <memory_region name="tcp_allow" prefill_path="tcp-allow-10.0.2.100-7.bin" />
+
+    <protection_domain name="timer" priority="220" stack_size="0x10000">
+        <program_image path="nowayos-timer.elf" />
+        <irq irq="@phys_timer" id="0" trigger="@phys_timer" />
+    </protection_domain>
+
+    <protection_domain name="virtio_net" priority="200" stack_size="0x10000">
+        <program_image path="nowayos-virtio-net.elf" />
+        <map mr="virtio_regs" vaddr="0x200_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_device_0_vaddr" setvar_size="nowayos_device_0_size" />
+        <map mr="rx_ring" vaddr="0x300_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_dma_0_vaddr" setvar_size="nowayos_dma_0_size" />
+        <map mr="tx_ring" vaddr="0x300_4000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_dma_1_vaddr" setvar_size="nowayos_dma_1_size" />
+        <setvar symbol="nowayos_dma_0_paddr" region_paddr="rx_ring" />
+        <setvar symbol="nowayos_dma_1_paddr" region_paddr="tx_ring" />
+        <!-- The stack's buffers, by physical address only: never mapped here. -->
+        <setvar symbol="nowayos_io_0_paddr" region_paddr="rx_buffers" />
+        <setvar symbol="nowayos_io_1_paddr" region_paddr="tx_buffers" />
+        <map mr="rx_free" vaddr="0x4000_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+        <map mr="rx_active" vaddr="0x4000_1000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_1_vaddr" setvar_size="nowayos_rw_region_1_size" />
+        <map mr="tx_free" vaddr="0x4000_2000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_2_vaddr" setvar_size="nowayos_rw_region_2_size" />
+        <map mr="tx_active" vaddr="0x4000_3000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_3_vaddr" setvar_size="nowayos_rw_region_3_size" />
+        <irq irq="@virtio_mmio_24_31[7]" id="1" trigger="@virtio_mmio_24_31" />
+    </protection_domain>
+
+    <protection_domain name="seed_source" priority="150" stack_size="0x10000">
+        <program_image path="nowayos-net-stack-test.elf" />
+        <map mr="seed_ring" vaddr="0x4000_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+        <map mr="seed_ring_control" vaddr="0x4000_1000" perms="r"
+             setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+    </protection_domain>
+
+    <protection_domain name="net_stack" priority="100" stack_size="0x80000">
+        <program_image path="nowayos-net-stack.elf" />
+        <map mr="rx_free" vaddr="0x4000_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+        <map mr="rx_active" vaddr="0x4000_1000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_1_vaddr" setvar_size="nowayos_rw_region_1_size" />
+        <map mr="tx_free" vaddr="0x4000_2000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_2_vaddr" setvar_size="nowayos_rw_region_2_size" />
+        <map mr="tx_active" vaddr="0x4000_3000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_3_vaddr" setvar_size="nowayos_rw_region_3_size" />
+        <map mr="rx_buffers" vaddr="0x5000_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+        <map mr="tx_buffers" vaddr="0x5100_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_4_vaddr" setvar_size="nowayos_rw_region_4_size" />
+        <map mr="seed_ring_control" vaddr="0x4000_4000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_5_vaddr" setvar_size="nowayos_rw_region_5_size" />
+        <map mr="seed_ring" vaddr="0x4000_5000" perms="r"
+             setvar_vaddr="nowayos_ro_region_1_vaddr" setvar_size="nowayos_ro_region_1_size" />
+        <map mr="tcp_allow" vaddr="0x4000_6000" perms="r"
+             setvar_vaddr="nowayos_ro_region_2_vaddr" setvar_size="nowayos_ro_region_2_size" />
+        <map mr="reports" vaddr="0x4001_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_6_vaddr" setvar_size="nowayos_rw_region_6_size" />
+        <map mr="reports_control" vaddr="0x4000_8000" perms="r"
+             setvar_vaddr="nowayos_ro_region_3_vaddr" setvar_size="nowayos_ro_region_3_size" />
+        <map mr="requests_control" vaddr="0x4000_9000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_7_vaddr" setvar_size="nowayos_rw_region_7_size" />
+        <map mr="requests" vaddr="0x4001_8000" perms="r"
+             setvar_vaddr="nowayos_ro_region_4_vaddr" setvar_size="nowayos_ro_region_4_size" />
+    </protection_domain>
+
+    <protection_domain name="socket_test" priority="50" stack_size="0x10000">
+        <program_image path="nowayos-socket-test.elf" />
+        <map mr="requests" vaddr="0x4001_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+        <map mr="requests_control" vaddr="0x4000_1000" perms="r"
+             setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+        <map mr="reports_control" vaddr="0x4000_2000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_1_vaddr" setvar_size="nowayos_rw_region_1_size" />
+        <map mr="reports" vaddr="0x4001_8000" perms="r"
+             setvar_vaddr="nowayos_ro_region_1_vaddr" setvar_size="nowayos_ro_region_1_size" />
+    </protection_domain>
+
+    <!-- The driver and the stack notify each other. -->
+    <channel>
+        <end pd="virtio_net" id="0" />
+        <end pd="net_stack" id="0" />
+    </channel>
+    <!-- The stack calls the timer, which notifies it of its timeout. -->
+    <channel>
+        <end pd="net_stack" id="1" pp="true" notify="false" />
+        <end pd="timer" id="1" />
+    </channel>
+    <!-- seed_source notifies the stack when a seed waits. -->
+    <channel>
+        <end pd="seed_source" id="0" />
+        <end pd="net_stack" id="2" notify="false" />
+    </channel>
+    <!-- The client and the stack notify each other: a request waits, a
+         report waits. -->
+    <channel>
+        <end pd="net_stack" id="3" />
+        <end pd="socket_test" id="0" />
+    </channel>
+</system>

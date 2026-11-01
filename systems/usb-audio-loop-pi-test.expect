@@ -1,0 +1,34 @@
+# Lines make check-serial (and tools/pi-run, live) must see on the Pi 5, in
+# this order, as whole serial lines: rpi5b_2gb/usb-audio-loop-pi-test.system,
+# the Pi 5 only. Each USB host PD runs its controller as
+# usb-test's do, and the client starts; what is plugged in, on which port,
+# differs by desk and is printed between these lines, not checked here - the
+# run's log shows each side's devices, each stream's 10 s reports, and each
+# recording made and played back; the person at the desk hears the tone and
+# the recording. The run ends at its run length, 180 s (the ticker's last
+# line). A missed interval, a stream not streamed or a speaker the client
+# fed too little anywhere in the run fails it.
+NOWAYOS: usb0: starting
+NOWAYOS: usb0: controller identified
+NOWAYOS: usb0: halted and reset
+NOWAYOS: usb0: running: a No Op command came back through DMA
+NOWAYOS: usb0: ready
+NOWAYOS: usb1: starting
+NOWAYOS: usb1: controller identified
+NOWAYOS: usb1: halted and reset
+NOWAYOS: usb1: running: a No Op command came back through DMA
+NOWAYOS: usb1: ready
+NOWAYOS: client: starting
+NOWAYOS: client: ready: 2 USB host PDs to hear from
+NOWAYOS: watchdog-stand-in: ticker: the run length is reached: no more ticks, so the watchdog services no more and the board resets
+
+# Output that fails the run at once if it appears anywhere (substring match).
+!MON|ERROR
+!seL4(CPU
+!panicked
+!gave up
+!could not service
+!not streamed
+!missed so far
+!sent too little
+!no audio client

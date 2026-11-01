@@ -1,0 +1,24 @@
+# Lines tools/qemu-test must see, in this order, as whole serial lines.
+# In QEMU: the network stack PD with no
+# seed ring says it is not ready and never brings its interface up. The PDs
+# start in priority order: the timer, the driver, then the stack.
+NOWAYOS: timer: starting
+NOWAYOS: virtio-net: starting
+NOWAYOS: virtio-net: ready on transport 7, MAC 52:54:00:12:34:56
+NOWAYOS: net-stack: starting
+# AC 3: no seed, no interface.
+NOWAYOS: net-stack: not ready: no seed ring (region not mapped: no <map> in the system description sets `nowayos_rw_region_5_vaddr`): no interface brought up
+
+# Output that fails the test at once if it appears anywhere (substring match),
+# including in the second after the last line above: a fault reported by the
+# Microkit monitor, a kernel error message, a panic, a PD giving up, the
+# interface brought up or a lease taken - smoltcp never runs on its default
+# seed - or a queue error.
+!MON|ERROR
+!seL4(CPU
+!panicked
+!gave up
+!interface up
+!net-stack: DHCP lease
+!net-stack: dropped so far
+!queue:

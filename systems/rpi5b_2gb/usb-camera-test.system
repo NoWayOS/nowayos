@@ -1,0 +1,159 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    The Pi 5 only: a USB webcam's own Motion JPEG
+    frames through the USB host PD into a client PD, for a run of 720 s.
+    QEMU has no webcam; host tests stand in for it (nowayos_usb::video).
+
+        run_watchdog  the watchdog PD, watching no PD: keeps the PM watchdog
+                      armed while ticker ticks, so the run lasts its run
+                      length, 720 s - ten minutes of frames, then one frame
+                      dumped on serial - then the board resets
+        timer         BCM2712's system timer, channel 1's interrupt, as in
+                      usb-stream-test
+        ticker        the watchdog's tick every 2 s, until the run length
+                      (test-run-length-720.bin, read-only region 0)
+        usb0, usb1    nowayos-usb-camera, one for each of RP1's controllers
+                      (platforms/rpi5b_2gb.toml: xhci0 and xhci1, the first
+                      page of each): the USB host PD streaming the first
+                      camera it finds - its Motion JPEG video at 1280 x 720,
+                      30 a second where offered, payload headers removed -
+                      as whole frames into its ring for camera_test, and
+                      any audio interface as usb-stream-test's PDs do
+        camera_test   nowayos-camera-test: the client of both rings, as the
+                      camera may be on either controller's ports; it checks
+                      each frame's record and JPEG markers, counts and
+                      releases it, and after 605 s dumps one frame on serial
+                      (tools/serial-frame saves it as a JPEG)
+
+    Capabilities, per USB PD: its controller's first page, uncached,
+    read-write; its DMA region, 1204 KiB (nowayos_hw::xhci::DMA_SIZE_CAMERA:
+    usb-stream-test's 188 KiB and a pool of 254 pages for the camera's
+    transfers), uncached, and its physical address; the board's facts about
+    its controller, read-only; a channel to the timer PD, which it calls;
+    its ring of frames to camera_test - the frames, 2 MiB, and its page,
+    read-write and read-only in camera_test; camera_test's page, read-only -
+    and a channel on which it notifies camera_test, never notified back. The
+    client holds both rings, the frames and the hosts' pages read-only, its
+    own pages read-write, and nothing else. The watchdog holds the PM
+    block's page and its channel from the ticker; the ticker its run length,
+    read-only, and a channel to the timer. Every grant is listed in
+    usb-camera-test.grants, which tools/check-system compares with this file
+    and with the kernel objects.
+-->
+<system>
+    <memory_region name="system_timer_regs" size="@system_timer" phys_addr="@system_timer" />
+    <memory_region name="pm_regs" size="@pm_watchdog" phys_addr="@pm_watchdog" />
+    <memory_region name="run_length" prefill_path="test-run-length-720.bin" />
+
+    <protection_domain name="run_watchdog" priority="250" stack_size="0x10000">
+        <program_image path="nowayos-watchdog.elf" />
+        <map mr="pm_regs" vaddr="0x200_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_device_0_vaddr" setvar_size="nowayos_device_0_size" />
+    </protection_domain>
+
+    <protection_domain name="timer" priority="240" stack_size="0x10000">
+        <program_image path="nowayos-timer.elf" />
+        <map mr="system_timer_regs" vaddr="0x200_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_device_0_vaddr" setvar_size="nowayos_device_0_size" />
+        <irq irq="@system_timer[1]" id="0" trigger="@system_timer" />
+    </protection_domain>
+
+    <protection_domain name="ticker" priority="230" stack_size="0x10000">
+        <program_image path="nowayos-watchdog-stand-in.elf" />
+        <map mr="run_length" vaddr="0x4000_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+    </protection_domain>
+
+    <memory_region name="xhci0_regs" size="@xhci0" phys_addr="@xhci0" />
+    <memory_region name="xhci0_facts" prefill_path="device-xhci0.bin" />
+    <memory_region name="usb0_memory" size="0x12d000" />
+    <memory_region name="frames0" size="0x200000" />
+    <memory_region name="frames0_host" size="0x1000" />
+    <memory_region name="frames0_client" size="0x1000" />
+    <memory_region name="xhci1_regs" size="@xhci1" phys_addr="@xhci1" />
+    <memory_region name="xhci1_facts" prefill_path="device-xhci1.bin" />
+    <memory_region name="usb1_memory" size="0x12d000" />
+    <memory_region name="frames1" size="0x200000" />
+    <memory_region name="frames1_host" size="0x1000" />
+    <memory_region name="frames1_client" size="0x1000" />
+
+    <protection_domain name="usb0" priority="100" stack_size="0x10000">
+        <program_image path="nowayos-usb-camera.elf" />
+        <map mr="xhci0_regs" vaddr="0x200_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_device_0_vaddr" setvar_size="nowayos_device_0_size" />
+        <map mr="usb0_memory" vaddr="0x300_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_dma_0_vaddr" setvar_size="nowayos_dma_0_size" />
+        <setvar symbol="nowayos_dma_0_paddr" region_paddr="usb0_memory" />
+        <map mr="xhci0_facts" vaddr="0x4000_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_5_vaddr" setvar_size="nowayos_ro_region_5_size" />
+        <map mr="frames0" vaddr="0x5000_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_1_vaddr" setvar_size="nowayos_rw_region_1_size" />
+        <map mr="frames0_host" vaddr="0x5100_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_2_vaddr" setvar_size="nowayos_rw_region_2_size" />
+        <map mr="frames0_client" vaddr="0x5200_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_1_vaddr" setvar_size="nowayos_ro_region_1_size" />
+    </protection_domain>
+
+    <protection_domain name="usb1" priority="90" stack_size="0x10000">
+        <program_image path="nowayos-usb-camera.elf" />
+        <map mr="xhci1_regs" vaddr="0x200_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_device_0_vaddr" setvar_size="nowayos_device_0_size" />
+        <map mr="usb1_memory" vaddr="0x300_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_dma_0_vaddr" setvar_size="nowayos_dma_0_size" />
+        <setvar symbol="nowayos_dma_0_paddr" region_paddr="usb1_memory" />
+        <map mr="xhci1_facts" vaddr="0x4000_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_5_vaddr" setvar_size="nowayos_ro_region_5_size" />
+        <map mr="frames1" vaddr="0x5000_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_1_vaddr" setvar_size="nowayos_rw_region_1_size" />
+        <map mr="frames1_host" vaddr="0x5100_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_2_vaddr" setvar_size="nowayos_rw_region_2_size" />
+        <map mr="frames1_client" vaddr="0x5200_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_1_vaddr" setvar_size="nowayos_ro_region_1_size" />
+    </protection_domain>
+
+    <protection_domain name="camera_test" priority="80" stack_size="0x10000">
+        <program_image path="nowayos-camera-test.elf" />
+        <map mr="frames0" vaddr="0x4000_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+        <map mr="frames0_host" vaddr="0x4100_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_1_vaddr" setvar_size="nowayos_ro_region_1_size" />
+        <map mr="frames1" vaddr="0x4200_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_2_vaddr" setvar_size="nowayos_ro_region_2_size" />
+        <map mr="frames1_host" vaddr="0x4300_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_3_vaddr" setvar_size="nowayos_ro_region_3_size" />
+        <map mr="frames0_client" vaddr="0x5000_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+        <map mr="frames1_client" vaddr="0x5100_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_1_vaddr" setvar_size="nowayos_rw_region_1_size" />
+    </protection_domain>
+
+    <!-- The ticker's ticks: the watchdog never notifies it. -->
+    <channel>
+        <end pd="run_watchdog" id="0" notify="false" />
+        <end pd="ticker" id="0" />
+    </channel>
+    <!-- The ticker and each USB host PD call the timer; it notifies each of
+         its tick. -->
+    <channel>
+        <end pd="ticker" id="1" pp="true" notify="false" />
+        <end pd="timer" id="1" />
+    </channel>
+    <channel>
+        <end pd="usb0" id="0" pp="true" notify="false" />
+        <end pd="timer" id="2" />
+    </channel>
+    <channel>
+        <end pd="usb1" id="0" pp="true" notify="false" />
+        <end pd="timer" id="3" />
+    </channel>
+    <!-- Each USB host PD notifies the client of each whole frame; the
+         client never notifies it. -->
+    <channel>
+        <end pd="usb0" id="2" />
+        <end pd="camera_test" id="0" notify="false" />
+    </channel>
+    <channel>
+        <end pd="usb1" id="2" />
+        <end pd="camera_test" id="1" notify="false" />
+    </channel>
+</system>

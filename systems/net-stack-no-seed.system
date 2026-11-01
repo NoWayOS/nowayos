@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    In QEMU: net-stack-test
+    with no seed. The same timer, driver and stack, with the same grants, but
+    no seed_source, no seed ring and no channel for a seed: the stack must
+    say it is not ready and never bring its interface up, so smoltcp never
+    runs on its default seed of 0 and no DHCP request leaves it.
+
+    tools/test_tools.py checks this system differs from net-stack-test by
+    exactly the seed's source, ring and channel.
+
+    Every grant is also listed in net-stack-no-seed.grants, which
+    tools/check-system compares with this file and with the kernel objects
+    the Microkit tool generates (make image, make qemu-test).
+-->
+<system>
+    <memory_region name="virtio_regs" size="@virtio_mmio_24_31" phys_addr="@virtio_mmio_24_31" />
+    <memory_region name="rx_ring" size="0x3000" />
+    <memory_region name="tx_ring" size="0x3000" />
+    <memory_region name="rx_buffers" size="0x40000" />
+    <memory_region name="tx_buffers" size="0x40000" />
+    <memory_region name="rx_free" size="0x1000" />
+    <memory_region name="rx_active" size="0x1000" />
+    <memory_region name="tx_free" size="0x1000" />
+    <memory_region name="tx_active" size="0x1000" />
+
+    <protection_domain name="timer" priority="220" stack_size="0x10000">
+        <program_image path="nowayos-timer.elf" />
+        <irq irq="@phys_timer" id="0" trigger="@phys_timer" />
+    </protection_domain>
+
+    <protection_domain name="virtio_net" priority="200" stack_size="0x10000">
+        <program_image path="nowayos-virtio-net.elf" />
+        <map mr="virtio_regs" vaddr="0x200_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_device_0_vaddr" setvar_size="nowayos_device_0_size" />
+        <map mr="rx_ring" vaddr="0x300_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_dma_0_vaddr" setvar_size="nowayos_dma_0_size" />
+        <map mr="tx_ring" vaddr="0x300_4000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_dma_1_vaddr" setvar_size="nowayos_dma_1_size" />
+        <setvar symbol="nowayos_dma_0_paddr" region_paddr="rx_ring" />
+        <setvar symbol="nowayos_dma_1_paddr" region_paddr="tx_ring" />
+        <!-- The stack's buffers, by physical address only: never mapped here. -->
+        <setvar symbol="nowayos_io_0_paddr" region_paddr="rx_buffers" />
+        <setvar symbol="nowayos_io_1_paddr" region_paddr="tx_buffers" />
+        <map mr="rx_free" vaddr="0x4000_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+        <map mr="rx_active" vaddr="0x4000_1000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_1_vaddr" setvar_size="nowayos_rw_region_1_size" />
+        <map mr="tx_free" vaddr="0x4000_2000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_2_vaddr" setvar_size="nowayos_rw_region_2_size" />
+        <map mr="tx_active" vaddr="0x4000_3000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_3_vaddr" setvar_size="nowayos_rw_region_3_size" />
+        <irq irq="@virtio_mmio_24_31[7]" id="1" trigger="@virtio_mmio_24_31" />
+    </protection_domain>
+
+    <protection_domain name="net_stack" priority="100" stack_size="0x80000">
+        <program_image path="nowayos-net-stack.elf" />
+        <map mr="rx_free" vaddr="0x4000_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+        <map mr="rx_active" vaddr="0x4000_1000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_1_vaddr" setvar_size="nowayos_rw_region_1_size" />
+        <map mr="tx_free" vaddr="0x4000_2000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_2_vaddr" setvar_size="nowayos_rw_region_2_size" />
+        <map mr="tx_active" vaddr="0x4000_3000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_3_vaddr" setvar_size="nowayos_rw_region_3_size" />
+        <map mr="rx_buffers" vaddr="0x5000_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+        <map mr="tx_buffers" vaddr="0x5100_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_4_vaddr" setvar_size="nowayos_rw_region_4_size" />
+    </protection_domain>
+
+    <!-- The driver and the stack notify each other. -->
+    <channel>
+        <end pd="virtio_net" id="0" />
+        <end pd="net_stack" id="0" />
+    </channel>
+    <!-- The stack calls the timer, which notifies it of its timeout. -->
+    <channel>
+        <end pd="net_stack" id="1" pp="true" notify="false" />
+        <end pd="timer" id="1" />
+    </channel>
+</system>

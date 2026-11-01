@@ -1,0 +1,21 @@
+[package]
+name = "nowayos-timer-client"
+description = "A client of the timer PD; reads the time and checks it never goes back, and that malformed requests are refused"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "nowayos-timer-client"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+nowayos-timer-api = { workspace = true, features = ["client"] }
+sel4-microkit.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,45 @@
+# Lines tools/qemu-test must see, in this order, as whole serial lines.
+# Worker starts from its checked restart image; a crash request makes
+# it panic; its parent restarts it at its restart entry; it runs init again on
+# memory as its program was loaded - the counter in .bss 1, the word in .data
+# as loaded, the once-only flag clear - with a new restart epoch, dropping
+# the requests in flight; client sees the new epoch, sends the unanswered
+# work again, and worker answers it. The "fault detail" line carries the
+# fault's label, which differs between kernel configurations, and is not
+# checked; nor is the panic's own message.
+NOWAYOS: restart-probe: restarter: starting; it restarts worker (child 0) from its restart image
+NOWAYOS: restart-probe: worker: started from its checked restart image - .bss counter 1, .data word 0x5eed, once-only flag clear
+NOWAYOS: restart-probe: worker: restart epoch 1; client's epoch 0; dropped 0 request(s) in flight
+NOWAYOS: restart-probe: client: restart epoch 1; worker's epoch 1
+NOWAYOS: restart-probe: client: work 1 done (worker epoch 1)
+NOWAYOS: restart-probe: client: sent tick 1, a crash request, tick 2 and work 2
+NOWAYOS: restart-probe: worker: tick 1
+NOWAYOS: restart-probe: worker: crash request - panicking, as a PD does on input it cannot handle
+NOWAYOS: restart-probe: worker panicked: asked to crash
+NOWAYOS: restart-probe: restarter: worker stopped by a fault; restarted it at its restart entry (restart 1 of 3)
+NOWAYOS: restart-probe: worker: restarted from its restart image - .bss counter 1, .data word 0x5eed, once-only flag clear
+NOWAYOS: restart-probe: worker: restart epoch 2; client's epoch 1; dropped 2 request(s) in flight
+NOWAYOS: restart-probe: client: worker restarted (epoch 1 -> 2)
+NOWAYOS: restart-probe: client: sent work 2 again; the ticks and the crash request in flight are not sent again
+NOWAYOS: restart-probe: client: work 2 done (worker epoch 2)
+NOWAYOS: restart-probe: client: the worker serves again after its restart
+
+# Output that fails the test at once if it appears anywhere (substring match):
+# worker's memory surviving a start, the dropped tick acted on, a second
+# fault, the restart entry refusing, a part not starting, the restarter
+# failing, a fault the monitor had to handle (the restarter itself faulted),
+# or a kernel error message.
+!SURVIVED
+!worker: tick 2
+!restart 2 of
+!restarted 3 times already
+!the restart entry refused
+!started without
+!gave up
+!cannot restart
+!cannot read
+!could not
+!refused a record
+!no part is defined
+!MON|ERROR
+!seL4(CPU

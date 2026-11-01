@@ -1,0 +1,2 @@
+# QEMU's four cores for smp-test's SMP kernel.
+-smp 4

@@ -1,0 +1,10 @@
+# QEMU devices tcp-test's PDs drive (tools/make/system.mk), as in
+# net-stack-test.qemu, and the echo service the socket client connects to:
+# QEMU's user-mode network forwards each TCP connection to
+# 10.0.2.100 port 7 to a `cat` it starts for that connection on the host,
+# which sends every byte back and ends when the stack closes its side. The
+# stack's allow list holds that destination alone (tcp-test.system); QEMU
+# forwards nothing else to the host.
+-global virtio-mmio.force-legacy=false
+-netdev user,id=net0,ipv6=off,restrict=off,net=10.0.2.0/24,host=10.0.2.2,dhcpstart=10.0.2.15,guestfwd=tcp:10.0.2.100:7-cmd:cat
+-device virtio-net-device,netdev=net0,mac=52:54:00:12:34:56

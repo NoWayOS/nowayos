@@ -1,0 +1,15 @@
+# Lines tools/qemu-test must see, in this order, as whole serial lines.
+# In QEMU: the ramfb display PD shows a test pattern; then
+# qemu-test compares QEMU's screen with display-test.screen.png.
+NOWAYOS: ramfb: starting
+NOWAYOS: ramfb: found QEMU's fw_cfg device, with DMA
+NOWAYOS: ramfb: found etc/ramfb (28 bytes)
+NOWAYOS: ramfb: showing an 800x480 test pattern
+
+# Output that fails the test at once if it appears anywhere (substring match):
+# a fault reported by the Microkit monitor, a kernel error message, a panic,
+# or the PD giving up.
+!MON|ERROR
+!seL4(CPU
+!panicked
+!gave up

@@ -1,0 +1,18 @@
+[package]
+name = "nowayos-signature"
+description = "Checks ECDSA P-256 signatures over SHA-256 in a protection domain: verification only, no private key, no randomness"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+p256.workspace = true
+sha2.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true

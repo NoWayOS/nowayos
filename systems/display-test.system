@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    In QEMU: the display PD for QEMU's ramfb device (chosen
+    as the closest to the Pi 5's framebuffer) shows a test pattern, and make qemu-test compares QEMU's
+    screen with the approved image display-test.screen.png. The system's
+    QEMU gets the device from display-test.qemu (-device ramfb).
+
+    QEMU only: ramfb is set up through fw_cfg, QEMU's own test device
+    , so this display PD never ships on a device.
+
+    Capabilities: fw_cfg's register window - exactly that page, uncached,
+    read-write; a 4 KiB DMA region for fw_cfg's requests and the
+    configuration; and the framebuffer, a DMA region of one 2 MiB page, so
+    that it is physically contiguous, whose physical address the PD learns
+    to give to QEMU. Nothing executable, no interrupt, no channel.
+
+    Every grant above is also listed in display-test.grants, which
+    tools/check-system compares with this file and with the kernel objects
+    the Microkit tool generates (make image, make qemu-test).
+-->
+<system>
+    <memory_region name="fw_cfg_regs" size="@fw_cfg" phys_addr="@fw_cfg" />
+    <memory_region name="requests" size="0x1000" />
+    <memory_region name="framebuffer" size="0x200000" page_size="0x200000" />
+
+    <protection_domain name="ramfb" priority="1" stack_size="0x10000">
+        <program_image path="nowayos-ramfb.elf" />
+        <map mr="fw_cfg_regs" vaddr="0x200_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_device_0_vaddr" setvar_size="nowayos_device_0_size" />
+        <map mr="requests" vaddr="0x300_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_dma_0_vaddr" setvar_size="nowayos_dma_0_size" />
+        <map mr="framebuffer" vaddr="0x2000_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_dma_1_vaddr" setvar_size="nowayos_dma_1_size" />
+        <setvar symbol="nowayos_dma_0_paddr" region_paddr="requests" />
+        <setvar symbol="nowayos_dma_1_paddr" region_paddr="framebuffer" />
+    </protection_domain>
+</system>

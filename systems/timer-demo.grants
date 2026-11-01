@@ -1,0 +1,33 @@
+# Everything systems/timer-demo.system grants, one fact per line.
+# tools/check-system fails the build if the system description grants anything
+# not listed here, or lists anything it does not grant, and checks the grants
+# again in the kernel objects the Microkit tool generates (format: see
+# tools/check-system). A change here is a security change: call it out in the
+# pull request.
+
+# The kind of system, and each PD's role (tools/grant-rules.toml).
+system demo
+role timer driver
+role client_alpha app
+role client_beta app
+
+# The timer PD runs above every client: a protected procedure call must go to
+# a higher priority, and an expired deadline is then delivered before any
+# client runs on, so a busy client cannot hold up another's timeout. Its work
+# per call or interrupt is small and bounded - at most 8 clients with 4
+# timeouts each to scan - so it keeps a full budget (Microkit's default,
+# budget = period): throttling it would only make deadlines late. Clients
+# keep the default; alpha above beta only fixes the order of their start-up
+# lines.
+pd timer priority=200 budget=1000 period=1000
+pd client_alpha priority=100 budget=1000 period=1000
+pd client_beta priority=90 budget=1000 period=1000
+
+# Only the timer PD holds the timer interrupt.
+irq timer phys_timer
+
+# Each client may call the timer PD and be notified by it, and nothing else.
+channel client_alpha timer notify=timer
+call client_alpha timer
+channel client_beta timer notify=timer
+call client_beta timer

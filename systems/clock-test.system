@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    In QEMU: the clock PD holds
+    wall-clock time as an interval from the image's build time, moved only by
+    samples on the rings its system grants. A test PD stands in for the TLS
+    PD, whose samples will carry the pinned backend's Date:
+
+        timer          monotonic time, as in timer-demo
+        clock          reads the build time (the floor) and the timer, keeps
+                       the newest valid sample, answers readings
+        tls_stand_in   the clock's one source: reads the build time too, and
+                       sees the time not known and a date check refused; sends
+                       a sample a day after the floor, then three bad ones;
+                       300 ms later checks the interval moved on and widened
+                       as the drift bound says
+        reader         may only call the clock: a sample it offers by call is
+                       refused, and the time is unchanged
+
+    Capabilities: the timer PD holds the timer interrupt and nothing else.
+    The clock holds no device, interrupt or physical address: it maps the
+    build time read-only and its ends of tls_stand_in's ring - the control
+    region read-write, the samples read-only - and calls the timer. It runs
+    above the PDs that call it and below the timer, as a protected procedure
+    call must go to a strictly higher priority. tls_stand_in maps the other
+    ends and the build time read-only, calls the timer and the clock, and
+    notifies the clock when a sample waits; reader holds one channel, on
+    which it may call the clock and nothing else. No channel here notifies
+    the clock but tls_stand_in's, and the clock notifies no one.
+
+    QEMU only: the timer PD is woken by the CPU's timer, which Microkit
+    exports to user level on QEMU (phys_timer).
+
+    Every grant above is also listed in clock-test.grants, which
+    tools/check-system compares with this file and with the kernel objects
+    the Microkit tool generates (make image, make qemu-test).
+-->
+<system>
+    <!-- The image's build time, the floor for wall-clock time. -->
+    <memory_region name="build_time" size="0x1000" prefill_path="build-time.bin" />
+
+    <!-- tls_stand_in's ring into the clock: samples (its), control (the clock's). -->
+    <memory_region name="clock_samples" size="0x1000" />
+    <memory_region name="clock_samples_control" size="0x1000" />
+
+    <protection_domain name="timer" priority="200" stack_size="0x10000">
+        <program_image path="nowayos-timer.elf" />
+        <irq irq="@phys_timer" id="0" trigger="@phys_timer" />
+    </protection_domain>
+
+    <protection_domain name="clock" priority="150" stack_size="0x10000">
+        <program_image path="nowayos-clock.elf" />
+        <map mr="clock_samples_control" vaddr="0x4000_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+        <map mr="clock_samples" vaddr="0x4000_1000" perms="r"
+             setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+        <map mr="build_time" vaddr="0x4000_2000" perms="r"
+             setvar_vaddr="nowayos_ro_region_6_vaddr" setvar_size="nowayos_ro_region_6_size" />
+    </protection_domain>
+
+    <protection_domain name="tls_stand_in" priority="100" stack_size="0x10000">
+        <program_image path="nowayos-clock-test.elf" />
+        <map mr="clock_samples" vaddr="0x4000_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+        <map mr="clock_samples_control" vaddr="0x4000_1000" perms="r"
+             setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+        <map mr="build_time" vaddr="0x4000_2000" perms="r"
+             setvar_vaddr="nowayos_ro_region_6_vaddr" setvar_size="nowayos_ro_region_6_size" />
+    </protection_domain>
+
+    <protection_domain name="reader" priority="90" stack_size="0x10000">
+        <program_image path="nowayos-clock-test.elf" />
+    </protection_domain>
+
+    <!-- The clock calls the timer for monotonic time; neither notifies. -->
+    <channel>
+        <end pd="clock" id="0" pp="true" notify="false" />
+        <end pd="timer" id="1" notify="false" />
+    </channel>
+    <!-- tls_stand_in calls the timer, which notifies it of its timeout. -->
+    <channel>
+        <end pd="tls_stand_in" id="0" pp="true" notify="false" />
+        <end pd="timer" id="2" />
+    </channel>
+    <!-- tls_stand_in calls the clock, and notifies it when a sample waits. -->
+    <channel>
+        <end pd="tls_stand_in" id="1" pp="true" />
+        <end pd="clock" id="1" notify="false" />
+    </channel>
+    <!-- reader may only call the clock. -->
+    <channel>
+        <end pd="reader" id="0" pp="true" notify="false" />
+        <end pd="clock" id="3" notify="false" />
+    </channel>
+</system>

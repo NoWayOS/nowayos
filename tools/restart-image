@@ -1,0 +1,293 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT OR Apache-2.0
+"""Write the restart image of every PD a system description can restart.
+
+Usage:
+    restart-image --sdf OUT.system --dir DIR
+    restart-image --sdf OUT.system --dir DIR --capdl DIR/capdl.json
+
+A memory region prefilled from restart-PD.bin (prefill_path) is PD's restart
+image: what PD's writable memory holds when its program is loaded, so that
+PD can be restarted cleanly (nowayos-restart). `make image` runs this tool after the PDs are built and
+before the Microkit tool, which reads each file from its search path, DIR,
+where the PDs' programs are copied too. For each, it reads PD's program
+image, DIR/NAME.elf, and writes DIR/restart-PD.bin in nowayos-restart's
+format (pds/restart/src/image.rs):
+
+  * the program's entry point, which must be nowayos_restart_entry (the PD's
+    build.rs passes --entry=nowayos_restart_entry to the linker);
+  * the stack pointer every PD starts with under Microkit 2.3.1, the top of
+    its stack, 0xff_ffff_e000;
+  * each writable loadable segment: its address, its sizes, its file bytes;
+  * the kept ranges: every symbol the Microkit tool patches into PD as it
+    builds the system image - microkit_name, microkit_passive, microkit_irqs,
+    microkit_notifications, microkit_pps, microkit_ioports, and each
+    setvar_vaddr, setvar_size and <setvar symbol> of PD's in the description
+    - where it lies in a writable segment's file bytes, adjacent ones joined.
+
+The image must fit its memory region, and is padded with zeros to its size
+(the Microkit tool 2.3.1 needs a prefill file as long as its region). At
+every cold start the PD checks that
+its writable memory is exactly the image, kept ranges aside, so a word the
+Microkit tool patches that this list misses stops the PD at once.
+
+With --capdl (the Microkit tool's --capdl-json output, after it has run), it
+checks each image instead of writing it: the thread the tool made for PD
+starts at the image's entry point with the image's stack pointer.
+
+Exit status: 0 written (or checked), 1 refused (each reason on standard
+error), 2 usage, input or I/O error. Python 3.11 or later, standard library
+only.
+"""
+
+import argparse
+import json
+import os
+import re
+import struct
+import sys
+import xml.etree.ElementTree as ElementTree
+
+EXIT_PASS, EXIT_FAIL, EXIT_ERROR = 0, 1, 2
+
+MAGIC = b"BRESTART"
+VERSION = 1
+HEADER_LEN = 40
+SEGMENT_LEN = 32
+KEEP_LEN = 16
+MAX_SEGMENTS = 4
+MAX_KEEPS = 64
+
+ENTRY_SYMBOL = "nowayos_restart_entry"
+# Microkit 2.3.1 starts every PD's stack pointer here: its stack's top, 1 TiB
+# less two pages, below its IPC buffer (check-system and --capdl confirm it
+# for each image).
+STACK_TOP = 0xFF_FFFF_E000
+# The symbols the Microkit tool 2.3.1 patches into every PD it builds.
+MICROKIT_SYMBOLS = ("microkit_name", "microkit_passive", "microkit_irqs",
+                    "microkit_notifications", "microkit_pps", "microkit_ioports")
+PREFILL = re.compile(r"restart-([A-Za-z_][A-Za-z0-9_]*)\.bin")
+
+PT_LOAD = 1
+PF_W = 2
+SHT_SYMTAB = 2
+SHN_UNDEF = 0
+
+
+class InputError(Exception):
+    """Unreadable or malformed input."""
+
+
+def parse_int(text, where):
+    try:
+        return int(str(text).replace("_", ""), 0)
+    except ValueError as err:
+        raise InputError(f"{where}: {text!r} is not a number") from err
+
+
+class Elf:
+    """The parts of a 64-bit little-endian ELF executable this tool reads."""
+
+    def __init__(self, path):
+        try:
+            with open(path, "rb") as handle:
+                self.data = handle.read()
+        except OSError as err:
+            raise InputError(f"cannot read {path}: {err}") from err
+        self.path = path
+        if len(self.data) < 64 or self.data[:4] != b"\x7fELF" or self.data[4] != 2 or self.data[5] != 1:
+            raise InputError(f"{path}: not a 64-bit little-endian ELF file")
+        try:
+            (_, _, _, self.entry, phoff, shoff, _, _, phentsize, phnum, shentsize, shnum,
+             _) = struct.unpack_from("<HHIQQQIHHHHHH", self.data, 16)
+            self.segments = [struct.unpack_from("<IIQQQQQQ", self.data, phoff + i * phentsize)
+                             for i in range(phnum)]
+            sections = [struct.unpack_from("<IIQQQQIIQQ", self.data, shoff + i * shentsize)
+                        for i in range(shnum)]
+            self.symbols = {}
+            for _, kind, _, _, offset, size, link, _, _, entsize in sections:
+                if kind != SHT_SYMTAB or entsize == 0:
+                    continue
+                strings = sections[link]
+                for i in range(size // entsize):
+                    name, _, _, shndx, value, symbol_size = struct.unpack_from(
+                        "<IBBHQQ", self.data, offset + i * entsize)
+                    if shndx == SHN_UNDEF or name == 0:
+                        continue
+                    start = strings[4] + name
+                    end = self.data.index(b"\0", start)
+                    self.symbols.setdefault(self.data[start:end].decode("utf-8", "replace"),
+                                            (value, symbol_size))
+        except (struct.error, IndexError, ValueError) as err:
+            raise InputError(f"{path}: malformed ELF file: {err}") from err
+
+    def writable(self):
+        """The writable loadable segments, in address order: (vaddr, filesz,
+        memsz, file bytes)."""
+        found = []
+        for kind, flags, offset, vaddr, _, filesz, memsz, _ in self.segments:
+            if kind == PT_LOAD and flags & PF_W:
+                if offset + filesz > len(self.data):
+                    raise InputError(f"{self.path}: a segment's bytes lie outside the file")
+                found.append((vaddr, filesz, memsz, self.data[offset:offset + filesz]))
+        return sorted(found, key=lambda segment: segment[0])
+
+
+def restartable(sdf):
+    """Each restart image the description names: (region name, its size,
+    PD name, its program image path, the symbols the Microkit tool patches
+    into it), or raise InputError."""
+    try:
+        root = ElementTree.parse(sdf).getroot()
+    except (OSError, ElementTree.ParseError) as err:
+        raise InputError(f"cannot read {sdf}: {err}") from err
+    pds = {element.get("name"): element for element in root.iter("protection_domain")}
+    found = []
+    for region in root.iter("memory_region"):
+        match = PREFILL.fullmatch(region.get("prefill_path", ""))
+        if not match:
+            continue
+        name = match.group(1)
+        where = f"memory_region {region.get('name')!r}"
+        pd = pds.get(name)
+        if pd is None:
+            raise InputError(f"{sdf}: {where} is the restart image of {name!r}, which is no "
+                             f"protection_domain of the description")
+        image = pd.find("program_image")
+        if image is None or not image.get("path"):
+            raise InputError(f"{sdf}: protection_domain {name!r} has no program_image")
+        patched = set(MICROKIT_SYMBOLS)
+        for child in pd:
+            if child.tag == "map":
+                patched.update(child.get(key) for key in ("setvar_vaddr", "setvar_size") if child.get(key))
+            elif child.tag == "setvar" and child.get("symbol"):
+                patched.add(child.get("symbol"))
+        found.append((region.get("name"), parse_int(region.get("size", "0"), where), name,
+                      image.get("path"), sorted(patched)))
+    return found
+
+
+def image_of(elf, patched):
+    """The restart image of the program in `elf`, keeping the symbols in
+    `patched`, as bytes; or raise InputError naming what is wrong."""
+    entry = elf.symbols.get(ENTRY_SYMBOL)
+    if entry is None or entry[0] != elf.entry:
+        raise InputError(f"{elf.path}: the program does not start at {ENTRY_SYMBOL}: give its "
+                         f"crate nowayos-restart's `entry` feature and a build.rs with "
+                         f"--entry={ENTRY_SYMBOL}")
+    segments = elf.writable()
+    if not 1 <= len(segments) <= MAX_SEGMENTS:
+        raise InputError(f"{elf.path}: {len(segments)} writable segments: a restart image holds "
+                         f"1 to {MAX_SEGMENTS}")
+    keeps = []
+    for name in patched:
+        if name not in elf.symbols:
+            if name in MICROKIT_SYMBOLS:
+                continue
+            raise InputError(f"{elf.path}: the description sets {name!r}, which the program does "
+                             f"not define")
+        value, size = elf.symbols[name]
+        size = size or 8
+        if any(vaddr <= value and value + size <= vaddr + filesz for vaddr, filesz, _, _ in segments):
+            keeps.append([value, size])
+        elif any(vaddr <= value < vaddr + memsz for vaddr, _, memsz, _ in segments):
+            raise InputError(f"{elf.path}: {name!r} lies in a writable segment but not in its file "
+                             f"bytes: the Microkit tool cannot patch it")
+    keeps.sort()
+    joined = []
+    for vaddr, size in keeps:
+        if joined and vaddr <= joined[-1][0] + joined[-1][1]:
+            joined[-1][1] = max(joined[-1][1], vaddr + size - joined[-1][0])
+        else:
+            joined.append([vaddr, size])
+    if len(joined) > MAX_KEEPS:
+        raise InputError(f"{elf.path}: {len(joined)} kept ranges: a restart image holds at most "
+                         f"{MAX_KEEPS}")
+    out = bytearray(MAGIC)
+    out += struct.pack("<IIIIQQ", VERSION, len(segments), len(joined), 0, elf.entry, STACK_TOP)
+    offset = HEADER_LEN + len(segments) * SEGMENT_LEN + len(joined) * KEEP_LEN
+    # Each segment's file bytes after both tables, each 8-byte aligned.
+    data = bytearray()
+    for vaddr, filesz, memsz, file_bytes in segments:
+        data += bytes(-(offset + len(data)) % 8)
+        out += struct.pack("<QQQQ", vaddr, filesz, memsz, offset + len(data))
+        data += file_bytes
+    for vaddr, size in joined:
+        out += struct.pack("<QQ", vaddr, size)
+    return bytes(out + data)
+
+
+def check_capdl(path, images):
+    """The problems with each (PD, image bytes) against the capDL spec: the
+    thread the Microkit tool made for PD starts at the image's entry with its
+    stack pointer."""
+    try:
+        with open(path, encoding="utf-8") as handle:
+            objects = {item["name"]: item["object"] for item in json.load(handle)["objects"]}
+    except (OSError, ValueError, KeyError, TypeError) as err:
+        raise InputError(f"cannot read capDL objects from {path}: {err!r}") from err
+    problems = []
+    for pd, image in images:
+        entry, stack_top = struct.unpack_from("<QQ", image, 24)
+        tcb = objects.get(f"tcb_{pd}", {})
+        extra = tcb.get("Tcb", {}).get("extra", {}) if isinstance(tcb, dict) else {}
+        if extra.get("ip") != entry or extra.get("sp") != stack_top:
+            problems.append(f"{pd!r} starts at {extra.get('ip')!r} with stack pointer "
+                            f"{extra.get('sp')!r} in the system image, but its restart image says "
+                            f"{entry:#x} and {stack_top:#x}: a restart would not start it as the "
+                            f"Microkit tool did (has the tool's stack placement changed?)")
+    return problems
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n", 1)[0])
+    parser.add_argument("--sdf", required=True, help="the board's system description (.system)")
+    parser.add_argument("--dir", required=True,
+                        help="the Microkit tool's search path: the PDs' programs, and the images")
+    parser.add_argument("--capdl", help="check the images against this capDL spec instead of writing them")
+    args = parser.parse_args()
+
+    problems, written = [], []
+    try:
+        for region, size, pd, program, patched in restartable(args.sdf):
+            path = os.path.join(args.dir, f"restart-{pd}.bin")
+            if args.capdl:
+                with open(path, "rb") as handle:
+                    written.append((pd, handle.read()))
+                continue
+            try:
+                image = image_of(Elf(os.path.join(args.dir, program)), patched)
+            except InputError as err:
+                problems.append(f"{pd!r}: {err}")
+                continue
+            if len(image) > size:
+                problems.append(f"{pd!r}: its restart image is {len(image):#x} bytes, but memory_region "
+                                f"{region!r} is {size:#x}: make the region larger")
+                continue
+            # Padded with zeros to the region's size: the Microkit tool 2.3.1
+            # slices a prefill file page by page, and panics on a file that
+            # ends a page or more before its region does.
+            image += bytes(size - len(image))
+            with open(path, "wb") as handle:
+                handle.write(image)
+            written.append((pd, image))
+        if args.capdl:
+            problems.extend(check_capdl(args.capdl, written))
+    except (InputError, OSError) as err:
+        print(f"restart-image: {err}", file=sys.stderr)
+        return EXIT_ERROR
+
+    if problems:
+        print(f"restart-image: FAIL - {args.sdf}:", file=sys.stderr)
+        for problem in problems:
+            print(f"    {problem}", file=sys.stderr)
+        return EXIT_FAIL
+    if written:
+        what = "checked against the capDL spec" if args.capdl else "written"
+        print(f"restart-image: {len(written)} restart image(s) {what}: "
+              f"{', '.join(pd for pd, _ in written)}")
+    return EXIT_PASS
+
+
+if __name__ == "__main__":
+    sys.exit(main())

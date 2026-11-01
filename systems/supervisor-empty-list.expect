@@ -1,0 +1,28 @@
+# Lines tools/qemu-test must see, in this order, as whole serial lines.
+# A supervisor whose program names no children still reads its
+# stand-in counts before any child runs; the restart count is at its limit,
+# so it enters the fail-safe state and stops every child - each an unknown
+# child - and keeps none.
+NOWAYOS: supervisor: no children are defined for this supervisor
+NOWAYOS: supervisor: counts read from the test stand-in, which stores nothing: restart count 4, sensitive count 0
+NOWAYOS: supervisor: this start: a reset whose cause was not written down
+NOWAYOS: supervisor: restart count 5 of 4, sensitive count 0 of 2: enter the fail-safe state
+NOWAYOS: supervisor: an unknown child (0) stopped
+NOWAYOS: supervisor: an unknown child (1) stopped
+NOWAYOS: supervisor: in the fail-safe state; kept running: none
+
+# Output that fails the test at once if it appears anywhere (substring match):
+# a child starting, the board reset, the reset returning, a fault the monitor
+# had to handle, a kernel error message, or the supervisor or a probe failing.
+!stopped_child starting
+!unnamed_child starting
+!resetting the board
+!the reset returned
+!NOT stopped
+!MON|ERROR
+!seL4(CPU
+!ISOLATION FAILURE
+!no probe is defined
+!cannot stop
+!cannot supervise
+!cannot keep

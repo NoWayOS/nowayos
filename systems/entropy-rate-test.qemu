@@ -1,0 +1,7 @@
+# QEMU devices entropy-rate-test's PDs drive (tools/make/system.mk): the virtio
+# transports on the modern interface (virtio 1.x), and virtio-rng fed from the
+# host's /dev/urandom, on transport 8 - the first of the page the board file
+# names rng, which only the entropy PD holds.
+-global virtio-mmio.force-legacy=false
+-object rng-random,id=rng0,filename=/dev/urandom
+-device virtio-rng-device,rng=rng0,bus=virtio-mmio-bus.8

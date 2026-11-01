@@ -1,0 +1,9 @@
+# usb-test's two xHCI controllers, on PCI bus 0 as devices 2 and 3, and a
+# USB keyboard, mouse and tablet - QEMU's HID devices - on the first
+# controller's root ports, so usb0 enumerates them, in port order. Each has
+# an id, so usb-input-test.qmp can unplug the keyboard and plug it back.
+-device qemu-xhci,id=xhci0,addr=2
+-device qemu-xhci,id=xhci1,addr=3
+-device usb-kbd,id=kbd,bus=xhci0.0,port=1
+-device usb-mouse,id=mouse,bus=xhci0.0,port=2
+-device usb-tablet,id=tablet,bus=xhci0.0,port=3

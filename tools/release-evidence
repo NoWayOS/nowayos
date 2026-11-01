@@ -1,0 +1,706 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT OR Apache-2.0
+"""Make the release evidence pack for one commit of NoWayOS.
+
+Usage:
+    release-evidence --out DIR --root-steps "STEP ..." --system-steps "STEP ..."
+                     [--make MAKE] [--screen-compiler DIR] [--pi-board BOARD]
+
+`make release-evidence` runs this in the dev container. A regulated product
+built on NoWayOS answers an auditor from the release, not from git
+history: this gathers, for the commit checked out, everything the Security
+Checklist's Per Release items are answered from, into DIR, with an index:
+
+* INDEX.md - the commit, the make ci result, every file with its sha256,
+  and each Per Release item answered from the pack or marked not applicable
+  with the reason;
+* ci/ - make ci, step by step (--root-steps run with nowayos's Makefile,
+  --system-steps with tools/make/system.mk, as container-ci runs them):
+  summary.txt with each step's result and the lines that state it, and the
+  raw output of each step in ci/logs/;
+* versions.txt and pins/ - every pinned version: the Containerfile's pins,
+  both Rust toolchains as rustc reports them, the rust-sel4 commit, the tools
+  in the dev image, and copies of the reviewed files that pin the rest;
+* sbom/ - each Cargo workspace's CycloneDX SBOM (make sbom);
+* images/ - every system image, built again from this commit for each
+  configuration its systems/NAME.configs lists - for QEMU's board and, with
+  --pi-board, for each system that board's facts can serve (from the
+  board's own variant, systems/BOARD/NAME.system, where it has one): each image's
+  SBOM, seL4 configuration record, board description and
+  Microkit report, and images/SHA256SUMS with every loader.img's sha256;
+* grants/ - every system's grants file (a board's own variants in
+  grants/systems/BOARD/), and inventory.md: each PD's role,
+  memory, devices, interrupts, channels, calls and learned addresses, with
+  every device's register window on each board;
+* crypto.md - the cryptographic crates in the dependency graphs of all four
+  of NoWayOS's Cargo workspaces (named in tools/crypto-crates.txt, or filed
+  under crates.io's cryptography category), each with where it is used:
+  what only the fuzz harness or the glyph atlas tool uses never ships.
+
+It refuses to run - before anything is built - when nowayos, or the
+screen-compiler clone make ci checks against (--screen-compiler), has uncommitted
+changes or untracked files: a pack describes a commit, nothing else.
+
+Every file but ci/logs/ is a function of the commit and the dev image alone -
+no time of day, no absolute path, no count that grows with other branches -
+so two packs made from one commit match; the logs hold timings. A failing make ci step stops the run: the pack is
+written as far as it got, its index says INCOMPLETE, and the exit status is 1.
+
+Exit status: 0 complete; 1 incomplete (a step or an image build failed); 2
+refused, usage or input error. Python 3.11 or later (tomllib), standard
+library only; needs git and make.
+"""
+
+import argparse
+import hashlib
+import importlib.machinery
+import importlib.util
+import json
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import xml.etree.ElementTree as ElementTree
+
+try:
+    import tomllib
+except ModuleNotFoundError:  # Python before 3.11
+    tomllib = None
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+NOWAYOS = os.path.dirname(HERE)
+EXIT_PASS = 0
+EXIT_FAIL = 1
+EXIT_ERROR = 2
+QEMU_BOARD = "qemu_virt_aarch64"
+DEFAULT_CONFIG = "debug"
+
+# Reviewed files copied into pins/, relative to nowayos: what pins the build.
+PINNED_FILES = (
+    "Cargo.lock", "rust-toolchain.toml", "deny.toml", "secrets-allow.toml",
+    "pds/Cargo.lock", "pds/Cargo.toml", "pds/rust-toolchain.toml", "pds/deny.toml", "pds/std-crates.txt",
+    "tools/baseline.toml", "tools/crypto-crates.txt", "tools/grant-rules.toml", "tools/image-components.toml",
+    "tools/initialiser-audit.toml", "tools/sel4-verification.toml", "tools/unsafe-allowlist.toml",
+    "tools/container/Containerfile", "tools/container/rpi-firmware.sha256",
+    # The font the glyph atlases are made from, pinned by sha256.
+    "crates/nowayos-glyphs/glyphs.toml",
+)
+PINNED_GLOBS = (("tools/container", "debian-packages-", ".lock"), ("platforms", "", ".toml"))
+# What each image contributes, from build/BOARD/SYSTEM/.
+IMAGE_FILES = ("sbom.cdx.json", "sel4-config.txt", "report.txt")
+
+# Lines in a step's output that state its result, and what varies between
+# runs of one commit taken out of them: timings, the container's paths, and
+# the secrets scan's history counts, which grow with every ref the clone
+# holds (other branches), not with the commit.
+RESULT = re.compile(r"^(?:[a-z0-9-]+: (?:PASS|FAIL)\b|notice: |advisories |sbom: |image-sbom: |demo: |"
+                    r"Ran \d+ tests?|OK$|FAILED|test result: |error[:\[])")
+VARYING = ((re.compile(r"; last after [0-9.]+s"), ""), (re.compile(r" in [0-9.]+s\b"), ""),
+           (re.compile(r"finished in [0-9.]+s"), "finished"), (re.compile(r"/work/"), ""),
+           (re.compile(r"\d+ file versions and \d+ commit messages in the history, from every ref"),
+            "every file version and commit message in the history, from every ref"))
+
+# The Security Checklist's Per Release items,
+# each with how this pack answers it.
+PER_RELEASE = (
+    ("Every toolchain and SDK version is pinned and recorded (Microkit, Rust, U-Boot, cross-compiler, "
+     "container image) - hashes where practical.",
+     "Answered: `versions.txt` - every Containerfile pin with its sha256 (Microkit SDK, rustup, cargo-deny, "
+     "U-Boot, the Pi firmware, the Debian base image), both Rust toolchains as rustc reports them, the "
+     "rust-sel4 commit, the tools in the dev image and the Containerfile's own sha256 - and the reviewed "
+     "files in `pins/`, the Debian package list among them."),
+    ("An SBOM is generated for the release.",
+     "Answered: `sbom/` holds each Cargo workspace's SBOM, and `images/` each system image's, "
+     "with the image's sha256."),
+    ("The release image builds reproducibly from a clean checkout, or the known differences are documented.",
+     "Answered in part: this pack was made from a clean checkout, and `images/SHA256SUMS` records each "
+     "image's sha256. Another pack made from the same commit must match it file for file (all but "
+     "`ci/logs/`): compare the two. U-Boot builds reproducibly (`make uboot`). No known differences."),
+    ("Release artefacts are signed.",
+     "Not applicable yet: nothing is signed until the signing keys and authority are decided. "
+     "Until then the sha256 sums in this index are the pack's integrity record."),
+    ("The list of `unsafe` crates is still short and still accurate.",
+     "Answered for accuracy: `make unsafe-audit` in `ci/summary.txt`, against "
+     "`pins/tools/unsafe-allowlist.toml`. Whether the list is short is the reviewer's call."),
+    ("The Threat Model has been re-walked for anything new in the release.",
+     "Not answerable from the pack: a person re-walks the Threat Model (W3) and records it; the "
+     "release page links that record."),
+    ("Every enabled interface (network services, USB, debug UART, removable media) is intended for this "
+     "release's target.",
+     "Answered in part: `grants/inventory.md` lists every device and interrupt each PD holds, per system, "
+     "and each device's register window on each board. Whether each is intended is the reviewer's call."),
+)
+
+
+class InputError(Exception):
+    """A refusal, or an input that could not be read."""
+
+
+def load_tool(name):
+    """Another tool in this directory, as a module."""
+    loader = importlib.machinery.SourceFileLoader(name.replace("-", "_"), os.path.join(HERE, name))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    module = importlib.util.module_from_spec(spec)
+    loader.exec_module(module)
+    return module
+
+
+def sha256_file(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for block in iter(lambda: handle.read(1 << 20), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def write(path, text):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8", newline="\n") as handle:
+        handle.write(text)
+
+
+def run(command, cwd=None, log=None):
+    """Run a command with make's own variables cleared, so a child make sees
+    only its own arguments; return its exit status (and its output to log)."""
+    env = {key: value for key, value in os.environ.items()
+           if key not in ("MAKEFLAGS", "MFLAGS", "MAKELEVEL", "MAKEOVERRIDES")}
+    try:
+        if log is None:
+            return subprocess.run(command, cwd=cwd, env=env, capture_output=True, text=True, check=False)
+        os.makedirs(os.path.dirname(log), exist_ok=True)
+        with open(log, "w", encoding="utf-8") as handle:
+            return subprocess.run(command, cwd=cwd, env=env, stdout=handle, stderr=subprocess.STDOUT,
+                                  text=True, check=False).returncode
+    except OSError as err:
+        raise InputError(f"cannot run {command[0]}: {err}") from err
+
+
+def git(repo, *args):
+    result = run(["git", "--no-optional-locks", "-C", repo, *args])
+    if result.returncode != 0:
+        raise InputError(f"git {args[0]} failed in {repo}: {result.stderr.strip()}")
+    return result.stdout.strip()
+
+
+def require_clean(repo):
+    """The commit checked out in `repo`, or InputError if anything is not committed."""
+    changes = git(repo, "status", "--porcelain", "--untracked-files=normal")
+    if changes:
+        listed = "\n".join(f"    {line}" for line in changes.splitlines()[:20])
+        raise InputError(f"{repo} has uncommitted changes or untracked files - a pack describes a commit, "
+                         f"nothing else: commit or remove them first\n{listed}")
+    return git(repo, "rev-parse", "HEAD")
+
+
+# ---- make ci, step by step --------------------------------------------------------
+
+def summarise(log):
+    """The lines of a step's log that state its result, without what varies."""
+    try:
+        with open(log, encoding="utf-8", errors="replace") as handle:
+            lines = handle.read().splitlines()
+    except OSError:
+        return []
+    kept = []
+    passed = failed = 0
+    for line in lines:
+        text = line.strip()
+        match = re.match(r"test result: (\w+)\. (\d+) passed; (\d+) failed", text)
+        if match:
+            passed += int(match.group(2))
+            failed += int(match.group(3))
+            continue
+        if RESULT.match(text):
+            for pattern, replacement in VARYING:
+                text = pattern.sub(replacement, text)
+            kept.append(text)
+    if passed or failed:
+        kept.append(f"cargo tests: {passed} passed, {failed} failed")
+    return kept
+
+
+def run_ci(args, out):
+    """[(step, status)] for make ci's steps, run in order until one fails;
+    status is PASS, FAIL or 'not run'."""
+    results = []
+    failed = False
+    steps = [(step, "root") for step in args.root_steps.split()] + [(step, "system") for step in
+                                                                    args.system_steps.split()]
+    for step, kind in steps:
+        if failed:
+            results.append((step, "not run"))
+            continue
+        # The checkpoint gate: every proof, test and target, no
+        # cached verdict, Miri under Stacked Borrows.
+        command = [args.make, "-C", NOWAYOS, step, "CARGO=cargo", "CI_SCOPE=full"] if kind == "root" else \
+            [args.make, "-C", NOWAYOS, "-f", "tools/make/system.mk", step, "CI_SCOPE=full"]
+        print(f"release-evidence: make {step}", flush=True)
+        status = run(command, log=os.path.join(out, "ci", "logs", f"{step}.log"))
+        results.append((step, "PASS" if status == 0 else "FAIL"))
+        failed = status != 0
+    lines = ["# make ci, step by step, as container-ci runs it. Each step's result and the lines",
+             "# that state it; timings and the container's paths are taken out, so two runs of one",
+             "# commit give the same file. The raw output of each step is in logs/.", ""]
+    for step, status in results:
+        lines.append(f"{step}: {status}")
+        if status != "not run":
+            lines += [f"    {line}" for line in summarise(os.path.join(out, "ci", "logs", f"{step}.log"))]
+    write(os.path.join(out, "ci", "summary.txt"), "\n".join(lines) + "\n")
+    return results
+
+
+# ---- Images ---------------------------------------------------------------------
+
+def configs_of(system):
+    """The configurations systems/SYSTEM.configs lists (default: debug)."""
+    path = os.path.join(NOWAYOS, "systems", f"{system}.configs")
+    try:
+        with open(path, encoding="utf-8") as handle:
+            configs = " ".join(line.split("#", 1)[0] for line in handle).split()
+    except FileNotFoundError:
+        configs = []
+    return configs or [DEFAULT_CONFIG]
+
+
+def systems():
+    return sorted(name[:-len(".system")] for name in os.listdir(os.path.join(NOWAYOS, "systems"))
+                  if name.endswith(".system"))
+
+
+def system_file(system, board, suffix):
+    """The file `make image` builds `system` for `board` from: the board's own
+    variant, systems/BOARD/SYSTEM.SUFFIX (suffix system or grants), if it has
+    one, else systems/SYSTEM.SUFFIX (tools/make/system.mk)."""
+    variant = os.path.join(NOWAYOS, "systems", board, f"{system}.system")
+    folder = os.path.dirname(variant) if os.path.isfile(variant) else os.path.join(NOWAYOS, "systems")
+    return os.path.join(folder, f"{system}.{suffix}")
+
+
+def variants(boards):
+    """[(board, system)] for every board's own variant of a system."""
+    return [(board, system) for board in boards for system in systems()
+            if os.path.isfile(os.path.join(NOWAYOS, "systems", board, f"{system}.system"))]
+
+
+def board_refusal(system, board):
+    """Why `board` cannot serve `system` (board-system's refusal), or None."""
+    # A scratch file of its own: the tests run in parallel (tools/run-tests).
+    build = os.path.join(NOWAYOS, "build")
+    os.makedirs(build, exist_ok=True)
+    handle, scratch = tempfile.mkstemp(prefix=".release-evidence-probe-", suffix=".system", dir=build)
+    os.close(handle)
+    try:
+        result = run([sys.executable, os.path.join(HERE, "board-system"), "--board", board,
+                      "--source-date-epoch", os.environ.get("SOURCE_DATE_EPOCH", ""), "--commit-repo", NOWAYOS,
+                      system_file(system, board, "system"), scratch])
+    finally:
+        os.remove(scratch)
+    if result.returncode == 0:
+        return None
+    # Refused: only for devices the board lacks may a system be left out.
+    reasons = [line.strip() for line in result.stderr.splitlines() if line.startswith(" ")]
+    if result.returncode == 1 and reasons and all("has no device" in line for line in reasons):
+        missing = sorted({re.search(r"has no device '([^']+)'", line).group(1) for line in reasons})
+        return f"{board} has no {', '.join(missing)}"
+    raise InputError(f"board-system refused {system} for {board}, for a reason other than a device the "
+                     f"board lacks:\n{result.stderr.strip()}")
+
+
+def build_images(args, out):
+    """Build every image again and gather its records: ([(board, config,
+    system, status)], [(board, system, reason)] for systems a board cannot serve)."""
+    built, skipped = [], []
+    boards = [QEMU_BOARD] + ([args.pi_board] if args.pi_board else [])
+    sums = []
+    for board in boards:
+        for system in systems():
+            if board != QEMU_BOARD:
+                reason = board_refusal(system, board)
+                if reason:
+                    skipped.append((board, system, reason))
+                    continue
+            for config in configs_of(system):
+                where = os.path.join(out, "images", board, config, system)
+                print(f"release-evidence: image {system} ({board}, {config})", flush=True)
+                status = run([args.make, "-C", NOWAYOS, "-f", "tools/make/system.mk", "image",
+                              f"SYSTEM={system}", f"BOARD={board}", f"MICROKIT_CONFIG={config}"],
+                             log=os.path.join(out, "ci", "logs", "images", f"{board}-{config}-{system}.log"))
+                built.append((board, config, system, "PASS" if status == 0 else "FAIL"))
+                if status != 0:
+                    return built, skipped
+                source = os.path.join(NOWAYOS, "build", board, system)
+                os.makedirs(where, exist_ok=True)
+                for name in IMAGE_FILES + (f"{system}.system",):
+                    shutil.copyfile(os.path.join(source, name), os.path.join(where, name))
+                sums.append(f"{sha256_file(os.path.join(source, 'loader.img'))}  "
+                            f"{board}/{config}/{system}/loader.img")
+    write(os.path.join(out, "images", "SHA256SUMS"), "\n".join(sorted(sums, key=lambda s: s[66:])) + "\n")
+    return built, skipped
+
+
+# ---- Versions and pins ------------------------------------------------------------
+
+def toolchain(path):
+    with open(path, "rb") as handle:
+        return tomllib.load(handle)["toolchain"]["channel"]
+
+
+def versions(screen_compiler):
+    """versions.txt: every pinned version, and what the dev image's tools say they are."""
+    containerfile = os.path.join(HERE, "container", "Containerfile")
+    with open(containerfile, encoding="utf-8") as handle:
+        pins = re.findall(r"^ARG ([A-Z0-9_]+)=(\S+)\s*$", handle.read(), re.MULTILINE)
+    stable = toolchain(os.path.join(NOWAYOS, "rust-toolchain.toml"))
+    nightly = toolchain(os.path.join(NOWAYOS, "pds", "rust-toolchain.toml"))
+    with open(os.path.join(NOWAYOS, "pds", "Cargo.toml"), "rb") as handle:
+        pds = tomllib.load(handle)
+    sel4_rev = pds["workspace"]["dependencies"]["sel4-microkit"]["rev"]
+    lines = [
+        "# Every pinned version this commit builds with, and what the dev image's tools report.",
+        "",
+        "[dev image]",
+        f"containerfile-sha256 = {sha256_file(containerfile)}   (the label every make target checks)",
+    ]
+    lines += [f"{name.lower().replace('_', '-')} = {value}" for name, value in pins]
+    lines += ["", "[rust]", f"library toolchain = {stable}   (rust-toolchain.toml)",
+              f"protection-domain toolchain = {nightly}   (pds/rust-toolchain.toml)",
+              f"rust-sel4 = {sel4_rev}   (pds/Cargo.toml: sel4-microkit and sel4)"]
+    lines += ["", "[tools in the dev image]"]
+    for label, command in (
+            (f"rustc {stable}", ["rustc", f"+{stable}", "-vV"]),
+            (f"rustc {nightly}", ["rustc", f"+{nightly}", "-vV"]),
+            ("cargo-deny", ["cargo-deny", "--version"]),
+            ("cargo-kani", ["cargo", "kani", "--version"]),
+            ("qemu-system-aarch64", ["qemu-system-aarch64", "--version"]),
+            ("python3", ["python3", "--version"]),
+            ("git", ["git", "--version"])):
+        result = run(command)
+        text = (result.stdout or result.stderr).strip().splitlines()
+        if result.returncode != 0 or not text:
+            raise InputError(f"{' '.join(command)} failed: {result.stderr.strip()}")
+        if label.startswith("rustc"):
+            lines.append(f"{label}:")
+            lines += [f"    {line}" for line in text]
+        else:
+            lines.append(f"{label}: {text[0]}")
+    sdk = os.environ.get("MICROKIT_SDK", "/opt/microkit/sdk")
+    try:
+        with open(os.path.join(sdk, "VERSION"), encoding="utf-8") as handle:
+            lines.append(f"microkit sdk: {handle.read().strip()}")
+    except OSError as err:
+        raise InputError(f"cannot read the Microkit SDK's VERSION: {err}") from err
+    if screen_compiler:
+        lines += ["", "[screen-compiler]", f"commit = {screen_compiler}   (the clone make screen-compiler-check builds against)"]
+    return "\n".join(lines) + "\n"
+
+
+def copy_pins(out):
+    names = list(PINNED_FILES)
+    for folder, prefix, suffix in PINNED_GLOBS:
+        names += [f"{folder}/{name}" for name in sorted(os.listdir(os.path.join(NOWAYOS, folder)))
+                  if name.startswith(prefix) and name.endswith(suffix)]
+    for name in names:
+        target = os.path.join(out, "pins", name)
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        shutil.copyfile(os.path.join(NOWAYOS, name), target)
+
+
+# ---- Grants inventory ---------------------------------------------------------------
+
+def inventory(check_system, boards):
+    """grants/inventory.md: every system's grants, PD by PD, and the device facts of each board."""
+    lines = ["# Grants Inventory", "",
+             "Every system's grants, from its `systems/NAME.grants` file, which `make image` checks against the "
+             "system description and the kernel objects the Microkit tool generates (rule 1 and rule 6 of the "
+             "grants check); a board's own variant of a system, `systems/BOARD/NAME.grants`, under NAME (BOARD). "
+             "Devices are named; each device's register window and interrupts on each board are "
+             "in the last section.", ""]
+    used_devices = set()
+    sections = [(system, os.path.join(NOWAYOS, "systems", system)) for system in systems()]
+    sections += [(f"{system} ({board})", os.path.join(NOWAYOS, "systems", board, system))
+                 for board, system in variants(boards)]
+    for system, path in sections:
+        facts, meta = check_system.read_grants(f"{path}.grants")
+        sizes = region_sizes(f"{path}.system")
+        rows = {}
+
+        def row(pd):
+            return rows.setdefault(pd, {"sched": "", "memory": [], "devices": [], "irqs": [], "channels": [],
+                                        "calls": [], "paddr": [], "other": []})
+
+        for fact in sorted(facts):
+            words = fact.split()
+            kind = words[0]
+            if kind == "pd":
+                entry = row(words[1])
+                entry["sched"] = ", ".join(w.split("=")[1] for w in words[2:5])
+                if "passive" in words:
+                    entry["other"].append("passive")
+            elif kind == "map":
+                size = sizes.get(words[2])
+                row(words[1])["memory"].append(f"{words[2]} {words[3]}" + (f" ({size})" if size else ""))
+            elif kind == "device":
+                row(words[1])["devices"].append(f"{words[2]} {words[3]}")
+                used_devices.add(words[2])
+            elif kind == "irq":
+                row(words[1])["irqs"].append(" ".join(words[2:]))
+                used_devices.add(words[2])
+            elif kind == "channel":
+                # notify=PD: only PD may notify the other end (check-system's format).
+                notify = words[3].split("=")[1] if len(words) > 3 else "both"
+                for me, peer in ((words[1], words[2]), (words[2], words[1])):
+                    how = {"both": "both ways", "none": "neither notifies"}.get(
+                        notify, "only this PD notifies" if notify == me else f"only {peer} notifies")
+                    row(me)["channels"].append(f"{peer} ({how})")
+            elif kind == "call":
+                row(words[1])["calls"].append(f"calls {words[2]}")
+                row(words[2])["calls"].append(f"called by {words[1]}")
+            elif kind == "paddr":
+                row(words[1])["paddr"].append(words[2])
+            elif kind == "child":
+                row(words[1])["other"].append(f"parent of {words[2]}")
+                row(words[2])["other"].append(f"child of {words[1]}")
+            elif kind == "smc":
+                row(words[1])["other"].append("SMC capability")
+            elif kind == "restart":
+                row(words[1])["other"].append(f"can restart {words[2]} on its own")
+                row(words[2])["other"].append(f"restartable by {words[1]}")
+        lines += [f"## {system}", "", f"Kind: **{meta['system'] or 'not stated'}**.", "",
+                  "| PD | Role | Priority, budget, period | Memory (rights, size) | Devices | Interrupts | "
+                  "Channels | Calls | Learns the physical address of | Other |",
+                  "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"]
+        for pd in sorted(rows):
+            entry = rows[pd]
+            cells = [pd, meta["roles"].get(pd, "none"), entry["sched"] or "-"]
+            cells += ["; ".join(entry[key]) or "-" for key in ("memory", "devices", "irqs", "channels", "calls",
+                                                                "paddr", "other")]
+            lines.append("| " + " | ".join(cells) + " |")
+        lines.append("")
+    lines += ["## Devices on Each Board", "",
+              "Each device a grants file names, with its register window and interrupts on each board "
+              "(`platforms/BOARD.toml`, each fact with its source).", "",
+              "| Device | " + " | ".join(boards) + " |", "| --- |" + " --- |" * len(boards)]
+    facts = {board: check_system.Board(board, os.path.join(NOWAYOS, "platforms")) for board in boards}
+    for device in sorted(used_devices):
+        cells = []
+        for board in boards:
+            found = facts[board].devices.get(device)
+            if found is None:
+                cells.append("not on this board")
+                continue
+            window = (f"registers {found.address:#x}, {found.size:#x} bytes" if found.address is not None
+                      else "no register window")
+            irqs = f"interrupts {', '.join(str(irq) for irq in found.irqs)}" if found.irqs else "no interrupt"
+            cells.append(f"{window}; {irqs}")
+        lines.append(f"| {device} | " + " | ".join(cells) + " |")
+    return "\n".join(lines) + "\n"
+
+
+def region_sizes(path):
+    """{region: size} for the memory regions a system description sizes itself."""
+    try:
+        root = ElementTree.parse(path).getroot()
+    except (OSError, ElementTree.ParseError) as err:
+        raise InputError(f"cannot read {path}: {err}") from err
+    return {region.get("name"): region.get("size") for region in root.iter("memory_region")
+            if region.get("size") and not region.get("size").startswith("@")}
+
+
+# ---- Cryptographic crates -------------------------------------------------------------
+
+# NoWayOS's Cargo workspaces - every one `make sbom` writes an SBOM for - each
+# with its SBOM's name and folder, and, for one whose crates never ship, what
+# it is: the fuzz harness and the glyph atlas tool run on the build host only,
+# so their crates are listed as never shipped, whatever their own SBOMs call
+# `required` (the atlas tool's: what the tool itself is built from).
+WORKSPACES = (("nowayos", ".", None), ("nowayos-pds", "pds", None),
+              ("nowayos-fuzz", "fuzz", "test harness"),
+              ("nowayos-glyph-atlas", "tools/glyph-atlas", "build tool"))
+NEVER_SHIPPED = {name: what for name, _path, what in WORKSPACES if what}
+
+
+def workspace_packages():
+    """{SBOM name: cargo metadata's packages} for each of NoWayOS's Cargo workspaces."""
+    found = {}
+    for workspace, path, _what in WORKSPACES:
+        result = run(["cargo", "metadata", "--locked", "--offline", "--format-version", "1"],
+                     cwd=os.path.join(NOWAYOS, path))
+        if result.returncode != 0:
+            raise InputError(f"cargo metadata in {path} failed: {result.stderr.strip()}")
+        found[workspace] = json.loads(result.stdout)["packages"]
+    return found
+
+
+def crypto(packages_of, sbom_dir, image_root, listed_path=os.path.join(HERE, "crypto-crates.txt")):
+    """crypto.md: every cryptographic crate in the dependency graphs, and where it is used."""
+    unread = sorted(name[:-len(".cdx.json")] for name in os.listdir(sbom_dir)
+                    if name.endswith(".cdx.json") and name[:-len(".cdx.json")] not in packages_of)
+    if unread:
+        raise InputError(f"{sbom_dir} has the SBOM of {', '.join(unread)}, a workspace crypto.md does not read: "
+                         f"add it to WORKSPACES in tools/release-evidence")
+    listed = set()
+    with open(listed_path, encoding="utf-8") as handle:
+        for line in handle:
+            name = line.split("#", 1)[0].strip()
+            if name:
+                listed.add(name)
+    found = {}  # (name, version) -> {"why": str, "uses": set, "shipped": bool}
+    for workspace, packages in sorted(packages_of.items()):
+        with open(os.path.join(sbom_dir, f"{workspace}.cdx.json"), encoding="utf-8") as handle:
+            scopes = {(c["name"], c["version"]): c for c in json.load(handle)["components"]}
+        for package in packages:
+            key = (package["name"], package["version"])
+            category = "cryptography" in (package.get("categories") or [])
+            if package["name"] not in listed and not category:
+                continue
+            why = "named in tools/crypto-crates.txt" if package["name"] in listed else "crates.io: cryptography"
+            entry = found.setdefault(key, {"why": why, "uses": set(), "shipped": False})
+            component = scopes.get(key)
+            if component is None:
+                continue
+            if component["scope"] == "required" and workspace in NEVER_SHIPPED:
+                entry["uses"].add(f"{workspace}: {NEVER_SHIPPED[workspace]}, never shipped")
+            elif component["scope"] == "required":
+                entry["uses"].add(f"{workspace}: shipped")
+                entry["shipped"] = True
+            else:
+                reason = next((p["value"] for p in component.get("properties", [])
+                               if p["name"] == "nowayos:excluded"), "excluded")
+                entry["uses"].add(f"{workspace}: {reason.split(':')[0]}")
+    in_images = {}
+    for root, _dirs, files in os.walk(image_root):
+        if "sbom.cdx.json" not in files:
+            continue
+        with open(os.path.join(root, "sbom.cdx.json"), encoding="utf-8") as handle:
+            document = json.load(handle)
+        system = os.path.relpath(root, image_root).replace(os.sep, "/")
+        for component in document["components"]:
+            key = (component["name"], component.get("version"))
+            if key in found and component["scope"] == "required":
+                in_images.setdefault(key, set()).add(system)
+    shipped = sorted(key for key, entry in found.items() if key in in_images or entry["shipped"])
+
+    def joined(items):
+        return items[0] if len(items) == 1 else f"{', '.join(items[:-1])} and {items[-1]}"
+
+    host_only = joined([f"`{path}` (a {what})" for _name, path, what in WORKSPACES if what])
+    lines = ["# Cryptographic Crates", "",
+             f"Every crate in NoWayOS's Cargo workspaces - {joined([f'`{path}`' for _n, path, _w in WORKSPACES])} - "
+             "that is cryptographic - named in `tools/crypto-crates.txt` or filed under crates.io's cryptography "
+             "category - and where it is used. \"Shipped\" means compiled into a program image or a library a "
+             "product builds on; everything else is used only by tests or build tools, as each workspace's SBOM "
+             f"marks it. {host_only} run on the build host only: nothing they are built from ships. The Security "
+             "Checklist's rule - no custom cryptographic primitives; key access only in the security PD - is a "
+             "reviewer's check against this list.", "",
+             f"**In what ships: {', '.join(f'{n} {v}' for n, v in shipped) if shipped else 'none'}.**", "",
+             "| Crate | Version | Why it is listed | Where it is used | In system images |",
+             "| --- | --- | --- | --- | --- |"]
+    for key in sorted(found):
+        entry = found[key]
+        images = ", ".join(sorted(in_images.get(key, set()))) or "-"
+        uses = "; ".join(sorted(entry["uses"])) or "not built"
+        lines.append(f"| {key[0]} | {key[1]} | {entry['why']} | {uses} | {images} |")
+    if not found:
+        lines.append("| - | - | - | - | - |")
+    return "\n".join(lines) + "\n"
+
+
+# ---- The index -------------------------------------------------------------------
+
+def index(out, commit, date, screen_compiler, ci, built, skipped, complete):
+    files = []
+    for root, _dirs, names in os.walk(out):
+        for name in names:
+            path = os.path.relpath(os.path.join(root, name), out).replace(os.sep, "/")
+            if path != "INDEX.md" and not path.startswith("ci/logs/"):
+                files.append(path)
+    lines = [f"# Release Evidence Pack: nowayos {commit[:12]}", ""]
+    if not complete:
+        lines += ["**INCOMPLETE: a step below failed, so this pack is not evidence for a release.**", ""]
+    lines += [
+        "Made by `make release-evidence` (`nowayos/tools/release-evidence`) from a clean checkout, in the "
+        "dev container. Every file listed below is a function of the commit and the dev image alone; "
+        "`ci/logs/` holds the raw output, whose timings differ between runs.", "",
+        "| | |", "| --- | --- |",
+        f"| Commit | `nowayos` {commit} |",
+        f"| Committed | {date} |",
+        f"| Screen Compiler | {f'`screen-compiler` {screen_compiler}, the clone make ci checked against' if screen_compiler else 'no screen-compiler clone: make screen-compiler-check was skipped'} |",
+        "| Release | No version or tag: the release scheme is a proposal waiting for the Product Owner |",
+        "| Signed | No: the signing keys and authority are not decided |",
+        "", "## make ci", "", "| Step | Result |", "| --- | --- |"]
+    lines += [f"| {step} | {status} |" for step, status in ci]
+    lines += ["", "The lines that state each result are in `ci/summary.txt`.", "", "## System Images", "",
+              f"{sum(1 for b in built if b[3] == 'PASS')} images built again from this commit "
+              "(`images/SHA256SUMS`); each folder holds the image's SBOM, seL4 configuration record, board "
+              "description and Microkit report.", ""]
+    if any(status != "PASS" for *_rest, status in built):
+        failed = [f"{system} ({board}, {config})" for board, config, system, status in built if status != "PASS"]
+        lines += [f"Failed: {', '.join(failed)}.", ""]
+    if skipped:
+        lines += ["Not built for a board whose facts cannot serve them:", ""]
+        lines += [f"* {system} on {board}: {reason}" for board, system, reason in skipped]
+        lines.append("")
+    lines += ["## Per Release Checklist", "",
+              "Each Per Release item of the Security Checklist, "
+              "answered from this pack or marked not applicable with the reason.", "",
+              "| Item | Answer |", "| --- | --- |"]
+    lines += [f"| {item} | {answer} |" for item, answer in PER_RELEASE]
+    lines += ["", "## Contents", "", "| File | sha256 |", "| --- | --- |"]
+    lines += [f"| `{path}` | {sha256_file(os.path.join(out, path))} |" for path in sorted(files)]
+    write(os.path.join(out, "INDEX.md"), "\n".join(lines) + "\n")
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n", 1)[0])
+    parser.add_argument("--out", required=True, help="the pack's folder (emptied first)")
+    parser.add_argument("--root-steps", required=True, help="make ci's steps in nowayos's Makefile")
+    parser.add_argument("--system-steps", required=True, help="make ci's steps in tools/make/system.mk")
+    parser.add_argument("--make", default="make")
+    parser.add_argument("--screen-compiler", help="the screen-compiler clone make screen-compiler-check builds against")
+    parser.add_argument("--pi-board", help="also build each system this board can serve (rpi5b_2gb)")
+    args = parser.parse_args()
+    if tomllib is None:
+        print("release-evidence: needs Python 3.11 or later (tomllib); run it in the dev container", file=sys.stderr)
+        return EXIT_ERROR
+    try:
+        commit = require_clean(NOWAYOS)
+        screen_compiler = require_clean(args.screen_compiler) if args.screen_compiler else None
+        date = git(NOWAYOS, "show", "-s", "--format=%cI", "HEAD")
+        out = os.path.abspath(args.out)
+        if os.path.exists(out):
+            shutil.rmtree(out)
+        os.makedirs(out)
+        ci = run_ci(args, out)
+        complete = all(status == "PASS" for _step, status in ci)
+        built, skipped = build_images(args, out) if complete else ([], [])
+        complete = complete and all(status == "PASS" for *_rest, status in built)
+        if complete:
+            shutil.copytree(os.path.join(NOWAYOS, "build", "sbom"), os.path.join(out, "sbom"))
+            write(os.path.join(out, "versions.txt"), versions(screen_compiler))
+            copy_pins(out)
+            check_system = load_tool("check-system")
+            os.makedirs(os.path.join(out, "grants", "systems"))
+            for system in systems():
+                shutil.copyfile(os.path.join(NOWAYOS, "systems", f"{system}.grants"),
+                                os.path.join(out, "grants", "systems", f"{system}.grants"))
+            boards = [QEMU_BOARD] + ([args.pi_board] if args.pi_board else [])
+            for board, system in variants(boards):
+                os.makedirs(os.path.join(out, "grants", "systems", board), exist_ok=True)
+                shutil.copyfile(system_file(system, board, "grants"),
+                                os.path.join(out, "grants", "systems", board, f"{system}.grants"))
+            write(os.path.join(out, "grants", "inventory.md"), inventory(check_system, boards))
+            write(os.path.join(out, "crypto.md"),
+                  crypto(workspace_packages(), os.path.join(out, "sbom"), os.path.join(out, "images")))
+        index(out, commit, date, screen_compiler, ci, built, skipped, complete)
+    except (InputError, OSError, KeyError, json.JSONDecodeError) as err:
+        print(f"release-evidence: {err}", file=sys.stderr)
+        return EXIT_ERROR
+    print(f"release-evidence: {'complete' if complete else 'INCOMPLETE'} - {out}/INDEX.md "
+          f"(sha256 {sha256_file(os.path.join(out, 'INDEX.md'))})")
+    return EXIT_PASS if complete else EXIT_FAIL
+
+
+if __name__ == "__main__":
+    sys.exit(main())

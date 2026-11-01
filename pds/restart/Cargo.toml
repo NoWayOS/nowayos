@@ -1,0 +1,49 @@
+[package]
+name = "nowayos-restart"
+description = "Restarting one protection domain cleanly: its restart image, its restart entry, and its parent's side (approved-unsafe crate)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+# Only for the `entry` and `parent` features, which run inside a PD on seL4.
+# The restart image's format needs no seL4, so `make pds-test` and Miri test
+# it on the host without them.
+sel4 = { workspace = true, optional = true }
+sel4-microkit = { workspace = true, optional = true }
+sel4-phdrs = { workspace = true, optional = true }
+
+[features]
+# The restart entry, in a PD that can be restarted: its program must start at
+# `nowayos_restart_entry` (the PD's build.rs: --entry), and its system
+# description maps its restart image (tools/restart-image).
+entry = ["dep:sel4-microkit", "dep:sel4-phdrs"]
+# A parent's side: restarting a child through its restart entry.
+parent = ["dep:sel4", "dep:sel4-microkit"]
+
+# This crate is on the approved-`unsafe` list, so it cannot inherit the
+# workspace lints (they forbid `unsafe_code`, and a forbid cannot be relaxed).
+# The same lints, with `unsafe_code` at deny: exactly one module
+# (src/entry.rs) allows it. Keep in step with ../Cargo.toml.
+[lints.rust]
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+missing_docs = "warn"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+unreachable = "deny"
+undocumented_unsafe_blocks = "deny"
+multiple_unsafe_ops_per_block = "deny"
+# No panic inside a function that returns Result, and every #[allow] says why.
+panic_in_result_fn = "deny"
+allow_attributes_without_reason = "deny"
+# No out-of-bounds panics and no unchecked arithmetic on lengths and offsets.
+indexing_slicing = "deny"
+arithmetic_side_effects = "deny"

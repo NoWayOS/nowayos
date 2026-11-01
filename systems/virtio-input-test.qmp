@@ -1,0 +1,22 @@
+# Input virtio-input-test's QEMU receives over QMP (tools/qemu-test,
+# --qmp-script): each step waits for a serial line, then sends.
+wait NOWAYOS: virtio-input: 2 input devices ready, on transports 6 and 7
+# Type "a" on the keyboard.
+send {"execute": "input-send-event", "arguments": {"events": [{"type": "key", "data": {"down": true, "key": {"type": "qcode", "data": "a"}}}]}}
+wait NOWAYOS: input-print: key down 0x04
+send {"execute": "input-send-event", "arguments": {"events": [{"type": "key", "data": {"down": false, "key": {"type": "qcode", "data": "a"}}}]}}
+wait NOWAYOS: input-print: key up 0x04
+# Move the tablet to the middle of the screen, then click.
+send {"execute": "input-send-event", "arguments": {"events": [{"type": "abs", "data": {"axis": "x", "value": 16384}}, {"type": "abs", "data": {"axis": "y", "value": 16384}}]}}
+wait NOWAYOS: input-print: pointer at (400, 240)
+send {"execute": "input-send-event", "arguments": {"events": [{"type": "btn", "data": {"down": true, "button": "left"}}]}}
+wait NOWAYOS: input-print: button 0 down
+send {"execute": "input-send-event", "arguments": {"events": [{"type": "btn", "data": {"down": false, "button": "left"}}]}}
+wait NOWAYOS: input-print: button 0 up
+# A key the driver does not map (the keypad's *): dropped and counted.
+send {"execute": "input-send-event", "arguments": {"events": [{"type": "key", "data": {"down": true, "key": {"type": "qcode", "data": "kp_multiply"}}}]}}
+wait NOWAYOS: virtio-input: dropped so far: 0 unknown type, 1 unknown code, 0 out of range, 0 ring full, 0 malformed queue entries
+# A burst of eight key events in one report, bigger than the keyboard's
+# four-slot ring:
+# the first four are forwarded, the rest dropped and counted.
+send {"execute": "input-send-event", "arguments": {"events": [{"type": "key", "data": {"down": true, "key": {"type": "qcode", "data": "b"}}}, {"type": "key", "data": {"down": false, "key": {"type": "qcode", "data": "b"}}}, {"type": "key", "data": {"down": true, "key": {"type": "qcode", "data": "c"}}}, {"type": "key", "data": {"down": false, "key": {"type": "qcode", "data": "c"}}}, {"type": "key", "data": {"down": true, "key": {"type": "qcode", "data": "d"}}}, {"type": "key", "data": {"down": false, "key": {"type": "qcode", "data": "d"}}}, {"type": "key", "data": {"down": true, "key": {"type": "qcode", "data": "e"}}}, {"type": "key", "data": {"down": false, "key": {"type": "qcode", "data": "e"}}}]}}

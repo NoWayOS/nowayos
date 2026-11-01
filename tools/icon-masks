@@ -1,0 +1,487 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT OR Apache-2.0
+"""Make the icons' alpha masks from their SVG sources.
+
+Usage:
+    icon-masks [--out DIR] CRATE
+
+CRATE is the icon crate (crates/nowayos-icons): its icons.toml names each
+icon, its SVG file in CRATE/lucide/ and that file's sha256. For each icon
+the tool draws an 8-bit coverage mask at every device scale the display
+contract allows (1 and 2: 24 and 48 pixels for a 24-unit icon) and writes
+NAME_SIZE.coverage, one byte a pixel, row by row, and masks.rs, the Rust
+that names them, into CRATE/src/masks/ - or into DIR with --out, which
+`make atlases-check` compares with the checked-in files.
+
+What it draws is what Lucide's icons are: strokes 2 units wide, with round
+caps and joins, and no fill, on a 24 x 24 view box. Every path, line,
+polyline, polygon, rect (with rx and ry), circle and ellipse is flattened
+into straight segments; a point is inked if it lies within half the stroke
+of one, which gives round caps and joins exactly. Each pixel's coverage is
+the share of 8 x 8 points inside it so inked, to the nearest of 255. The
+same files give the same bytes, on the host or in the container.
+
+It refuses, writing nothing: a file whose sha256 differs from its pin, an
+SVG file in lucide/ that icons.toml does not name, a stroke width other
+than 2, a fill, a transform, or an element or path command it does not
+draw.
+
+Exit status: 0 written; 2 usage or input error.
+Python 3.11 or later (tomllib), standard library only.
+"""
+
+import argparse
+import hashlib
+import math
+import os
+import re
+import sys
+import tomllib
+import xml.etree.ElementTree as ElementTree
+
+EXIT_OK = 0
+EXIT_ERROR = 2
+
+# The icons' size in layout units, and the device scales they are drawn at:
+# nowayos_display::MAX_SCALE's.
+UNITS = 24
+SCALES = (1, 2)
+# Half the stroke width, in view box units.
+HALF_STROKE = 1.0
+# Samples each way in a pixel.
+SAMPLES = 8
+# Straight segments a curve or arc is cut into, at most, per quarter turn.
+CURVE_STEPS = 16
+
+SVG = "{http://www.w3.org/2000/svg}"
+DRAWN = ("path", "line", "polyline", "polygon", "rect", "circle", "ellipse")
+NUMBER = re.compile(r"[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?")
+
+
+class InputError(Exception):
+    """An icon the tool will not draw; the message says why."""
+
+
+class PathReader:
+    """Reads an SVG path's data: commands, numbers and arc flags."""
+
+    def __init__(self, data):
+        self.data = data
+        self.at = 0
+
+    def skip(self):
+        while self.at < len(self.data) and self.data[self.at] in " \t\r\n,":
+            self.at += 1
+
+    def command(self):
+        self.skip()
+        if self.at < len(self.data) and self.data[self.at].isalpha():
+            self.at += 1
+            return self.data[self.at - 1]
+        return None
+
+    def has_number(self):
+        self.skip()
+        return self.at < len(self.data) and NUMBER.match(self.data, self.at) is not None
+
+    def number(self):
+        self.skip()
+        match = NUMBER.match(self.data, self.at)
+        if match is None:
+            raise InputError(f"path data: a number expected at {self.at}: {self.data!r}")
+        self.at = match.end()
+        return float(match.group())
+
+    def flag(self):
+        self.skip()
+        if self.at < len(self.data) and self.data[self.at] in "01":
+            self.at += 1
+            return self.data[self.at - 1] == "1"
+        raise InputError(f"path data: an arc flag expected at {self.at}: {self.data!r}")
+
+    def done(self):
+        self.skip()
+        return self.at >= len(self.data)
+
+
+def cubic(p0, p1, p2, p3):
+    """Points along a cubic Bezier curve after p0, its end last."""
+    points = []
+    for step in range(1, CURVE_STEPS * 2 + 1):
+        t = step / (CURVE_STEPS * 2)
+        u = 1 - t
+        points.append((
+            u * u * u * p0[0] + 3 * u * u * t * p1[0] + 3 * u * t * t * p2[0] + t * t * t * p3[0],
+            u * u * u * p0[1] + 3 * u * u * t * p1[1] + 3 * u * t * t * p2[1] + t * t * t * p3[1],
+        ))
+    return points
+
+
+def arc(p0, rx, ry, rotation, large, sweep, p1):
+    """Points along an SVG elliptical arc after p0, its end last (SVG 1.1,
+    appendix F.6.5 and F.6.6)."""
+    if p0 == p1:
+        return []
+    rx, ry = abs(rx), abs(ry)
+    if rx == 0 or ry == 0:
+        return [p1]
+    phi = math.radians(rotation)
+    cos, sin = math.cos(phi), math.sin(phi)
+    dx, dy = (p0[0] - p1[0]) / 2, (p0[1] - p1[1]) / 2
+    x1 = cos * dx + sin * dy
+    y1 = -sin * dx + cos * dy
+    scale = x1 * x1 / (rx * rx) + y1 * y1 / (ry * ry)
+    if scale > 1:
+        rx, ry = rx * math.sqrt(scale), ry * math.sqrt(scale)
+    numerator = rx * rx * ry * ry - rx * rx * y1 * y1 - ry * ry * x1 * x1
+    denominator = rx * rx * y1 * y1 + ry * ry * x1 * x1
+    root = math.sqrt(max(0.0, numerator / denominator)) if denominator else 0.0
+    if large == sweep:
+        root = -root
+    cx1 = root * rx * y1 / ry
+    cy1 = -root * ry * x1 / rx
+    cx = cos * cx1 - sin * cy1 + (p0[0] + p1[0]) / 2
+    cy = sin * cx1 + cos * cy1 + (p0[1] + p1[1]) / 2
+
+    def angle(ux, uy, vx, vy):
+        return math.atan2(ux * vy - uy * vx, ux * vx + uy * vy)
+
+    start = angle(1, 0, (x1 - cx1) / rx, (y1 - cy1) / ry)
+    delta = angle((x1 - cx1) / rx, (y1 - cy1) / ry, (-x1 - cx1) / rx, (-y1 - cy1) / ry)
+    if not sweep and delta > 0:
+        delta -= 2 * math.pi
+    elif sweep and delta < 0:
+        delta += 2 * math.pi
+    steps = max(2, math.ceil(abs(delta) / (math.pi / 2) * CURVE_STEPS))
+    points = []
+    for step in range(1, steps + 1):
+        theta = start + delta * step / steps
+        x = rx * math.cos(theta)
+        y = ry * math.sin(theta)
+        points.append((cos * x - sin * y + cx, sin * x + cos * y + cy))
+    points[-1] = p1
+    return points
+
+
+def path_lines(data):
+    """An SVG path's subpaths as lists of points."""
+    reader = PathReader(data)
+    lines = []
+    current = None
+    point = (0.0, 0.0)
+    start = point
+    command = None
+    control = None
+    while not reader.done():
+        letter = reader.command()
+        if letter is not None:
+            command = letter
+        elif command is None:
+            raise InputError(f"path data: starts with no command: {data!r}")
+        relative = command.islower()
+        base = point if relative else (0.0, 0.0)
+        kind = command.upper()
+        if kind == "Z":
+            if current is not None:
+                current.append(start)
+            point = start
+            current = None
+            control = None
+            continue
+        if kind == "M":
+            point = (base[0] + reader.number(), base[1] + reader.number())
+            start = point
+            current = [point]
+            lines.append(current)
+            command = "l" if relative else "L"
+            control = None
+            continue
+        if current is None:
+            current = [point]
+            lines.append(current)
+        if kind == "L":
+            point = (base[0] + reader.number(), base[1] + reader.number())
+            current.append(point)
+            control = None
+        elif kind == "H":
+            point = ((point[0] if relative else 0.0) + reader.number(), point[1])
+            current.append(point)
+            control = None
+        elif kind == "V":
+            point = (point[0], (point[1] if relative else 0.0) + reader.number())
+            current.append(point)
+            control = None
+        elif kind in "CS":
+            if kind == "C":
+                first = (base[0] + reader.number(), base[1] + reader.number())
+            else:
+                first = point if control is None else (2 * point[0] - control[0], 2 * point[1] - control[1])
+            second = (base[0] + reader.number(), base[1] + reader.number())
+            end = (base[0] + reader.number(), base[1] + reader.number())
+            current.extend(cubic(point, first, second, end))
+            control = second
+            point = end
+        elif kind in "QT":
+            if kind == "Q":
+                middle = (base[0] + reader.number(), base[1] + reader.number())
+            else:
+                middle = point if control is None else (2 * point[0] - control[0], 2 * point[1] - control[1])
+            end = (base[0] + reader.number(), base[1] + reader.number())
+            first = (point[0] + 2 / 3 * (middle[0] - point[0]), point[1] + 2 / 3 * (middle[1] - point[1]))
+            second = (end[0] + 2 / 3 * (middle[0] - end[0]), end[1] + 2 / 3 * (middle[1] - end[1]))
+            current.extend(cubic(point, first, second, end))
+            control = middle
+            point = end
+        elif kind == "A":
+            rx, ry, rotation = reader.number(), reader.number(), reader.number()
+            large, sweep = reader.flag(), reader.flag()
+            end = (base[0] + reader.number(), base[1] + reader.number())
+            current.extend(arc(point, rx, ry, rotation, large, sweep, end))
+            point = end
+            control = None
+        else:
+            raise InputError(f"path data: command {command!r} is not drawn")
+        if not reader.has_number() and not reader.done() and reader.data[reader.at].isalpha() is False:
+            raise InputError(f"path data: unexpected {reader.data[reader.at]!r}: {data!r}")
+    return lines
+
+
+def ellipse(cx, cy, rx, ry):
+    """An ellipse as a closed list of points."""
+    steps = 4 * CURVE_STEPS
+    points = [(cx + rx * math.cos(2 * math.pi * k / steps), cy + ry * math.sin(2 * math.pi * k / steps))
+              for k in range(steps)]
+    return points + [points[0]]
+
+
+def rounded_rect(x, y, width, height, rx, ry):
+    """A rect, its corners rounded by rx and ry, as a closed list of points."""
+    rx, ry = min(rx, width / 2), min(ry, height / 2)
+    if rx <= 0 or ry <= 0:
+        return [(x, y), (x + width, y), (x + width, y + height), (x, y + height), (x, y)]
+    data = (f"M{x + rx} {y}H{x + width - rx}A{rx} {ry} 0 0 1 {x + width} {y + ry}V{y + height - ry}"
+            f"A{rx} {ry} 0 0 1 {x + width - rx} {y + height}H{x + rx}A{rx} {ry} 0 0 1 {x} {y + height - ry}"
+            f"V{y + ry}A{rx} {ry} 0 0 1 {x + rx} {y}Z")
+    return path_lines(data)[0]
+
+
+def number_attribute(element, name, default=None):
+    value = element.get(name)
+    if value is None:
+        if default is None:
+            raise InputError(f"<{element.tag.removeprefix(SVG)}> needs {name}")
+        return default
+    match = NUMBER.fullmatch(value.strip())
+    if match is None:
+        raise InputError(f"<{element.tag.removeprefix(SVG)}> {name}={value!r} is not a number")
+    return float(value)
+
+
+def element_lines(element):
+    """One drawn element's polylines."""
+    tag = element.tag.removeprefix(SVG)
+    for refused in ("transform", "fill", "stroke-width"):
+        if element.get(refused) is not None:
+            raise InputError(f"<{tag}> sets {refused}, which the masks do not draw")
+    if tag == "path":
+        return path_lines(element.get("d", ""))
+    if tag == "line":
+        return [[(number_attribute(element, "x1", 0.0), number_attribute(element, "y1", 0.0)),
+                 (number_attribute(element, "x2", 0.0), number_attribute(element, "y2", 0.0))]]
+    if tag in ("polyline", "polygon"):
+        values = [float(v) for v in NUMBER.findall(element.get("points", ""))]
+        points = list(zip(values[0::2], values[1::2]))
+        if tag == "polygon" and points:
+            points.append(points[0])
+        return [points]
+    if tag == "rect":
+        rx = element.get("rx")
+        ry = element.get("ry")
+        rx_value = number_attribute(element, "rx", 0.0) if rx is not None else None
+        ry_value = number_attribute(element, "ry", 0.0) if ry is not None else None
+        rx_value = rx_value if rx_value is not None else (ry_value or 0.0)
+        ry_value = ry_value if ry_value is not None else rx_value
+        return [rounded_rect(number_attribute(element, "x", 0.0), number_attribute(element, "y", 0.0),
+                             number_attribute(element, "width"), number_attribute(element, "height"),
+                             rx_value, ry_value)]
+    if tag == "circle":
+        r = number_attribute(element, "r")
+        return [ellipse(number_attribute(element, "cx", 0.0), number_attribute(element, "cy", 0.0), r, r)]
+    if tag == "ellipse":
+        return [ellipse(number_attribute(element, "cx", 0.0), number_attribute(element, "cy", 0.0),
+                        number_attribute(element, "rx"), number_attribute(element, "ry"))]
+    raise InputError(f"<{tag}> is not drawn")
+
+
+def svg_segments(text):
+    """Every straight segment of an icon's strokes, in view box units."""
+    try:
+        root = ElementTree.fromstring(text)
+    except ElementTree.ParseError as err:
+        raise InputError(f"not XML: {err}") from err
+    if root.tag != SVG + "svg":
+        raise InputError("not an SVG document")
+    expected = {"viewBox": "0 0 24 24", "fill": "none", "stroke-width": "2",
+                "stroke-linecap": "round", "stroke-linejoin": "round"}
+    for name, value in expected.items():
+        if root.get(name) != value:
+            raise InputError(f"<svg> {name}={root.get(name)!r}, not {value!r}")
+    segments = []
+    for element in root:
+        tag = element.tag.removeprefix(SVG)
+        if tag not in DRAWN:
+            raise InputError(f"<{tag}> is not drawn")
+        if len(element):
+            raise InputError(f"<{tag}> has children")
+        for line in element_lines(element):
+            if len(line) == 1:
+                segments.append((line[0], line[0]))
+            segments.extend(zip(line, line[1:]))
+    if not segments:
+        raise InputError("draws nothing")
+    return segments
+
+
+def distance(px, py, segment):
+    """The distance from (px, py) to a segment."""
+    (ax, ay), (bx, by) = segment
+    dx, dy = bx - ax, by - ay
+    length = dx * dx + dy * dy
+    t = 0.0 if length == 0 else max(0.0, min(1.0, ((px - ax) * dx + (py - ay) * dy) / length))
+    x, y = ax + t * dx - px, ay + t * dy - py
+    return math.sqrt(x * x + y * y)
+
+
+def mask(segments, scale):
+    """The coverage of an icon at `scale`: (UNITS * scale) ** 2 bytes."""
+    size = UNITS * scale
+    pixel = 1 / scale
+    # Half a pixel's diagonal, in view box units: a pixel whose centre lies
+    # this much further from every stroke than half the stroke is empty; this
+    # much nearer, full.
+    reach = pixel * math.sqrt(2) / 2
+    data = bytearray()
+    for row in range(size):
+        y0 = row * pixel
+        near_row = [s for s in segments
+                    if min(s[0][1], s[1][1]) - HALF_STROKE - pixel <= y0 + pixel
+                    and max(s[0][1], s[1][1]) + HALF_STROKE + pixel >= y0]
+        for column in range(size):
+            x0 = column * pixel
+            centre = min((distance(x0 + pixel / 2, y0 + pixel / 2, s) for s in near_row), default=math.inf)
+            if centre >= HALF_STROKE + reach:
+                data.append(0)
+                continue
+            if centre <= HALF_STROKE - reach:
+                data.append(255)
+                continue
+            inked = 0
+            for sy in range(SAMPLES):
+                for sx in range(SAMPLES):
+                    x = x0 + (sx + 0.5) * pixel / SAMPLES
+                    y = y0 + (sy + 0.5) * pixel / SAMPLES
+                    if any(distance(x, y, s) <= HALF_STROKE for s in near_row):
+                        inked += 1
+            data.append((inked * 255 + SAMPLES * SAMPLES // 2) // (SAMPLES * SAMPLES))
+    return bytes(data)
+
+
+def rust_name(name):
+    return name.upper().replace("-", "_")
+
+
+def generate(crate):
+    """The files to write, {file name: bytes}, from CRATE's icons.toml."""
+    try:
+        with open(os.path.join(crate, "icons.toml"), "rb") as handle:
+            config = tomllib.load(handle)
+    except (OSError, tomllib.TOMLDecodeError) as err:
+        raise InputError(f"icons.toml: {err}") from err
+    icons = config.get("icon", [])
+    if not icons:
+        raise InputError("icons.toml names no icon")
+    folder = os.path.join(crate, "lucide")
+    named = {f"{icon['name']}.svg" for icon in icons}
+    unpinned = sorted(set(f for f in os.listdir(folder) if f.endswith(".svg")) - named)
+    if unpinned:
+        raise InputError(f"lucide/ holds icons icons.toml does not name: {', '.join(unpinned)}")
+    files = {}
+    statics = []
+    for icon in sorted(icons, key=lambda icon: icon["name"]):
+        name = icon["name"]
+        if not re.fullmatch(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*", name):
+            raise InputError(f"icons.toml: {name!r} is not an icon name")
+        path = os.path.join(folder, f"{name}.svg")
+        try:
+            with open(path, "rb") as handle:
+                data = handle.read()
+        except OSError as err:
+            raise InputError(f"{name}: {err}") from err
+        digest = hashlib.sha256(data).hexdigest()
+        if digest != icon.get("sha256"):
+            raise InputError(f"{name}.svg: sha256 {digest} is not its pin in icons.toml")
+        try:
+            segments = svg_segments(data.decode("utf-8"))
+        except (InputError, UnicodeDecodeError, ValueError) as err:
+            raise InputError(f"{name}.svg: {err}") from err
+        masks = []
+        for scale in SCALES:
+            size = UNITS * scale
+            file_name = f"{name.replace('-', '_')}_{size}.coverage"
+            files[file_name] = mask(segments, scale)
+            masks.append(f"Mask::new({size}, include_bytes!(\"{file_name}\"))")
+        statics.append((name, masks))
+    lines = [
+        "// @generated by tools/icon-masks from the Lucide icons icons.toml pins. Do not edit by hand.",
+        "// `make atlases` writes it again; `make atlases-check` compares.",
+        "",
+        "use crate::{Icon, Mask};",
+        "",
+    ]
+    for name, masks in statics:
+        lines += [
+            f"/// Lucide's `{name}`.",
+            f"pub static {rust_name(name)}: Icon = Icon::new(",
+            f"    \"{name}\",",
+            "    [",
+            *[f"        {m}," for m in masks],
+            "    ],",
+            ");",
+            "",
+        ]
+    lines += [
+        "/// Every icon, by name: for tests and tools. A program that names one",
+        "/// icon links that icon alone, never this list.",
+        f"pub static ALL: [&Icon; {len(statics)}] = [",
+        *[f"    &{rust_name(name)}," for name, _ in statics],
+        "];",
+        "",
+    ]
+    files["mod.rs"] = "\n".join(lines).encode("utf-8")
+    return files
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("crate", help="the icon crate: crates/nowayos-icons")
+    parser.add_argument("--out", help="write here instead of CRATE/src/masks")
+    args = parser.parse_args()
+    try:
+        files = generate(args.crate)
+    except InputError as err:
+        print(f"icon-masks: {err}", file=sys.stderr)
+        return EXIT_ERROR
+    out = args.out or os.path.join(args.crate, "src", "masks")
+    os.makedirs(out, exist_ok=True)
+    for stale in os.listdir(out):
+        if stale not in files and (stale.endswith(".coverage") or stale == "mod.rs"):
+            os.remove(os.path.join(out, stale))
+    for file_name, data in sorted(files.items()):
+        with open(os.path.join(out, file_name), "wb") as handle:
+            handle.write(data)
+    print(f"icon-masks: {len(files) - 1} mask(s) and mod.rs in {out}")
+    return EXIT_OK
+
+
+if __name__ == "__main__":
+    sys.exit(main())

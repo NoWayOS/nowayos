@@ -1,0 +1,30 @@
+# Lines tools/qemu-test must see, in this order, as whole serial lines.
+# In QEMU: the entropy PD passes its start-up
+# tests and fills the consumer's seed ring before the consumer runs (it runs
+# above it); the consumer is refused before its first seed, keys its generator
+# from one and wipes its copies, prints the SHA-256 of a draw (the line after,
+# not checked: it differs every run) and never the bytes; the entropy PD
+# overwrites the slot it took, which the consumer checks.
+NOWAYOS: entropy: starting
+NOWAYOS: entropy: virtio-rng on transport 8, claimed to give 8 bits a byte
+NOWAYOS: entropy: start-up tests passed over the first 1024 bytes, which were discarded
+NOWAYOS: entropy: seed ring 0 full: 4 seeds
+NOWAYOS: seed-consumer: starting
+NOWAYOS: seed-consumer: not ready: a draw before its first seed is refused
+NOWAYOS: seed-consumer: seeded: its generator keyed, and its copies of the seed wiped
+NOWAYOS: seed-consumer: drew 32 bytes; their SHA-256 follows, never the bytes
+NOWAYOS: entropy: seed ring 0: 1 taken seed(s) overwritten
+NOWAYOS: seed-consumer: the slot it took no longer holds its seed
+
+# Output that fails the test at once if it appears anywhere (substring match),
+# including in the second after the last line above: a fault reported by the
+# Microkit monitor, a kernel error message, a panic, a PD giving up, a failed
+# health test, a refused seed or a consumer waiting for one.
+!MON|ERROR
+!seL4(CPU
+!panicked
+!gave up
+!health test failed
+!a seed refused
+!no seed on its ring
+!too few bytes

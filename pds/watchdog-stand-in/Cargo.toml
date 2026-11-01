@@ -1,0 +1,30 @@
+[package]
+name = "nowayos-watchdog-stand-in"
+description = "Test-only: stands in for the hardware watchdog QEMU's virt board lacks - a fixed-period tick to the watchdog PD, timed by the timer PD, and a report once it goes unserviced long enough that the hardware would reset the board; on the Pi 5, the tick alone, until the system's run length"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+# A library, so that a product's system can run this PD from a program of its
+# own (wrapping `init`), and the program NoWayOS's systems run.
+[lib]
+path = "src/lib.rs"
+test = false
+doctest = false
+bench = false
+
+[[bin]]
+name = "nowayos-watchdog-stand-in"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+nowayos-region.workspace = true
+nowayos-timer-api = { workspace = true, features = ["client"] }
+sel4-microkit.workspace = true
+
+[lints]
+workspace = true

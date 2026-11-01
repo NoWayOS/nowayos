@@ -1,0 +1,1953 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT OR Apache-2.0
+"""Check a Microkit system description against the grants it may make.
+
+Usage:
+    check-system --sdf systems/NAME.system --grants systems/NAME.grants
+                 [--board BOARD] [--platforms DIR] [--rules FILE]
+                 [--capdl build/BOARD/NAME/capdl.json]
+                 [--report build/BOARD/NAME/report.txt]
+                 [--sdk-memory SDK/board/BOARD/CONFIG/platform_gen.json]
+                 [--qemu systems/NAME.qemu]
+
+The grants file lists everything the system description grants, one fact per
+line (blank lines and '#' comments are ignored). It also says what kind of
+system it is and what role each PD has, for the role rules (rule 11):
+
+    system KIND                            test, demo or product
+    role PD ROLE                           ui, input, broker, display, driver,
+                                           network, security, storage, update,
+                                           app, supervisor, watchdog, clock
+                                           or test (the list:
+                                           tools/grant-rules.toml)
+
+and then the facts:
+
+    pd NAME priority=P budget=B period=T   every protection domain and its CPU
+                                           share (Microkit defaults filled in:
+                                           priority 0, budget 1000 us, period
+                                           equal to the budget)
+    pd NAME priority=P budget=B period=T passive
+                                           a passive PD: after init it has no
+                                           CPU time of its own, and runs only
+                                           on the time of a PD that notifies
+                                           or calls it
+    pd NAME ... cpu=N                      either, for a PD an SMP system
+                                           runs on core N, not core 0 (
+                                           the capDL's thread must be bound
+                                           to that core)
+    map PD REGION PERMS                    PD maps memory region REGION, with
+                                           PERMS r (read-only) or rw
+    device PD DEVICE PERMS                 PD maps DEVICE's registers, with
+                                           PERMS r or rw (uncached)
+    cached PD DEVICE                       PD maps DEVICE, a framebuffer the
+                                           firmware set up, cached (rule 7's
+                                           one exception)
+    irq PD DEVICE INTID                    PD receives DEVICE's interrupt INTID
+    irq PD DEVICE                          the same, for a DEVICE with one
+                                           interrupt on the board: the board
+                                           file supplies INTID, so one grants
+                                           file serves every board
+    channel PD_A PD_B                      a channel between two PDs; each can
+                                           notify the other (Microkit's default)
+    channel PD_A PD_B notify=PD            a one-way channel: only PD (PD_A or
+                                           PD_B) can notify the other, whose end
+                                           has notify="false"
+    channel PD_A PD_B notify=none          a channel neither end can notify on
+                                           (one used only for a call)
+    call CALLER CALLEE                     CALLER can make a protected procedure
+                                           call to CALLEE (pp="true" on CALLER's
+                                           end of their channel)
+    paddr PD REGION                        PD learns memory region REGION's
+                                           physical address (<setvar
+                                           region_paddr>), so it can hand the
+                                           region to a device for DMA
+    child PARENT CHILD                     CHILD is a child PD of PARENT, which
+                                           receives its faults and can stop it
+    restart PARENT CHILD                   PARENT maps CHILD's restart image, so
+                                           it can restart CHILD on its own
+                                           (rule 13)
+
+Devices are named, never given by address: their facts - register window
+(none for a device reached through system registers, such as the CPU's
+timer), interrupts and trigger, each with its source - live in one board file,
+DIR/BOARD.toml (default DIR: the platforms/ folder beside tools/). A system
+description maps a device through a memory_region whose phys_addr and size
+are exactly the device's window, and takes an interrupt with <irq>. --board
+is needed only when the description or the grants file uses a device.
+
+The check fails (exit 1) unless all of these hold:
+
+1. The system description grants exactly what the grants file lists: nothing
+   more and nothing less. So widening a grant means editing the grants file
+   too, in the same reviewed change.
+2. Every map is "r" or "rw": nothing executable, nothing write-only.
+3. No memory region is mapped twice into one PD. (nowayos-region's ring
+   checks that its two regions do not overlap in the PD's address space, but
+   cannot see two mappings of the same region.)
+4. A map that binds a nowayos-region symbol has the rights the symbol's name
+   states: nowayos_rw_region_N_vaddr only on perms="rw", nowayos_ro_region_N_vaddr
+   only on perms="r", and never on device memory. A map that binds a nowayos-hw
+   symbol, nowayos_device_N_vaddr, is of a device's register window (rule 7
+   makes it exact, uncached and private). Each has the matching ..._size
+   symbol as setvar_size. A nowayos-hw DMA region binds three symbols that
+   must agree: nowayos_dma_N_vaddr and _size on a map of memory that is not
+   a device's, and nowayos_dma_N_paddr on a <setvar region_paddr> naming the
+   same region, in the same PD. A nowayos-hw I/O region - memory a driver
+   hands its device but never maps, such as a network client's packet
+   buffers - binds nowayos_io_N_paddr only, on a <setvar region_paddr>
+   naming a region that PD does not map. A setvar symbol that starts with
+   nowayos_ is only ever a nowayos_dma_N_paddr or a nowayos_io_N_paddr.
+   nowayos-restart's nowayos_restart_image_vaddr binds a read-only map, with
+   nowayos_restart_image_size (rule 13 says of what). nowayos-heap's
+   nowayos_heap_region_vaddr binds a read-write map of memory that is not a
+   device's, with nowayos_heap_region_size (rule 16 says of what).
+5. The description uses only elements and attributes this checker models.
+   Anything else (virtual machines, SMC calls, a PD on another CPU core,
+   extra CSpace capabilities, ...) fails, so that a new kind of capability is
+   never passed unchecked: extend this checker and the grants format first.
+6. With --capdl (the Microkit tool's `--capdl-json` output): the kernel
+   objects the tool generated grant exactly those rights. Every page a PD can
+   reach through its page tables is its own - its program image
+   (frame_elf_PD_N), stack (frame_PD_stack_N) or IPC buffer (frame_ipcbuf_PD)
+   - or a page of a memory region it maps; anything else, another PD's
+   program image, stack or IPC buffer among them, fails, naming the frame.
+   Every page of every memory region it reaches has the read and write rights
+   of its map, and none is executable; a PD reaches no region it does not
+   map. A device's pages are uncached (but a framebuffer's under rule 7's
+   exception) and lie wholly inside its
+   register window, and a PD reaches no other physical address except the
+   pages of a DMA region (one whose physical address some PD learns). A PD
+   holds an interrupt handler only for the interrupts it is granted, every
+   granted interrupt has its handler, a thread capability only for its own
+   children, and no capability of a kind this checker does not model. It
+   receives only on its own notification and endpoint; it can signal a PD's
+   notification exactly when it may notify that PD, and send to a PD's
+   endpoint exactly when it may call that PD - besides the endpoints that
+   take its faults (its parent's, or the Microkit monitor's). The monitor
+   holds the scheduling contexts of exactly the passive PDs.
+7. Device memory: a memory_region with phys_addr is exactly one device's
+   register window on the board, no device is covered by two regions, its
+   map is uncached (cached="false"), and the device is mapped into one PD
+   only. One exception: a framebuffer the firmware set up (a
+   device with a framebuffer mode in the board file) may be mapped cached;
+   that is the grant `cached PD DEVICE`, which grant-rules.toml keeps to the
+   display role (rule 11), and the PD cleans each frame to memory.
+8. Interrupts: each <irq> is an interrupt of a device on the board, with the
+   board's trigger, and each interrupt goes to one PD only.
+9. Protected procedure calls go only to a PD of strictly higher priority
+   (Microkit's own rule, checked here too so the grants check names it).
+10. Physical addresses: a <setvar> has exactly a symbol and a region_paddr,
+    which names a memory region that is not device memory - a driver learns
+    the address of its DMA memory, not of another device's registers.
+11. Roles: the grants file names its system's kind and every PD's role, and
+    no PD holds a grant its role forbids, nor runs a test-only program image
+    outside a test system, nor a development-only one - such as the debug
+    UART's keys - in a product system, which the build names on every
+    image that runs one - the rules in tools/grant-rules.toml (--rules),
+    each with its reason. A rule may bind only in some kinds of system, or
+    spare a channel or call towards one peer role, or bind one device and
+    its rights (an input PD maps the debug UART read-only, and holds it in
+    no product); a rule on `pd`, the PD
+    itself, refuses a role outright (a test PD outside a test system);
+    an `only` rule names the one role that may hold a kind of grant (the
+    SMC capability: the supervisor). These are the grants that must never
+    exist, whatever a description says. Three kinds of rule there bind a
+    whole system's shape: a `parent_of_all` rule, that exactly one
+    PD has its role and every other PD is that PD's child (in a product: the
+    supervisor); an `above_all` rule, that a PD of its role runs at a
+    strictly higher priority than every other PD, but those of its
+    `except_role`, one role or a list of them (the supervisor above all;
+    the watchdog above all but the supervisor; the fan above every PD that
+    can keep the CPU busy); and a `full_budget` rule, that a PD of its role has
+    a full budget of its own - its budget equal to its period, and not
+    passive - so it never runs out partway through its work (the supervisor,
+    whose start-up must run before any child's). An `only_writers` rule
+     says who may write what a PD of its role reads: every other PD
+    that can write a memory region that PD maps - one that maps it "rw", or
+    learns its physical address, so a device it drives can write it - has
+    one of the rule's `writers` roles, or one of its `test_writers` roles in
+    a test system (the clock PD's samples: a network PD, or a test PD in a
+    test system). A `reads_prefill` rule says what configuration a PD of its
+    role reads: every such PD binds the rule's `symbol`, a read-only
+    region's nowayos_ro_region_N_vaddr, to exactly one region, mapped "r"
+    and prefilled from the rule's `prefill` file - the clock PD's floor,
+    read-only region 6 from build-time.bin, so a region left unfilled (all
+    zeros: 1970) or filled with other configuration is refused, naming the
+    rule, the PD and why.
+12. Configuration: a memory_region prefilled from a file (prefill_path, the
+    system's configuration, such as the screen's size or the image's build
+    time) is mapped read-only
+    into every PD that maps it, so no PD can change what the others are
+    configured with; which file a PD of a given role must read is rule 11's
+    (`reads_prefill`). A prefill whose name starts with "test-" is a test-only
+    stand-in - a supervisor's counts, test-counts-*.bin, until a store is built
+    - and only a test system may have one. A device's
+    facts from the board file, device-DEVICE.bin (its compatible
+    string and how many bytes of its window are registers), name a device
+    the board has, with a register window, and go only to a PD that maps
+    that window: a driver reads the facts of the device it holds.
+13. Restart images: a memory_region prefilled from restart-PD.bin is
+    PD's restart image, what its writable memory holds when its program is
+    loaded (tools/restart-image). PD maps it, binding
+    nowayos_restart_image_vaddr and _size, and no PD binds those symbols to
+    any other region; besides PD, only PD's parent may map it - listed as
+    `restart PARENT PD`, since with it the parent can restart PD on its own.
+    No product system has one: restarting one PD on its own needs a
+    decision the fault policy has not taken yet.
+14. Nothing on the screen but the screen: with --report, the
+    Microkit tool's report of where it places every kernel object; no
+    object lies in a framebuffer the board's firmware scans out (a board
+    device with a `framebuffer` mode: from its first row through what the
+    firmware reserves for it, its `reserved`, or else to its last byte)
+    but the frames of a memory region that maps that device's window.
+    It holds only while the firmware sets up the mode the board file
+    gives: pi-run checks that at each boot. Objects are naturally aligned, so one starting below the
+    framebuffer cannot run into it. With --sdk-memory, the RAM the
+    Microkit SDK's kernel hands out for the board and configuration (its
+    platform_gen.json): none of it may cover such a framebuffer either,
+    or seL4 could give what the screen shows to any PD. The
+    kernel's own boot objects, which the report leaves out, lie in that
+    RAM, so they cannot reach the framebuffer either; on Microkit 2.3.1's
+    release SDK they ended 0x8080 bytes into the Pi 5's, which is why its
+    window starts at row 16.
+15. The random source where only the entropy PD reaches it: with
+    --qemu, the system's QEMU device file; it may put virtio-rng
+    (`-device virtio-rng-device`) on no bus but `virtio-mmio-bus.8`,
+    transport 8, the first of the page QEMU's board file names `rng`
+    . On any other transport it would sit in a
+    page another PD may be granted.
+
+16. A heap in a memory region (nowayos-heap): the region a PD binds
+    nowayos_heap_region_vaddr to is its heap's arena, so it is that PD's
+    alone, as a static arena in its image would be - no other PD maps it,
+    it is not prefilled, and the PD binds no second one.
+
+Exit status: 0 all checks pass; 1 a check failed; 2 usage or input error.
+Python 3.11 or later, standard library only.
+"""
+
+import argparse
+import fnmatch
+import json
+import os
+import re
+import sys
+import tomllib
+import xml.etree.ElementTree as ElementTree
+
+EXIT_PASS = 0
+EXIT_FAIL = 1
+EXIT_ERROR = 2
+
+# Microkit 2.3.1 defaults (manual, "System Description File").
+DEFAULT_PRIORITY = 0
+DEFAULT_BUDGET = 1000
+DEFAULT_PERMS = "rw"
+DEFAULT_TRIGGER = "level"
+PAGE = 0x1000
+
+# What this checker models. Anything else is refused (rule 5).
+SYSTEM_CHILDREN = {"memory_region", "protection_domain", "channel"}
+REGION_ATTRS = {"name", "size", "page_size", "phys_addr", "prefill_path"}
+PD_ATTRS = {"name", "priority", "budget", "period", "passive", "stack_size", "smc", "cpu"}
+CHILD_PD_ATTRS = PD_ATTRS | {"id"}
+PD_CHILDREN = {"program_image", "map", "irq", "setvar", "protection_domain"}
+IMAGE_ATTRS = {"path"}
+MAP_ATTRS = {"mr", "vaddr", "perms", "cached", "setvar_vaddr", "setvar_size"}
+IRQ_ATTRS = {"irq", "id", "trigger", "setvar_id"}
+SETVAR_ATTRS = {"symbol", "region_paddr"}
+END_ATTRS = {"pd", "id", "pp", "notify"}
+BOOLEANS = {"true": True, "false": False}
+
+BOARD_KEYS = {"board", "device"}
+DEVICE_KEYS = {"name", "irqs", "trigger", "source"}
+# A device reached through system registers, such as the CPU's own timer,
+# has interrupts but no register window: it has neither address nor size.
+DEVICE_WINDOW_KEYS = {"address", "size"}
+DEVICE_OPTIONAL_KEYS = {"compatible", "registers", "note", "framebuffer", "pci_bar0", "dma_offset"}
+# A framebuffer the firmware set up and scans out: its mode, as the
+# devicetree's simple-framebuffer binding describes one - the screen's width
+# and height in pixels, the bytes from one row to the next, the pixel format
+# by the binding's name - and the screen row the window starts at, since a
+# window starts on a page and may leave out the framebuffer's first rows.
+# The device's `registers` are then the window's bytes of pixels: rows
+# first_row to height - 1. Its facts carry the mode to the display PD.
+FRAMEBUFFER_KEYS = {"width", "height", "stride", "format", "first_row"}
+# And, optionally, the bytes from the framebuffer's first row that the
+# firmware reserves for it (its memreserve), which rule 14 keeps clear.
+FRAMEBUFFER_OPTIONAL_KEYS = {"reserved"}
+FRAMEBUFFER_COMPATIBLE = "simple-framebuffer"
+# Each format the facts can carry: its code in device-NAME.bin, and bytes a pixel.
+FRAMEBUFFER_FORMATS = {"r5g6b5": (1, 2)}
+# A devicetree compatible string as a board file gives it, and as a device's
+# facts carry it to a driver (device-DEVICE.bin): printable ASCII.
+COMPATIBLE = re.compile(r"[\x21-\x7e]{1,64}")
+TRIGGERS = {"level", "edge"}
+DEFAULT_PLATFORMS = os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir, "platforms")
+DEFAULT_RULES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "grant-rules.toml")
+# The kinds of grant a role rule can forbid: grants-file facts by their first word.
+# `pd` is the PD itself: a rule on it refuses the role outright.
+RULE_GRANTS = {"device", "cached", "irq", "child", "channel", "call", "paddr", "map", "smc", "restart", "pd"}
+# What the rules file may hold (rule 11); anything else is refused, never ignored.
+RULES_KEYS = {"roles", "systems", "forbid", "only", "parent_of_all", "above_all", "full_budget", "only_writers",
+              "one_reader",
+              "reads_prefill", "test_only", "development_only"}
+
+# Capabilities a PD's CSpace may hold (rule 6): what the Microkit tool generates
+# for the elements this checker models. Anything else fails.
+CAPDL_CNODE_CAPS = {"CNode", "Notification", "Endpoint", "Reply", "PageTable", "Tcb", "ArmIrqHandler",
+                    "ArmSmc"}
+
+REGION_SYMBOL = re.compile(r"^nowayos_(rw|ro)_region_(\d+)_(vaddr|size)$")
+DEVICE_SYMBOL = re.compile(r"^nowayos_(device)_(\d+)_(vaddr|size)$")
+DMA_SYMBOL = re.compile(r"^nowayos_(dma)_(\d+)_(vaddr|size|paddr)$")
+IO_SYMBOL = re.compile(r"^nowayos_(io)_(\d+)_(paddr)$")
+RESTART_VADDR = "nowayos_restart_image_vaddr"
+RESTART_SIZE = "nowayos_restart_image_size"
+HEAP_VADDR = "nowayos_heap_region_vaddr"
+HEAP_SIZE = "nowayos_heap_region_size"
+RESTART_PREFILL = re.compile(r"^restart-([A-Za-z_][A-Za-z0-9_]*)\.bin$")
+# A prefill file named with this prefix is a test-only stand-in (rule 12).
+TEST_PREFILL = "test-"
+# A device's facts from the board file, for the PD that holds it (rule 12).
+DEVICE_FACTS_PREFILL = re.compile(r"^device-([A-Za-z_][A-Za-z0-9_]*)\.bin$")
+CAPDL_REGION_FRAME = re.compile(r"^frame_mr_(.+)_\d{9}$")
+
+
+def own_frame(pd, name):
+    """Whether a frame is one of PD's own: its program image, stack or IPC
+    buffer, as the Microkit tool names them."""
+    pd = re.escape(pd)
+    return re.fullmatch(rf"frame_elf_{pd}_\d+|frame_{pd}_stack(?:_\d+)?|frame_ipcbuf_{pd}", name) is not None
+CAPDL_TCB = re.compile(r"^tcb_(.+)$")
+CAPDL_SCHED_CONTEXT = re.compile(r"^sched_context_(.+)$")
+# Kernel objects the Microkit tool names after a PD: its notification and,
+# when it has children or is called, its endpoint.
+CAPDL_NOTIFICATION = "ntfn_{}"
+CAPDL_ENDPOINT = "ep_{}"
+# The monitor's endpoint, which takes the faults of every top-level PD and the
+# "init has finished" message of every passive PD; and the monitor's CNode.
+CAPDL_MONITOR_ENDPOINT = "ep_fault_monitor"
+CAPDL_MONITOR_CNODE = "cnode_monitor"
+NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+class InputError(Exception):
+    """A file could not be read or parsed."""
+
+
+def parse_int(text, what):
+    try:
+        return int(text.replace("_", ""), 0)
+    except ValueError as err:
+        raise InputError(f"{what}: not an integer: {text!r}") from err
+
+
+class Device:
+    """One register window on a board, with its interrupts, its compatible
+    string (None if the board file gives none) and how many bytes of its
+    window, from its start, are registers (the whole window unless the board
+    file says fewer; None for a device with no window)."""
+
+    def __init__(self, name, address, size, irqs, trigger, compatible=None, registers=None, framebuffer=None,
+                 pci_bar0=None, dma_offset=None):
+        self.name, self.address, self.size = name, address, size
+        self.irqs, self.trigger = irqs, trigger
+        self.compatible = compatible
+        self.registers = registers if registers is not None else size
+        self.framebuffer = framebuffer  # its mode, for a framebuffer the firmware set up; else None
+        # For a PCI function its driver places itself: the bus
+        # address its board file chose for the window, BAR 0.
+        self.pci_bar0 = pci_bar0
+        # For a device that sees memory at other addresses than the CPU's:
+        # the bus address of physical address 0.
+        self.dma_offset = dma_offset
+
+    def contains(self, paddr):
+        return self.address is not None and self.address <= paddr < self.address + self.size
+
+
+def is_int(value):
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def read_board(path, expected=None):
+    """Return {name: Device} from a board file, or raise InputError."""
+    try:
+        with open(path, "rb") as handle:
+            data = tomllib.load(handle)
+    except OSError as err:
+        raise InputError(f"cannot read board file {path}: {err}") from err
+    except tomllib.TOMLDecodeError as err:
+        raise InputError(f"{path}: not valid TOML: {err}") from err
+    unknown = set(data) - BOARD_KEYS
+    if unknown:
+        raise InputError(f"{path}: unknown top-level key(s) {sorted(unknown)}")
+    if expected is not None and data.get("board") != expected:
+        raise InputError(f"{path}: board = {data.get('board')!r}, expected {expected!r}")
+    entries = data.get("device")
+    if not isinstance(entries, list) or not entries or not all(isinstance(entry, dict) for entry in entries):
+        raise InputError(f"{path}: no [[device]] entries")
+    devices, owner_of_irq = {}, {}
+    for number, entry in enumerate(entries, start=1):
+        where = f"{path}: device {number} ({entry.get('name', '?')!r})"
+        missing = DEVICE_KEYS - set(entry)
+        extra = set(entry) - DEVICE_KEYS - DEVICE_WINDOW_KEYS - DEVICE_OPTIONAL_KEYS
+        if missing or extra:
+            raise InputError(f"{where}: missing {sorted(missing)}, unknown {sorted(extra)}")
+        window = DEVICE_WINDOW_KEYS & set(entry)
+        if window and window != DEVICE_WINDOW_KEYS:
+            raise InputError(f"{where}: a register window needs both address and size")
+        name, address, size = entry["name"], entry.get("address"), entry.get("size")
+        irqs, trigger, source = entry["irqs"], entry["trigger"], entry["source"]
+        if not isinstance(name, str) or not NAME.match(name) or name in devices:
+            raise InputError(f"{where}: name must be a unique identifier")
+        if window and (not is_int(address) or not is_int(size)):
+            raise InputError(f"{where}: address and size must be integers")
+        if window and (address < 0 or address % PAGE or size % PAGE or size <= 0):
+            raise InputError(f"{where}: address and size must be positive multiples of {PAGE:#x}")
+        if not window and not irqs:
+            raise InputError(f"{where}: a device with no register window needs an interrupt")
+        if not isinstance(irqs, list) or not all(is_int(irq) and irq >= 0 for irq in irqs):
+            raise InputError(f"{where}: irqs must be a list of interrupt numbers")
+        if not isinstance(trigger, str) or trigger not in TRIGGERS:
+            raise InputError(f"{where}: trigger must be one of {sorted(TRIGGERS)}")
+        if not isinstance(source, str) or not source.strip():
+            raise InputError(f"{where}: every device needs its source")
+        compatible, registers = entry.get("compatible"), entry.get("registers")
+        if compatible is not None and (not isinstance(compatible, str) or not COMPATIBLE.fullmatch(compatible)):
+            raise InputError(f"{where}: compatible must be a devicetree compatible string: 1 to 64 printable "
+                             f"ASCII characters, no spaces")
+        if registers is not None and not window:
+            raise InputError(f"{where}: registers needs a register window (address and size)")
+        if registers is not None and (not is_int(registers) or registers <= 0 or registers % 4
+                                      or registers > size):
+            raise InputError(f"{where}: registers must be a positive multiple of 4 bytes, no more than size")
+        framebuffer = entry.get("framebuffer")
+        if framebuffer is not None:
+            framebuffer_problem(where, framebuffer, window, compatible, registers, address)
+        # A PCI function whose window - BAR 0 - its driver places, on a board
+        # with no firmware to do it (QEMU's virt): the bus address,
+        # aligned to the window's size as a BAR must be, and a compatible
+        # string, which carries it to the driver in the device's facts.
+        pci_bar0 = entry.get("pci_bar0")
+        if pci_bar0 is not None and (not window or not is_int(pci_bar0) or pci_bar0 <= 0
+                                     or pci_bar0 >= 2**64 or pci_bar0 % size or compatible is None):
+            raise InputError(f"{where}: pci_bar0 must be a bus address above 0, aligned to the window's "
+                             f"size, on a device with a register window and a compatible string")
+        # A device that reaches memory at other addresses than the CPU's -
+        # RP1's, through BCM2712's PCIe inbound window: the bus
+        # address of physical address 0, page-aligned.
+        dma_offset = entry.get("dma_offset")
+        if dma_offset is not None and (not window or not is_int(dma_offset) or dma_offset <= 0
+                                       or dma_offset >= 2**64 or dma_offset % PAGE or compatible is None):
+            raise InputError(f"{where}: dma_offset must be a page-aligned bus address above 0, on a device "
+                             f"with a register window and a compatible string")
+        for other in devices.values():
+            if (window and other.address is not None
+                    and address < other.address + other.size and other.address < address + size):
+                raise InputError(f"{where}: its window overlaps device {other.name!r}")
+        for irq in irqs:
+            if irq in owner_of_irq:
+                raise InputError(f"{where}: interrupt {irq} is also device {owner_of_irq[irq]!r}'s")
+            owner_of_irq[irq] = name
+        devices[name] = Device(name, address, size, list(irqs), trigger, compatible, registers,
+                               dict(framebuffer) if framebuffer is not None else None, pci_bar0, dma_offset)
+    # Where a driver places a BAR, the window then decodes: never over
+    # another device's window.
+    for device in devices.values():
+        if device.pci_bar0 is None:
+            continue
+        for other in devices.values():
+            if (other is not device and other.address is not None
+                    and device.pci_bar0 < other.address + other.size
+                    and other.address < device.pci_bar0 + device.size):
+                raise InputError(f"{path}: device {device.name!r}: pci_bar0 {device.pci_bar0:#x} puts its window "
+                                 f"over device {other.name!r}")
+    return devices
+
+
+def framebuffer_problem(where, mode, window, compatible, registers, address=None):
+    """Raise InputError unless `mode` is a framebuffer's mode the facts can
+    carry, for a device whose window holds exactly its rows from first_row."""
+    if (not isinstance(mode, dict) or not FRAMEBUFFER_KEYS <= set(mode)
+            or set(mode) - FRAMEBUFFER_KEYS - FRAMEBUFFER_OPTIONAL_KEYS):
+        raise InputError(f"{where}: framebuffer needs exactly {sorted(FRAMEBUFFER_KEYS)} "
+                         f"(and may have {sorted(FRAMEBUFFER_OPTIONAL_KEYS)})")
+    if not window or compatible != FRAMEBUFFER_COMPATIBLE or registers is None:
+        raise InputError(f"{where}: a framebuffer needs a window, compatible = {FRAMEBUFFER_COMPATIBLE!r} and "
+                         f"registers: its window's bytes of pixels")
+    if mode["format"] not in FRAMEBUFFER_FORMATS:
+        raise InputError(f"{where}: framebuffer format must be one of {sorted(FRAMEBUFFER_FORMATS)}")
+    numbers = [mode[key] for key in ("width", "height", "stride")]
+    if not all(is_int(n) and 0 < n < 2**32 for n in numbers) or not is_int(mode["first_row"]):
+        raise InputError(f"{where}: framebuffer width, height and stride must be positive 32-bit integers, "
+                         f"and first_row an integer")
+    width, height, stride, first_row = mode["width"], mode["height"], mode["stride"], mode["first_row"]
+    if stride < width * FRAMEBUFFER_FORMATS[mode["format"]][1]:
+        raise InputError(f"{where}: framebuffer stride {stride} cannot hold {width} pixels of {mode['format']}")
+    if not 0 <= first_row < height:
+        raise InputError(f"{where}: framebuffer first_row must be a row of the screen, 0 to {height - 1}")
+    if registers != (height - first_row) * stride:
+        raise InputError(f"{where}: registers must be the window's bytes of pixels, rows {first_row} to "
+                         f"{height - 1}: {(height - first_row) * stride:#x}")
+    if "reserved" in mode:
+        base, reserved = address - first_row * stride, mode["reserved"]
+        if not is_int(reserved) or reserved <= 0 or reserved % PAGE or base < 0 or base % PAGE:
+            raise InputError(f"{where}: framebuffer reserved must be a positive multiple of {PAGE:#x}, from a "
+                             f"framebuffer that starts on a page")
+        if base + reserved < address + registers:
+            raise InputError(f"{where}: framebuffer reserved must cover the framebuffer, to "
+                             f"{address + registers:#x}")
+
+
+class Board:
+    """The board's devices, read only when a description or grants file
+    uses one."""
+
+    def __init__(self, board, platforms):
+        self.board, self.platforms, self._devices = board, platforms, None
+
+    @property
+    def devices(self):
+        if self._devices is None:
+            if not self.board:
+                raise InputError("device memory or interrupts are used: pass --board, so their "
+                                 "facts can be read from the board file")
+            self._devices = read_board(os.path.join(self.platforms, f"{self.board}.toml"), self.board)
+        return self._devices
+
+    def by_window(self, paddr, size):
+        for device in self.devices.values():
+            if device.address == paddr and device.size == size:
+                return device
+        return None
+
+    def by_irq(self, irq):
+        for device in self.devices.values():
+            if irq in device.irqs:
+                return device
+        return None
+
+
+class Model:
+    """What the description grants, for the capDL check (rule 6)."""
+
+    def __init__(self):
+        self.pds = set()
+        self.maps = {}           # pd -> {region: "r" | "rw"}
+        self.device_of = {}      # region -> Device, for device regions
+        self.irqs = {}           # pd -> {intid}
+        self.children = {}       # pd -> {child pd}
+        self.parent = {}         # child pd -> parent pd
+        self.notifies = set()    # (pd, peer): pd can notify peer
+        self.calls = set()       # (caller, callee)
+        self.passive = set()     # passive pds
+        self.priorities = {}     # pd -> its priority
+        self.budgets = {}        # pd -> (its budget, its period), in microseconds
+        self.cpus = {} # pd -> the core it runs on
+        self.dma_regions = set() # regions whose physical address a PD learns
+        self.smc = set()         # PDs given the SMC capability (smc="true")
+        self.cached_devices = set() # (pd, device): a framebuffer mapped cached (rule 7)
+        self.images = {}         # pd -> program image path
+        self.restart_images = {} # region -> the pd it is the restart image of
+        self.test_prefills = {}  # region -> its test-only prefill file (rule 12)
+        self.prefills = {}       # region -> the file it is prefilled from (rule 11's reads_prefill)
+        self.bound = {}          # pd -> [(setvar_vaddr symbol, region, "r" | "rw")] (rule 11's reads_prefill)
+        self.device_facts = {}   # region -> the device whose facts it is prefilled with (rule 12)
+
+
+def read_sdf(path, board):
+    """Return (facts, problems, model): the grants the description makes, as
+    grants-file lines, every rule it breaks, and the model rule 6 checks."""
+    try:
+        root = ElementTree.parse(path).getroot()
+    except (OSError, ElementTree.ParseError) as err:
+        raise InputError(f"cannot read {path}: {err}") from err
+    if root.tag != "system":
+        raise InputError(f"{path}: the root element is <{root.tag}>, not <system>")
+
+    facts = set()
+    problems = []
+    model = Model()
+    regions = set()
+    prefilled = set()  # regions prefilled from a file: configuration (rule 12)
+    region_of_device = {}
+    pds_of_device = {}
+    pd_of_irq = {}
+    priority_of = {}
+    dma_maps = {}    # pd -> {N: region bound with nowayos_dma_N_vaddr}
+    dma_paddrs = {}  # pd -> {N: region whose address nowayos_dma_N_paddr gets}
+    io_paddrs = {}   # pd -> {N: region whose address nowayos_io_N_paddr gets}
+    restart_maps = {} # pd -> [regions it binds nowayos_restart_image_vaddr to]
+    heap_maps = {}    # pd -> [regions it binds nowayos_heap_region_vaddr to]
+
+    def boolean(element, attribute, default, where):
+        value = element.get(attribute, default)
+        if value not in BOOLEANS:
+            problems.append(f"rule 5: {where}: {attribute}={value!r}: only \"true\" or \"false\"")
+        return BOOLEANS.get(value, False)
+
+    def unsupported(element, where, allowed):
+        extra = sorted(set(element.attrib) - allowed)
+        if extra:
+            problems.append(
+                f"rule 5: {where}: attribute(s) {', '.join(extra)} not modelled by "
+                f"check-system: extend it (and the grants format) first"
+            )
+
+    def not_modelled(where, tag):
+        problems.append(
+            f"rule 5: {where}<{tag}> is not modelled by check-system: extend it "
+            f"(and the grants format) first"
+        )
+
+    def read_device_region(element, name, where):
+        paddr = parse_int(element.get("phys_addr", ""), where)
+        size = parse_int(element.get("size", "0"), where)
+        device = board.by_window(paddr, size)
+        if device is None:
+            problems.append(
+                f"rule 7: {where}: phys_addr {paddr:#x} with size {size:#x} is not exactly "
+                f"one device's register window on board {board.board!r}"
+            )
+            return
+        if device.name in region_of_device:
+            problems.append(
+                f"rule 7: {where}: device {device.name!r} is already covered by memory_region "
+                f"{region_of_device[device.name]!r}"
+            )
+            return
+        region_of_device[device.name] = name
+        model.device_of[name] = device
+
+    for element in root:
+        if element.tag not in SYSTEM_CHILDREN:
+            not_modelled("", element.tag)
+        elif element.tag == "memory_region":
+            name = element.get("name", "")
+            where = f"memory_region {name!r}"
+            unsupported(element, where, REGION_ATTRS)
+            if name in regions:
+                problems.append(f"rule 5: {where}: more than one memory_region has this name")
+            regions.add(name)
+            if "phys_addr" in element.attrib:
+                read_device_region(element, name, where)
+            if "prefill_path" in element.attrib:
+                prefilled.add(name)
+                model.prefills[name] = element.get("prefill_path")
+                restart = RESTART_PREFILL.match(element.get("prefill_path"))
+                if restart:
+                    model.restart_images[name] = restart.group(1)
+                if element.get("prefill_path").startswith(TEST_PREFILL):
+                    model.test_prefills[name] = element.get("prefill_path")
+                facts_of = DEVICE_FACTS_PREFILL.match(element.get("prefill_path"))
+                if facts_of:
+                    model.device_facts[name] = facts_of.group(1)
+
+    def walk_pd(element, parent):
+        name = element.get("name")
+        if not name:
+            raise InputError(f"{path}: a protection_domain has no name")
+        where = f"protection_domain {name!r}"
+        unsupported(element, where, CHILD_PD_ATTRS if parent else PD_ATTRS)
+        priority = parse_int(element.get("priority", str(DEFAULT_PRIORITY)), where)
+        budget = parse_int(element.get("budget", str(DEFAULT_BUDGET)), where)
+        period = parse_int(element.get("period", str(budget)), where)
+        passive = " passive" if boolean(element, "passive", "false", where) else ""
+        # The core the PD runs on: 0 unless an SMP system names
+        # another, which the fact then states.
+        cpu = parse_int(element.get("cpu", "0"), where)
+        on_cpu = f" cpu={cpu}" if cpu else ""
+        facts.add(f"pd {name} priority={priority} budget={budget} period={period}{passive}{on_cpu}")
+        if boolean(element, "smc", "false", where):
+            # Microkit 2.3.1 gives the PD an unbadged SMC capability: it may
+            # make any call the firmware offers.
+            facts.add(f"smc {name}")
+            model.smc.add(name)
+        model.pds.add(name)
+        model.priorities[name] = priority
+        model.budgets[name] = (budget, period)
+        model.cpus[name] = cpu
+        priority_of[name] = priority
+        if passive:
+            model.passive.add(name)
+        if parent:
+            facts.add(f"child {parent} {name}")
+            model.children.setdefault(parent, set()).add(name)
+            model.parent[name] = parent
+        mapped = set()
+        for child in element:
+            if child.tag not in PD_CHILDREN:
+                not_modelled(f"{where}: ", child.tag)
+            elif child.tag == "program_image":
+                unsupported(child, f"{where} program_image", IMAGE_ATTRS)
+                model.images[name] = child.get("path", "")
+            elif child.tag == "protection_domain":
+                walk_pd(child, name)
+            elif child.tag == "map":
+                check_map(child, name, where, mapped)
+            elif child.tag == "irq":
+                check_irq(child, name, where)
+            elif child.tag == "setvar":
+                check_setvar(child, name, where)
+
+    def check_setvar(element, pd, where):
+        region = element.get("region_paddr")
+        where = f"{where} setvar {element.get('symbol')!r}"
+        unsupported(element, where, SETVAR_ATTRS)
+        if not element.get("symbol") or region is None:
+            problems.append(f"rule 10: {where}: a setvar needs a symbol and a region_paddr")
+            return
+        if region not in regions:
+            problems.append(f"rule 5: {where}: region_paddr={region!r}: no memory_region of that name")
+            return
+        device = model.device_of.get(region)
+        if device is not None:
+            problems.append(f"rule 10: {where}: region_paddr={region!r} is the register window of "
+                            f"device {device.name!r}, not DMA memory")
+            return
+        model.dma_regions.add(region)
+        facts.add(f"paddr {pd} {region}")
+        symbol = element.get("symbol")
+        if symbol.startswith("nowayos_"):
+            match = DMA_SYMBOL.match(symbol) or IO_SYMBOL.match(symbol)
+            if not match or match.group(3) != "paddr":
+                problems.append(f"rule 4: {where}: {symbol!r} is not a nowayos-hw physical-address "
+                                f"symbol (nowayos_dma_N_paddr or nowayos_io_N_paddr)")
+                return
+            bound = (dma_paddrs if match.group(1) == "dma" else io_paddrs).setdefault(pd, {})
+            if match.group(2) in bound:
+                problems.append(f"rule 4: {where}: {symbol!r} is set twice in this PD")
+            else:
+                bound[match.group(2)] = region
+
+    def check_map(element, pd, where, mapped):
+        region = element.get("mr", "")
+        where = f"{where} map of {region!r}"
+        unsupported(element, where, MAP_ATTRS)
+        if region not in regions:
+            problems.append(f"rule 5: {where}: no memory_region of that name")
+        if region in mapped:
+            problems.append(
+                f"rule 3: {where}: the region is mapped into this PD more than once "
+                f"(two views of the same memory)"
+            )
+        mapped.add(region)
+        perms = element.get("perms", DEFAULT_PERMS)
+        if "x" in perms:
+            problems.append(f"rule 2: {where}: perms={perms!r} is executable")
+        if perms not in ("r", "rw", "wr"):
+            problems.append(f"rule 2: {where}: perms={perms!r}: only \"r\" or \"rw\" are allowed")
+        canonical = "rw" if "w" in perms else "r"
+        cached = element.get("cached", "true")
+        if cached not in ("true", "false"):
+            problems.append(f"rule 5: {where}: cached={cached!r}: only \"true\" or \"false\"")
+        device = model.device_of.get(region)
+        if device is not None:
+            if cached != "false" and device.framebuffer is not None:
+                # A framebuffer the firmware set up is memory the display
+                # hardware scans out, and may be mapped cached - the PD cleans each frame
+                # to memory - stated as its own grant, which rule 11 keeps to the display.
+                facts.add(f"cached {pd} {device.name}")
+                model.cached_devices.add((pd, device.name))
+            elif cached != "false":
+                problems.append(
+                    f"rule 7: {where}: device {device.name!r} must be mapped uncached "
+                    f"(cached=\"false\")"
+                )
+            pds_of_device.setdefault(device.name, []).append(pd)
+            facts.add(f"device {pd} {device.name} {canonical}")
+        else:
+            facts.add(f"map {pd} {region} {canonical}")
+        if region in prefilled and canonical != "r":
+            problems.append(f"rule 12: {where}: the region is prefilled configuration: "
+                            f"map it read-only (perms=\"r\")")
+        model.maps.setdefault(pd, {})[region] = canonical
+        if element.get("setvar_vaddr"):
+            model.bound.setdefault(pd, []).append((element.get("setvar_vaddr"), region, canonical))
+        bound = check_symbols(element, where, canonical, device, problems)
+        if bound and bound[0] == "dma":
+            dma_maps.setdefault(pd, {})[bound[1]] = region
+        elif bound and bound[0] == "restart":
+            restart_maps.setdefault(pd, []).append(region)
+        elif bound and bound[0] == "heap":
+            heap_maps.setdefault(pd, []).append(region)
+
+    def check_irq(element, pd, where):
+        unsupported(element, f"{where} irq", IRQ_ATTRS)
+        irq = parse_int(element.get("irq", ""), f"{where} irq")
+        where = f"{where} irq {irq}"
+        trigger = element.get("trigger", DEFAULT_TRIGGER)
+        device = board.by_irq(irq)
+        if device is None:
+            problems.append(
+                f"rule 8: {where}: interrupt {irq} belongs to no device on board {board.board!r}"
+            )
+            return
+        if trigger != device.trigger:
+            problems.append(
+                f"rule 8: {where}: trigger={trigger!r}, but device {device.name!r} is "
+                f"{device.trigger}-triggered"
+            )
+        if irq in pd_of_irq:
+            problems.append(
+                f"rule 8: {where}: interrupt {irq} already goes to protection_domain "
+                f"{pd_of_irq[irq]!r}"
+            )
+            return
+        pd_of_irq[irq] = pd
+        model.irqs.setdefault(pd, set()).add(irq)
+        facts.add(f"irq {pd} {device.name} {irq}")
+
+    # From the top level down, so each child PD is seen with its parent.
+    for element in root:
+        if element.tag == "protection_domain":
+            walk_pd(element, None)
+
+    for pd in sorted(set(dma_maps) | set(dma_paddrs)):
+        maps, paddrs = dma_maps.get(pd, {}), dma_paddrs.get(pd, {})
+        for number in sorted(set(maps) | set(paddrs)):
+            where = f"rule 4: protection_domain {pd!r}"
+            if number not in paddrs:
+                problems.append(f"{where} maps {maps[number]!r} with nowayos_dma_{number}_vaddr, but "
+                                f"learns no physical address for it (<setvar symbol="
+                                f"\"nowayos_dma_{number}_paddr\" region_paddr=\"{maps[number]}\">)")
+            elif number not in maps:
+                problems.append(f"{where} learns {paddrs[number]!r}'s physical address as "
+                                f"nowayos_dma_{number}_paddr, but maps no region with "
+                                f"nowayos_dma_{number}_vaddr")
+            elif maps[number] != paddrs[number]:
+                problems.append(f"{where}: nowayos_dma_{number}_vaddr binds {maps[number]!r}, but "
+                                f"nowayos_dma_{number}_paddr is the physical address of "
+                                f"{paddrs[number]!r}: they must name the same region")
+
+    for pd, paddrs in sorted(io_paddrs.items()):
+        for number, region in sorted(paddrs.items()):
+            if region in model.maps.get(pd, {}):
+                problems.append(f"rule 4: protection_domain {pd!r} learns {region!r}'s physical address as "
+                                f"nowayos_io_{number}_paddr, an I/O region it hands a device but never "
+                                f"maps, and maps it: bind it with nowayos_dma_{number}_paddr instead, or "
+                                f"take the map away")
+
+    for region, pd in sorted(model.restart_images.items()):
+        where = f"rule 13: memory_region {region!r}, the restart image of {pd!r}"
+        if pd not in model.pds:
+            problems.append(f"{where}: no protection_domain has that name")
+            continue
+        if region not in restart_maps.get(pd, []):
+            problems.append(f"{where}: {pd!r} must map it, with setvar_vaddr=\"{RESTART_VADDR}\" and "
+                            f"setvar_size=\"{RESTART_SIZE}\"")
+        for holder in sorted(holder for holder, maps in model.maps.items() if region in maps):
+            if holder == pd:
+                continue
+            if model.parent.get(pd) == holder:
+                facts.add(f"restart {holder} {pd}")
+            else:
+                problems.append(f"{where}: {holder!r} maps it, but only {pd!r} and its parent may")
+    for pd, bound_regions in sorted(restart_maps.items()):
+        for region in bound_regions:
+            if model.restart_images.get(region) != pd:
+                problems.append(f"rule 13: protection_domain {pd!r} binds {RESTART_VADDR} to {region!r}, "
+                                f"which is not its restart image (a memory_region with "
+                                f"prefill_path=\"restart-{pd}.bin\")")
+
+    for pd, bound_regions in sorted(heap_maps.items()):
+        if len(bound_regions) > 1:
+            problems.append(f"rule 16: protection_domain {pd!r} binds {HEAP_VADDR} to {len(bound_regions)} "
+                            f"regions ({', '.join(sorted(bound_regions))}): a PD has one heap")
+        for region in bound_regions:
+            where = f"rule 16: memory_region {region!r}, the heap of {pd!r}"
+            if region in prefilled:
+                problems.append(f"{where}: a heap's arena starts empty, so it is not prefilled")
+            for holder in sorted(holder for holder, maps in model.maps.items() if region in maps):
+                if holder != pd:
+                    problems.append(f"{where}: {holder!r} maps it too, but a heap is its PD's alone")
+
+    for region, name in sorted(model.device_facts.items()):
+        where = f"rule 12: memory_region {region!r}, the facts of device {name!r}"
+        device = board.devices.get(name)
+        if device is None or device.address is None:
+            problems.append(f"{where}: board {board.board!r} has no device of that name with a register window")
+            continue
+        for holder in sorted(holder for holder, maps in model.maps.items() if region in maps):
+            if holder not in pds_of_device.get(name, []):
+                problems.append(f"{where}: {holder!r} maps it, but not {name!r}'s register window: a "
+                                f"device's facts go only to the PD that holds it")
+
+    for device, pds in sorted(pds_of_device.items()):
+        if len(set(pds)) > 1:
+            problems.append(
+                f"rule 7: device {device!r} is mapped into more than one PD "
+                f"({', '.join(sorted(set(pds)))})"
+            )
+
+    channel_pairs = set()
+    for element in root:
+        if element.tag != "channel":
+            continue
+        ends = list(element)
+        if len(ends) != 2 or any(end.tag != "end" for end in ends):
+            problems.append("rule 5: a <channel> must have exactly two <end> elements")
+            continue
+        names, notifies, calls = [], [], []
+        for end in ends:
+            where = f"channel end {end.get('pd')!r}"
+            unsupported(end, where, END_ATTRS)
+            names.append(end.get("pd", ""))
+            notifies.append(boolean(end, "notify", "true", where))
+            calls.append(boolean(end, "pp", "false", where))
+        pair = " ".join(sorted(names))
+        if pair in channel_pairs:
+            problems.append(
+                f"rule 5: more than one channel between {' and '.join(sorted(names))} is not "
+                f"modelled by check-system: extend it (and the grants format) first"
+            )
+        channel_pairs.add(pair)
+        if all(notifies):
+            facts.add(f"channel {pair}")
+        elif any(notifies):
+            facts.add(f"channel {pair} notify={names[notifies.index(True)]}")
+        else:
+            facts.add(f"channel {pair} notify=none")
+        for index, name in enumerate(names):
+            peer = names[1 - index]
+            if notifies[index]:
+                model.notifies.add((name, peer))
+            if calls[index]:
+                model.calls.add((name, peer))
+                facts.add(f"call {name} {peer}")
+                if name in priority_of and peer in priority_of and priority_of[peer] <= priority_of[name]:
+                    problems.append(
+                        f"rule 9: channel {pair}: {name!r} (priority {priority_of[name]}) may call "
+                        f"{peer!r} (priority {priority_of[peer]}), but a protected procedure call must "
+                        f"go to a strictly higher priority"
+                    )
+    return facts, problems, model
+
+
+def symbol_kind(symbol):
+    """A nowayos-region or nowayos-hw symbol's match (kind, number, part), or None."""
+    if not symbol:
+        return None
+    return REGION_SYMBOL.match(symbol) or DEVICE_SYMBOL.match(symbol) or DMA_SYMBOL.match(symbol)
+
+
+def check_symbols(element, where, perms, device, problems):
+    """Rule 4: a nowayos-region symbol's name states the map's rights, and
+    binds shared memory only; a nowayos-hw device symbol binds a device's
+    register window only, and a DMA symbol memory that is not a device's.
+    Returns (kind, number) of the symbol pair the map binds, if any."""
+    vaddr = element.get("setvar_vaddr")
+    size = element.get("setvar_size")
+    if RESTART_VADDR in (vaddr, size) or RESTART_SIZE in (vaddr, size):
+        # nowayos-restart's view of a restart image: read-only, never a device.
+        if (vaddr, size) != (RESTART_VADDR, RESTART_SIZE):
+            problems.append(f"rule 4: {where}: a restart image binds setvar_vaddr=\"{RESTART_VADDR}\" "
+                            f"with setvar_size=\"{RESTART_SIZE}\"")
+        if perms != "r" or device is not None:
+            problems.append(f"rule 4: {where}: {RESTART_VADDR} binds a read-only view of memory, so the "
+                            f"map must have perms=\"r\" and not be a device's")
+        return "restart", None
+    if HEAP_VADDR in (vaddr, size) or HEAP_SIZE in (vaddr, size):
+        # nowayos-heap's arena: read-write, never a device.
+        if (vaddr, size) != (HEAP_VADDR, HEAP_SIZE):
+            problems.append(f"rule 4: {where}: a heap region binds setvar_vaddr=\"{HEAP_VADDR}\" "
+                            f"with setvar_size=\"{HEAP_SIZE}\"")
+        if perms != "rw" or device is not None:
+            problems.append(f"rule 4: {where}: {HEAP_VADDR} binds a heap's arena, so the map must have "
+                            f"perms=\"rw\" and not be a device's")
+        return "heap", None
+    for symbol, part in ((vaddr, "vaddr"), (size, "size")):
+        match = symbol_kind(symbol)
+        if symbol and symbol.startswith("nowayos_") and (not match or match.group(3) != part):
+            problems.append(
+                f"rule 4: {where}: setvar_{part}={symbol!r} is not a nowayos-region or nowayos-hw "
+                f"{part} symbol (nowayos_rw_region_N_{part}, nowayos_ro_region_N_{part}, "
+                f"nowayos_device_N_{part} or nowayos_dma_N_{part})"
+            )
+            return None
+    vaddr_match = symbol_kind(vaddr)
+    if not vaddr_match:
+        if symbol_kind(size):
+            problems.append(f"rule 4: {where}: setvar_size={size!r} without its setvar_vaddr symbol")
+        return None
+    kind, number = vaddr_match.group(1), vaddr_match.group(2)
+    if kind == "dma":
+        if device is not None:
+            problems.append(
+                f"rule 4: {where}: setvar_vaddr={vaddr!r} binds nowayos-hw's view of DMA memory, "
+                f"but the map is the register window of device {device.name!r}"
+            )
+        expected_size = f"nowayos_dma_{number}_size"
+    elif kind == "device":
+        if device is None:
+            problems.append(
+                f"rule 4: {where}: setvar_vaddr={vaddr!r} binds nowayos-hw's view of device "
+                f"registers, so the map must be of a device's register window (a memory_region "
+                f"with phys_addr)"
+            )
+        expected_size = f"nowayos_device_{number}_size"
+    else:
+        if device is not None:
+            problems.append(
+                f"rule 4: {where}: setvar_vaddr={vaddr!r} binds nowayos-region's view of shared "
+                f"memory, but the map is the register window of device {device.name!r}: use a "
+                f"nowayos_device_N symbol"
+            )
+        wanted = "rw" if kind == "rw" else "r"
+        if perms != wanted:
+            problems.append(
+                f"rule 4: {where}: setvar_vaddr={vaddr!r} binds a "
+                f"{'read-write' if kind == 'rw' else 'read-only'} "
+                f"view, so the map must have perms=\"{wanted}\", not \"{perms}\""
+            )
+        expected_size = f"nowayos_{kind}_region_{number}_size"
+    if size != expected_size:
+        problems.append(f"rule 4: {where}: setvar_size must be {expected_size!r}, not {size!r}")
+    return kind, number
+
+
+def read_grants(path):
+    """Return the set of facts a grants file lists, and its system kind and
+    PD roles: (facts, {"system": KIND or None, "roles": {pd: role}})."""
+    try:
+        with open(path, encoding="utf-8") as handle:
+            lines = handle.read().splitlines()
+    except OSError as err:
+        raise InputError(f"cannot read {path}: {err}") from err
+    facts = set()
+    meta = {"system": None, "roles": {}}
+    for number, line in enumerate(lines, start=1):
+        text = line.split("#", 1)[0].split()
+        if not text:
+            continue
+        kind = text[0]
+        if kind == "system" and len(text) == 2:
+            if meta["system"] is not None:
+                raise InputError(f"{path}:{number}: a second system line")
+            meta["system"] = text[1]
+            continue
+        if kind == "role" and len(text) == 3:
+            if text[1] in meta["roles"]:
+                raise InputError(f"{path}:{number}: a second role for {text[1]}")
+            meta["roles"][text[1]] = text[2]
+            continue
+        shapes = {"pd": (5, 6, 7), "map": (4,), "device": (4,), "cached": (3,), "irq": (3, 4), "channel": (3, 4),
+                  "call": (3,), "paddr": (3,), "child": (3,), "smc": (2,), "restart": (3,)}
+        if kind not in shapes or len(text) not in shapes[kind]:
+            raise InputError(f"{path}:{number}: not a grants line: {line.strip()!r}")
+        if kind == "pd":
+            rest = text[5:]
+            cpu = []
+            if rest and rest[-1].startswith("cpu="):
+                core = parse_int(rest[-1][len("cpu="):], f"{path}:{number}")
+                if core == 0:
+                    raise InputError(f"{path}:{number}: core 0 is the default: leave cpu= out")
+                cpu = [f"cpu={core}"]
+                rest = rest[:-1]
+            passive = rest
+            if passive not in ([], ["passive"]):
+                raise InputError(f"{path}:{number}: a pd line ends with its period, or with 'passive', "
+                                 f"then the core it runs on (cpu=N) if not 0")
+            values = {}
+            for field in text[2:5]:
+                key, _, value = field.partition("=")
+                values[key] = parse_int(value, f"{path}:{number}")
+            if set(values) != {"priority", "budget", "period"}:
+                raise InputError(f"{path}:{number}: a pd line needs priority=, budget= and period=")
+            text = ["pd", text[1]] + [f"{key}={values[key]}" for key in ("priority", "budget", "period")]
+            text += passive + cpu
+        elif kind in ("map", "device") and text[3] not in ("r", "rw"):
+            raise InputError(f"{path}:{number}: {kind} rights must be r or rw")
+        elif kind == "irq" and len(text) == 4:
+            text[3] = str(parse_int(text[3], f"{path}:{number}"))
+        elif kind == "channel":
+            notify = text[3:]
+            if notify and notify[0] not in ("notify=none", f"notify={text[1]}", f"notify={text[2]}"):
+                raise InputError(f"{path}:{number}: a channel's notify= names one of its two PDs, "
+                                 f"or none")
+            text = ["channel"] + sorted(text[1:3]) + notify
+        fact = " ".join(text)
+        if fact in facts:
+            raise InputError(f"{path}:{number}: listed twice: {fact}")
+        facts.add(fact)
+    return facts, meta
+
+
+def resolve_grant_irqs(listed, board):
+    """Each `irq PD DEVICE` line, with the device's one interrupt from the
+    board file: (facts, problems)."""
+    facts, problems = set(), []
+    for fact in listed:
+        words = fact.split()
+        if words[0] != "irq" or len(words) != 3:
+            facts.add(fact)
+            continue
+        device = board.devices.get(words[2])
+        if device is None:
+            problems.append(f"rule 8: listed in grants: {fact}: board {board.board!r} has no device "
+                            f"{words[2]!r}")
+        elif len(device.irqs) != 1:
+            problems.append(f"rule 8: listed in grants: {fact}: device {words[2]!r} has "
+                            f"{len(device.irqs)} interrupts on board {board.board!r}: name the one "
+                            f"(irq PD DEVICE INTID)")
+        else:
+            facts.add(f"{fact} {device.irqs[0]}")
+    return facts, problems
+
+
+def grants_device_problems(listed, board):
+    """Rules 7 and 8: a grants file names devices and interrupts the board has."""
+    problems = []
+    for fact in sorted(listed):
+        words = fact.split()
+        if words[0] not in ("device", "irq"):
+            continue
+        device = board.devices.get(words[2])
+        if device is None:
+            problems.append(f"rule {7 if words[0] == 'device' else 8}: listed in grants: {fact}: "
+                            f"board {board.board!r} has no device {words[2]!r}")
+        elif words[0] == "device" and device.address is None:
+            problems.append(f"rule 7: listed in grants: {fact}: device {words[2]!r} has no register "
+                            f"window to map (it is reached through system registers)")
+        elif words[0] == "irq" and int(words[3]) not in device.irqs:
+            problems.append(f"rule 8: listed in grants: {fact}: {words[3]} is not an interrupt of "
+                            f"device {words[2]!r} (its interrupts: {device.irqs})")
+    return problems
+
+
+def read_rules(path):
+    """The role rules (rule 11), checked for shape, or raise InputError."""
+    try:
+        with open(path, "rb") as handle:
+            rules = tomllib.load(handle)
+    except OSError as err:
+        raise InputError(f"cannot read rules file {path}: {err}") from err
+    except tomllib.TOMLDecodeError as err:
+        raise InputError(f"{path}: not valid TOML: {err}") from err
+    unknown = sorted(set(rules) - RULES_KEYS)
+    if unknown:
+        raise InputError(f"{path}: unknown key(s) {unknown}: check-system would ignore a rule it does not "
+                         f"know, so it refuses the file (its keys: {sorted(RULES_KEYS)})")
+    roles, systems = rules.get("roles"), rules.get("systems")
+    if not isinstance(roles, list) or not roles or not isinstance(systems, list) or "test" not in systems:
+        raise InputError(f"{path}: needs a list of roles, and a list of systems that includes test")
+    for key in RULES_KEYS - {"roles", "systems", "test_only", "development_only"}:
+        if not isinstance(rules.get(key, []), list) or not all(isinstance(rule, dict) for rule in rules.get(key, [])):
+            raise InputError(f"{path}: {key} is a list of tables ([[{key}]])")
+    seen = set()
+    for number, rule in enumerate(rules.get("forbid", []), start=1):
+        where = f"{path}: forbid rule {number}"
+        optional = {"peer_role", "unless_peer_role", "systems", "device", "rights"}
+        if set(rule) - ({"id", "role", "grant", "reason"} | optional) or not {"id", "role", "grant", "reason"} <= set(rule):
+            raise InputError(f"{where}: needs id, role, grant and reason (and may have peer_role or "
+                             f"unless_peer_role, systems, and device and rights)")
+        if ("device" in rule or "rights" in rule) and (
+                rule["grant"] != "device" or not isinstance(rule.get("device", ""), str)
+                or ("device" in rule and not NAME.match(rule["device"]))
+                or rule.get("rights", "rw") not in ("r", "rw")):
+            raise InputError(f"{where}: device names one device, as a board file does, and rights is r or rw, "
+                             f"for grant = \"device\" only")
+        if rule["id"] in seen or not str(rule["reason"]).strip():
+            raise InputError(f"{where}: ids are unique and every rule has its reason")
+        seen.add(rule["id"])
+        # unless_peer_role names one role, or a list of them.
+        spared = rule.get("unless_peer_role", [])
+        spared = [spared] if isinstance(spared, str) else spared
+        if not isinstance(spared, list) or ("unless_peer_role" in rule and not spared) or any(
+                not isinstance(peer, str) for peer in spared):
+            raise InputError(f"{where}: unless_peer_role is a role or a list of roles")
+        peers = [rule["peer_role"]] if "peer_role" in rule else []
+        if rule["role"] not in roles or any(peer not in roles for peer in peers + spared):
+            raise InputError(f"{where}: unknown role")
+        both = "peer_role" in rule and "unless_peer_role" in rule
+        if rule["grant"] not in RULE_GRANTS or both or (
+                (peers or spared) and rule["grant"] not in ("channel", "call")):
+            raise InputError(f"{where}: grant must be one of {sorted(RULE_GRANTS)} (peer_role or "
+                             f"unless_peer_role, not both, only with channel or call)")
+        if "systems" in rule and (not isinstance(rule["systems"], list) or not rule["systems"]
+                                  or any(kind not in systems for kind in rule["systems"])):
+            raise InputError(f"{where}: systems lists kinds of system from {systems}")
+    for number, rule in enumerate(rules.get("only", []), start=1):
+        where = f"{path}: only rule {number}"
+        if set(rule) - {"device"} != {"id", "role", "grant", "reason"}:
+            raise InputError(f"{where}: needs exactly id, role, grant and reason (and may have device)")
+        if "device" in rule and (rule["grant"] not in ("device", "cached") or not isinstance(rule["device"], str)
+                                 or not NAME.match(rule["device"])):
+            raise InputError(f"{where}: device names one device, as a board file does, for grant = \"device\" "
+                             f"or \"cached\"")
+        if rule["id"] in seen or not str(rule["reason"]).strip():
+            raise InputError(f"{where}: ids are unique and every rule has its reason")
+        seen.add(rule["id"])
+        if rule["role"] not in roles or rule["grant"] not in RULE_GRANTS - {"pd"}:
+            raise InputError(f"{where}: unknown role or grant (an `only` rule names a grant a PD holds, "
+                             f"not the PD itself)")
+    # The rules on a whole system's shape: one PD of a role the
+    # parent of every other; a PD of a role above every other in priority;
+    # a PD of a role with a full budget of its own.
+    for kind, optional in (("parent_of_all", {"systems"}), ("above_all", {"except_role", "systems"}),
+                           ("full_budget", {"systems"})):
+        for number, rule in enumerate(rules.get(kind, []), start=1):
+            where = f"{path}: {kind} rule {number}"
+            needed = {"id", "role", "reason"}
+            if not needed <= set(rule) or set(rule) - needed - optional:
+                raise InputError(f"{where}: needs id, role and reason (and may have "
+                                 f"{' and '.join(sorted(optional))})")
+            if rule["id"] in seen or not str(rule["reason"]).strip():
+                raise InputError(f"{where}: ids are unique and every rule has its reason")
+            seen.add(rule["id"])
+            excepted = rule.get("except_role", [])
+            excepted = [excepted] if isinstance(excepted, str) else excepted
+            if (rule["role"] not in roles or not isinstance(excepted, list)
+                    or any(other not in roles for other in excepted)):
+                raise InputError(f"{where}: unknown role")
+            if rule["role"] in excepted:
+                raise InputError(f"{where}: except_role must name roles other than the rule's own")
+            if "systems" in rule and (not isinstance(rule["systems"], list) or not rule["systems"]
+                                      or any(kind_of_system not in systems for kind_of_system in rule["systems"])):
+                raise InputError(f"{where}: systems lists kinds of system from {systems}")
+    # Who may write what a PD of a role reads.
+    for number, rule in enumerate(rules.get("only_writers", []), start=1):
+        where = f"{path}: only_writers rule {number}"
+        needed = {"id", "role", "writers", "reason"}
+        if not needed <= set(rule) or set(rule) - needed - {"test_writers"}:
+            raise InputError(f"{where}: needs id, role, writers and reason (and may have test_writers)")
+        if rule["id"] in seen or not str(rule["reason"]).strip():
+            raise InputError(f"{where}: ids are unique and every rule has its reason")
+        seen.add(rule["id"])
+        lists = [rule["writers"]] + ([rule["test_writers"]] if "test_writers" in rule else [])
+        if rule["role"] not in roles or any(not isinstance(listed, list) or not listed
+                                            or any(role not in roles for role in listed) for listed in lists):
+            raise InputError(f"{where}: unknown role (writers and test_writers are lists of roles, not empty)")
+    # Who may read what a PD of a role writes for one reader.
+    for number, rule in enumerate(rules.get("one_reader", []), start=1):
+        where = f"{path}: one_reader rule {number}"
+        if set(rule) != {"id", "role", "reason"}:
+            raise InputError(f"{where}: needs exactly id, role and reason")
+        if rule["id"] in seen or not str(rule["reason"]).strip():
+            raise InputError(f"{where}: ids are unique and every rule has its reason")
+        seen.add(rule["id"])
+        if rule["role"] not in roles:
+            raise InputError(f"{where}: unknown role")
+    # What configuration a PD of a role reads (the clock's floor).
+    for number, rule in enumerate(rules.get("reads_prefill", []), start=1):
+        where = f"{path}: reads_prefill rule {number}"
+        needed = {"id", "role", "symbol", "prefill", "reason"}
+        if not needed <= set(rule) or set(rule) - needed - {"systems"}:
+            raise InputError(f"{where}: needs id, role, symbol, prefill and reason (and may have systems)")
+        if rule["id"] in seen or not str(rule["reason"]).strip():
+            raise InputError(f"{where}: ids are unique and every rule has its reason")
+        seen.add(rule["id"])
+        if rule["role"] not in roles:
+            raise InputError(f"{where}: unknown role")
+        symbol = REGION_SYMBOL.match(rule["symbol"]) if isinstance(rule["symbol"], str) else None
+        if not symbol or symbol.group(1) != "ro" or symbol.group(3) != "vaddr":
+            raise InputError(f"{where}: symbol must be a read-only region's, nowayos_ro_region_N_vaddr")
+        if not isinstance(rule["prefill"], str) or not rule["prefill"].strip() or "/" in rule["prefill"]:
+            raise InputError(f"{where}: prefill names a file, as a memory_region's prefill_path does")
+        if "systems" in rule and (not isinstance(rule["systems"], list) or not rule["systems"]
+                                  or any(kind not in systems for kind in rule["systems"])):
+            raise InputError(f"{where}: systems lists kinds of system from {systems}")
+    for table in ("test_only", "development_only"):
+        images = rules.get(table, {})
+        if not isinstance(images, dict):
+            raise InputError(f"{path}: [{table}] is one table")
+        if (not isinstance(images.get("images", []), list) or set(images) - {"images", "reason"}
+                or (images and not str(images.get("reason", "")).strip())):
+            raise InputError(f"{path}: [{table}] needs a list of images and its reason, and nothing else")
+    return rules
+
+
+def role_problems(granted, meta, model, rules):
+    """Rule 11: every PD has a known role, the system a known kind, and no PD
+    holds a grant its role forbids, runs a test-only image outside a test
+    system or a development-only image in a product system."""
+    problems = []
+    roles, system = meta["roles"], meta["system"]
+    if system is None:
+        problems.append("rule 11: the grants file has no system line (system test, demo or product)")
+    elif system not in rules["systems"]:
+        problems.append(f"rule 11: system {system!r} is not one of {rules['systems']}")
+    for pd in sorted(model.pds - set(roles)):
+        problems.append(f"rule 11: protection domain {pd!r} has no role (a role line in the grants file)")
+    for pd, role in sorted(roles.items()):
+        if pd not in model.pds:
+            problems.append(f"rule 11: role {pd} {role} names no protection domain of the description")
+        elif role not in rules["roles"]:
+            problems.append(f"rule 11: {pd!r} has role {role!r}, which is not one of {rules['roles']}")
+    def holders(fact):
+        """(holder, other) for each PD a grant is held by: both ends of a
+        channel; the PD of an smc grant, which has no other end."""
+        words = fact.split()
+        if words[0] == "channel":
+            return [(words[1], words[2]), (words[2], words[1])]
+        return [(words[1], words[2] if len(words) > 2 else None)]
+
+    for rule in rules.get("forbid", []):
+        if "systems" in rule and system not in rule["systems"]:
+            continue
+        for fact in sorted(granted):
+            if fact.split()[0] != rule["grant"]:
+                continue
+            for holder, other in holders(fact):
+                if roles.get(holder) != rule["role"]:
+                    continue
+                # A device rule may bind one device, and only the rights given.
+                if "device" in rule and other != rule["device"]:
+                    continue
+                if "rights" in rule and fact.split()[-1] != rule["rights"]:
+                    continue
+                if "peer_role" in rule and roles.get(other) != rule["peer_role"]:
+                    continue
+                if "unless_peer_role" in rule and roles.get(other) in spared_roles(rule):
+                    continue
+                if rule["grant"] == "pd":
+                    problems.append(f"rule 11 ({rule['id']}): {holder!r}, role {rule['role']}, runs in this "
+                                    f"{system} system: {rule['reason']}")
+                    continue
+                problems.append(f"rule 11 ({rule['id']}): {holder!r}, role {rule['role']}, is granted "
+                                f"'{fact}': {rule['reason']}")
+    for rule in rules.get("only", []):
+        for fact in sorted(granted):
+            if fact.split()[0] != rule["grant"]:
+                continue
+            for holder, other in holders(fact):
+                if "device" in rule and other != rule["device"]:
+                    continue
+                if roles.get(holder) != rule["role"]:
+                    article = "an" if rule["role"][:1] in "aeiou" else "a"
+                    problems.append(f"rule 11 ({rule['id']}): {holder!r}, role {roles.get(holder)}, is "
+                                    f"granted '{fact}', which only {article} {rule['role']} PD may hold: "
+                                    f"{rule['reason']}")
+    problems += shape_problems(meta, model, rules)
+    problems += writer_problems(granted, meta, rules)
+    problems += reader_problems(granted, meta, rules)
+    problems += prefill_problems(meta, model, rules)
+    test_only = rules.get("test_only", {})
+    if system != "test":
+        for pd, image in sorted(model.images.items()):
+            if image in test_only.get("images", []):
+                problems.append(f"rule 11 (test-only image): {pd!r} runs {image} outside a test system: "
+                                f"{test_only['reason']}")
+    development_only = rules.get("development_only", {})
+    if system == "product":
+        for pd, image in development_only_pds(model, rules):
+            problems.append(f"rule 11 (development-only image): {pd!r} runs {image} in a product system: "
+                            f"{development_only['reason']}")
+    return problems
+
+
+def development_only_pds(model, rules):
+    """(pd, image) for each PD that runs a development-only image (rule 11's
+    [development_only], whose images are fnmatch patterns: a product's own
+    program that runs one of those PDs from NoWayOS's library keeps its
+    name's ending, so the rule binds it too), for the build to say so."""
+    patterns = rules.get("development_only", {}).get("images", [])
+    return [(pd, image) for pd, image in sorted(model.images.items())
+            if any(fnmatch.fnmatchcase(image, pattern) for pattern in patterns)]
+
+
+def shape_problems(meta, model, rules):
+    """Rule 11, on a whole system's shape: a `parent_of_all` rule's
+    role is held by exactly one PD, the parent of every other; each PD of an
+    `above_all` rule's role runs at a strictly higher priority than every
+    other PD but those of the rule's `except_role`; and each PD of a
+    `full_budget` rule's role has its budget equal to its period and is not
+    passive."""
+    problems = []
+    roles, system = meta["roles"], meta["system"]
+
+    def binds(rule):
+        return "systems" not in rule or system in rule["systems"]
+
+    def holding(role):
+        return sorted(pd for pd in model.pds if roles.get(pd) == role)
+
+    for rule in rules.get("parent_of_all", []):
+        if not binds(rule):
+            continue
+        where = f"rule 11 ({rule['id']})"
+        found = holding(rule["role"])
+        if not found:
+            problems.append(f"{where}: no PD has the role {rule['role']}, and exactly one must: {rule['reason']}")
+            continue
+        if len(found) > 1:
+            problems.append(f"{where}: {len(found)} PDs have the role {rule['role']} "
+                            f"({', '.join(repr(pd) for pd in found)}), and exactly one must: {rule['reason']}")
+            continue
+        parent = found[0]
+        for pd in sorted(model.pds - {parent}):
+            if model.parent.get(pd) != parent:
+                actual = f"its parent is {model.parent[pd]!r}" if pd in model.parent else "it has no parent"
+                problems.append(f"{where}: {pd!r} is not a child of the {rule['role']} {parent!r} ({actual}): "
+                                f"{rule['reason']}")
+    for rule in rules.get("above_all", []):
+        if not binds(rule):
+            continue
+        excepted = rule.get("except_role", [])
+        excepted = {excepted} if isinstance(excepted, str) else set(excepted)
+        for pd in holding(rule["role"]):
+            mine = model.priorities[pd]
+            level = sorted((other for other in model.pds - {pd}
+                            if roles.get(other) not in excepted
+                            and model.priorities[other] >= mine),
+                           key=lambda other: (-model.priorities[other], other))
+            if level:
+                shown = ", ".join(f"{other!r} (role {roles.get(other)}, priority {model.priorities[other]})"
+                                  for other in level)
+                problems.append(f"rule 11 ({rule['id']}): {pd!r}, role {rule['role']}, has priority {mine}, "
+                                f"not above {shown}: {rule['reason']}")
+    for rule in rules.get("full_budget", []):
+        if not binds(rule):
+            continue
+        for pd in holding(rule["role"]):
+            budget, period = model.budgets[pd]
+            if budget != period:
+                problems.append(f"rule 11 ({rule['id']}): {pd!r}, role {rule['role']}, has budget {budget} and "
+                                f"period {period}, not a full budget (budget equal to period): {rule['reason']}")
+            if pd in model.passive:
+                problems.append(f"rule 11 ({rule['id']}): {pd!r}, role {rule['role']}, is passive, so it has no "
+                                f"budget of its own after its start-up: {rule['reason']}")
+    return problems
+
+
+def writer_problems(granted, meta, rules):
+    """Rule 11, on who can write what a PD reads: for each
+    `only_writers` rule, every other PD that can write a memory region a PD
+    of the rule's role maps, read-only or read-write - a PD that maps it
+    "rw", or learns its physical address, so a device it drives can write
+    it - has one of the rule's `writers` roles, or in a test system one of
+    its `test_writers` roles."""
+    problems = []
+    roles, system = meta["roles"], meta["system"]
+    facts = sorted(fact.split() for fact in granted)
+    writes = {}
+    for words in facts:
+        if words[0] == "map" and words[3] == "rw":
+            writes.setdefault(words[2], []).append((words[1], "maps it read-write"))
+        elif words[0] == "paddr":
+            writes.setdefault(words[2], []).append((words[1], "learns its physical address, so a device it "
+                                                               "drives can write it"))
+    for rule in rules.get("only_writers", []):
+        test_writers = rule.get("test_writers", [])
+        allowed = set(rule["writers"]) | (set(test_writers) if system == "test" else set())
+        who = " or ".join(f"a {role} PD" for role in rule["writers"])
+        if test_writers:
+            who += ", or " + " or ".join(f"a {role} PD" for role in test_writers) + " in a test system,"
+        for words in facts:
+            if words[0] != "map" or roles.get(words[1]) != rule["role"]:
+                continue
+            reader, region = words[1], words[2]
+            for writer, how in writes.get(region, []):
+                if writer == reader or roles.get(writer) in allowed:
+                    continue
+                problems.append(f"rule 11 ({rule['id']}): {writer!r}, role {roles.get(writer)}, can write "
+                                f"{region!r}, which {reader!r}, role {rule['role']}, maps ({writer!r} {how}; "
+                                f"only {who} may): {rule['reason']}")
+    return problems
+
+
+def spared_roles(rule):
+    """The peer roles a forbid rule's unless_peer_role spares: one, or a
+    list."""
+    spared = rule.get("unless_peer_role", [])
+    return [spared] if isinstance(spared, str) else spared
+
+
+def reader_problems(granted, meta, rules):
+    """Rule 11, on who may read what a PD writes for one reader: for
+    each `one_reader` rule, every memory region a PD of the rule's role maps
+    read-write, and gives no device - it does not learn its physical address
+    - is that PD's message to one reader (the entropy PD's seed rings): at most one other PD maps it, and that PD only
+    read-only."""
+    problems = []
+    roles = meta["roles"]
+    facts = sorted(fact.split() for fact in granted)
+    maps, given_to_devices = {}, set()
+    for words in facts:
+        if words[0] == "map":
+            maps.setdefault(words[2], []).append((words[1], words[3]))
+        elif words[0] == "paddr":
+            given_to_devices.add((words[1], words[2]))
+    for rule in rules.get("one_reader", []):
+        for words in facts:
+            if words[0] != "map" or words[3] != "rw" or roles.get(words[1]) != rule["role"]:
+                continue
+            writer, region = words[1], words[2]
+            if (writer, region) in given_to_devices:
+                continue
+            readers = [(pd, rights) for pd, rights in maps.get(region, []) if pd != writer]
+            for pd, rights in readers:
+                if rights != "r":
+                    problems.append(f"rule 11 ({rule['id']}): {pd!r}, role {roles.get(pd)}, maps {region!r} "
+                                    f"{rights}, which {writer!r}, role {rule['role']}, writes for one reader "
+                                    f"(its reader maps it r only): {rule['reason']}")
+            if len(readers) > 1:
+                names = ", ".join(repr(pd) for pd, _ in readers)
+                problems.append(f"rule 11 ({rule['id']}): {region!r}, which {writer!r}, role {rule['role']}, "
+                                f"writes for one reader, is mapped by {len(readers)} PDs ({names}): "
+                                f"{rule['reason']}")
+    return problems
+
+
+def qemu_problems(path):
+    """Rule 15: the QEMU device file puts virtio-rng on transport 8 only."""
+    try:
+        with open(path, encoding="utf-8") as handle:
+            lines = handle.read().splitlines()
+    except OSError as err:
+        raise InputError(f"cannot read the QEMU device file {path}: {err}") from err
+    problems = []
+    words = [word for line in lines if not line.lstrip().startswith("#") for word in line.split()]
+    for index, word in enumerate(words):
+        if word != "-device":
+            continue
+        value = words[index + 1] if index + 1 < len(words) else ""
+        options = value.split(",")
+        if options[0] != "virtio-rng-device":
+            continue
+        buses = [option.split("=", 1)[1] for option in options[1:] if option.startswith("bus=")]
+        if buses != ["virtio-mmio-bus.8"]:
+            where = (buses[0] if len(buses) == 1 else "no bus named, so QEMU's next free transport" if not buses
+                     else f"more than one bus ({', '.join(buses)})")
+            problems.append(f"rule 15: {path} puts virtio-rng on {where}: only bus=virtio-mmio-bus.8, "
+                            f"transport 8 in the page the board file names rng, keeps the random source "
+                            f"where only the entropy PD reaches it")
+    return problems
+
+
+def prefill_problems(meta, model, rules):
+    """Rule 11, on the configuration a PD reads: for each `reads_prefill`
+    rule, every PD of its role, in a kind of system the rule binds, binds the
+    rule's symbol - a read-only region's setvar_vaddr - to exactly one
+    region, mapped read-only and prefilled from the rule's file (the clock's
+    floor: read-only region 6, from build-time.bin)."""
+    problems = []
+    roles, system = meta["roles"], meta["system"]
+    for rule in rules.get("reads_prefill", []):
+        if "systems" in rule and system not in rule["systems"]:
+            continue
+        symbol, prefill = rule["symbol"], rule["prefill"]
+        for pd in sorted(pd for pd in model.pds if roles.get(pd) == rule["role"]):
+            where = f"rule 11 ({rule['id']}): {pd!r}, role {rule['role']},"
+            maps = [(region, perms) for bound, region, perms in model.bound.get(pd, []) if bound == symbol]
+            if not maps:
+                problems.append(f"{where} maps no region with setvar_vaddr=\"{symbol}\", so it does not read "
+                                f"{prefill}: {rule['reason']}")
+                continue
+            if len(maps) > 1:
+                problems.append(f"{where} binds setvar_vaddr=\"{symbol}\" to {len(maps)} regions "
+                                f"({', '.join(repr(region) for region, _ in maps)}), and must bind exactly one: "
+                                f"{rule['reason']}")
+                continue
+            region, perms = maps[0]
+            if perms != "r":
+                problems.append(f"{where} maps {region!r}, bound to {symbol}, read-write, not read-only: "
+                                f"{rule['reason']}")
+            actual = model.prefills.get(region)
+            if actual is None:
+                problems.append(f"{where} binds {symbol} to {region!r}, which is not prefilled (no "
+                                f"prefill_path), so not from {prefill}: {rule['reason']}")
+            elif actual != prefill:
+                problems.append(f"{where} binds {symbol} to {region!r}, which is prefilled from {actual}, not "
+                                f"from {prefill}: {rule['reason']}")
+    return problems
+
+
+def capdl_problems(path, model):
+    """Rule 6: the rights in the Microkit tool's capDL output."""
+    try:
+        with open(path, encoding="utf-8") as handle:
+            spec = json.load(handle)
+        return capdl_rights_problems(spec["objects"], spec.get("irqs", []), model)
+    except (OSError, ValueError, KeyError, IndexError, TypeError, AttributeError) as err:
+        raise InputError(f"cannot read capDL objects from {path}: {err!r}") from err
+
+
+def capdl_rights_problems(objects, irqs, model):
+    """Rule 6, on the parsed capDL objects and IRQ list. Malformed input raises."""
+
+    def kind_of(entry):
+        body = entry.get("object") if isinstance(entry, dict) else None
+        if isinstance(body, dict) and len(body) == 1:
+            return next(iter(body.items()))
+        return None, None
+
+    def target(index):
+        if not is_int(index) or not 0 <= index < len(objects):
+            raise ValueError(f"a cap names object {index!r}, which does not exist")
+        return index
+
+    by_name = {entry.get("name"): index for index, entry in enumerate(objects)}
+    problems = []
+    irq_of_handler = {}
+    for entry in irqs:
+        handler, irq = target(entry["handler"]), entry["irq"]
+        if handler in irq_of_handler or irq in irq_of_handler.values():
+            problems.append(f"rule 6: capDL: the interrupt list names interrupt {irq} or its handler "
+                            f"({objects[handler].get('name')!r}) more than once")
+        irq_of_handler[handler] = irq
+    handlers_held = {}
+    smc_held = set()
+
+    for pd in sorted(model.pds):
+        tcb_index = by_name.get(f"tcb_{pd}")
+        kind, tcb = kind_of(objects[tcb_index]) if tcb_index is not None else (None, None)
+        if kind != "Tcb":
+            problems.append(f"rule 6: capDL: no TCB for protection domain {pd!r}")
+            continue
+        # The core the kernel binds the PD's thread to: the one the
+        # description names, 0 by default.
+        affinity = (tcb.get("extra") or {}).get("affinity", 0)
+        if affinity != model.cpus.get(pd, 0):
+            problems.append(f"rule 6: capDL: {pd!r} runs on core {affinity!r}, but the description "
+                            f"puts it on core {model.cpus.get(pd, 0)}")
+        tcb_slots = tcb.get("slots", [])
+        roots = [slot["cap"]["PageTable"]["object"] for slot in tcb_slots
+                 if "PageTable" in slot.get("cap", {})]
+        if len(roots) != 1:
+            problems.append(f"rule 6: capDL: {pd!r} has {len(roots)} page-table roots, expected 1")
+            continue
+        wanted = model.maps.get(pd, {})
+
+        # Memory: every frame the page tables reach.
+        reached = {}
+        pending, visited = list(roots), set()
+        while pending:
+            index = pending.pop()
+            if index in visited or not 0 <= index < len(objects):
+                continue
+            visited.add(index)
+            table_kind, table = kind_of(objects[index])
+            if table_kind != "PageTable":
+                continue
+            for slot in table.get("slots", []):
+                cap = slot.get("cap", {})
+                if "PageTable" in cap:
+                    pending.append(cap["PageTable"]["object"])
+                elif "Frame" in cap:
+                    frame = cap["Frame"]
+                    frame_object = objects[target(frame["object"])]
+                    name = frame_object.get("name", "")
+                    _, body = kind_of(frame_object)
+                    body = body if isinstance(body, dict) else {}
+                    paddr, size_bits = body.get("paddr"), body.get("size_bits")
+                    match = CAPDL_REGION_FRAME.match(name)
+                    region = match.group(1) if match else None
+                    fixed = region in model.device_of or region in model.dma_regions
+                    if paddr is not None and (region not in wanted or not fixed):
+                        shown = f"{paddr:#x}" if is_int(paddr) else repr(paddr)
+                        problems.append(f"rule 6: capDL: {pd!r} reaches physical address {shown} through "
+                                        f"frame {name!r}, which is not a device or DMA region it maps")
+                        continue
+                    if region is not None:
+                        rights = frame.get("rights", {})
+                        reached.setdefault(region, set()).add(
+                            (bool(rights.get("read")), bool(rights.get("write")),
+                             bool(frame.get("executable")), bool(frame.get("cached", True)),
+                             paddr, size_bits)
+                        )
+                    elif not own_frame(pd, name):
+                        problems.append(f"rule 6: capDL: {pd!r} reaches frame {name!r}, which is neither "
+                                        f"its own (program image, stack or IPC buffer) nor a page of a "
+                                        f"memory region it maps")
+        for region in sorted(set(reached) | set(wanted)):
+            if region not in wanted:
+                problems.append(f"rule 6: capDL: {pd!r} can reach memory region {region!r}, "
+                                f"which it does not map")
+                continue
+            if region not in reached:
+                problems.append(f"rule 6: capDL: {pd!r} maps {region!r}, but no page of it is in "
+                                f"its page tables")
+                continue
+            device = model.device_of.get(region)
+            expected = (True, wanted[region] == "rw", False)
+            got = {page[:3] for page in reached[region]}
+            if got != {expected}:
+                shown = ", ".join(f"read={r} write={w} executable={x}" for r, w, x in sorted(got))
+                problems.append(
+                    f"rule 6: capDL: {pd!r} maps {region!r} with {shown}; the grant is "
+                    f"{wanted[region]!r} (read=True write={wanted[region] == 'rw'} executable=False)"
+                )
+            if device is not None:
+                if any(page[3] for page in reached[region]) and (pd, device.name) not in model.cached_devices:
+                    problems.append(f"rule 6: capDL: {pd!r} maps device {device.name!r} cached")
+                end = device.address + device.size
+                stray = sorted({(page[4], page[5]) for page in reached[region]
+                                if not is_int(page[4]) or not is_int(page[5])
+                                or page[4] < device.address or page[4] + (1 << page[5]) > end},
+                               key=str)
+                if stray:
+                    shown = ", ".join(f"{paddr:#x} (2^{bits} bytes)" if is_int(paddr) and is_int(bits)
+                                      else f"{paddr!r} ({bits!r})" for paddr, bits in stray)
+                    problems.append(
+                        f"rule 6: capDL: {pd!r} maps {region!r} with page(s) at {shown}, not wholly "
+                        f"inside device {device.name!r}'s window {device.address:#x}+{device.size:#x}"
+                    )
+
+        # Capabilities: every cap in the PD's CSpace.
+        held = set()
+        signals, sends = set(), set()
+        pending = [slot["cap"]["CNode"]["object"] for slot in tcb_slots if "CNode" in slot.get("cap", {})]
+        visited = set()
+        while pending:
+            index = target(pending.pop())
+            if index in visited:
+                continue
+            visited.add(index)
+            node_kind, node = kind_of(objects[index])
+            if node_kind != "CNode":
+                continue
+            for slot in node.get("slots", []):
+                for cap_kind, cap in slot.get("cap", {}).items():
+                    if cap_kind not in CAPDL_CNODE_CAPS:
+                        problems.append(f"rule 6: capDL: {pd!r} holds a {cap_kind} capability, which "
+                                        f"check-system does not model")
+                    elif cap_kind == "CNode":
+                        pending.append(cap["object"])
+                    elif cap_kind == "Tcb":
+                        thread = objects[target(cap["object"])].get("name", "")
+                        match = CAPDL_TCB.match(thread)
+                        if not match or match.group(1) not in model.children.get(pd, set()):
+                            problems.append(f"rule 6: capDL: {pd!r} holds the thread capability "
+                                            f"{thread!r}, which is not one of its children")
+                    elif cap_kind in ("Notification", "Endpoint"):
+                        problems += signal_cap_problems(pd, cap_kind, cap, objects[target(cap["object"])],
+                                                        signals if cap_kind == "Notification" else sends)
+                    elif cap_kind == "ArmSmc":
+                        smc_held.add(pd)
+                        if pd not in model.smc:
+                            problems.append(f"rule 6: capDL: {pd!r} holds an SMC capability, which it "
+                                            f"is not granted (smc=\"true\")")
+                    elif cap_kind == "ArmIrqHandler":
+                        handler = target(cap["object"])
+                        if handler not in irq_of_handler:
+                            problems.append(f"rule 6: capDL: {pd!r} holds an interrupt handler "
+                                            f"({objects[handler].get('name')!r}) for no listed interrupt")
+                            continue
+                        held.add(irq_of_handler[handler])
+        handlers_held[pd] = held
+        problems += channel_cap_problems(pd, signals, sends, model)
+        granted = model.irqs.get(pd, set())
+        for irq in sorted(held - granted):
+            problems.append(f"rule 6: capDL: {pd!r} holds the handler for interrupt {irq}, "
+                            f"which it is not granted")
+        for irq in sorted(granted - held):
+            problems.append(f"rule 6: capDL: {pd!r} is granted interrupt {irq}, but holds no "
+                            f"handler for it")
+    for irq in sorted(set(irq_of_handler.values()) - set().union(*handlers_held.values())):
+        problems.append(f"rule 6: capDL: interrupt {irq} has a handler that no protection "
+                        f"domain is granted")
+    for pd in sorted(model.smc - smc_held):
+        problems.append(f"rule 6: capDL: {pd!r} is granted the SMC capability, but holds none")
+    return problems + passive_problems(objects, by_name, model)
+
+
+def signal_cap_problems(pd, kind, cap, obj, written):
+    """Rule 6, for one notification or endpoint capability in `pd`'s CSpace:
+    it receives only on its own object; record what it can write to."""
+    rights = cap.get("rights", {})
+    name = obj.get("name", "")
+    problems = []
+    if rights.get("grant"):
+        problems.append(f"rule 6: capDL: {pd!r} holds {kind} {name!r} with the grant right, so it "
+                        f"could pass capabilities on")
+    own = (CAPDL_NOTIFICATION if kind == "Notification" else CAPDL_ENDPOINT).format(pd)
+    if rights.get("read") and name != own:
+        problems.append(f"rule 6: capDL: {pd!r} can receive on {kind} {name!r}, which is not its own")
+    if rights.get("write"):
+        written.add(name)
+    return problems
+
+
+def channel_cap_problems(pd, signals, sends, model):
+    """Rule 6: `pd` signals exactly the PDs it may notify, and sends to
+    exactly the PDs it may call, besides the endpoints that take its faults."""
+    problems = []
+    may_notify = {CAPDL_NOTIFICATION.format(peer) for who, peer in model.notifies if who == pd}
+    for name in sorted(signals - may_notify):
+        problems.append(f"rule 6: capDL: {pd!r} can signal notification {name!r}, but the grants "
+                        f"give it no channel that may notify that PD")
+    for name in sorted(may_notify - signals):
+        problems.append(f"rule 6: capDL: {pd!r} may notify through {name!r}, but holds no "
+                        f"capability to it")
+    may_call = {CAPDL_ENDPOINT.format(callee) for caller, callee in model.calls if caller == pd}
+    fault_handlers = {CAPDL_MONITOR_ENDPOINT}
+    if pd in model.parent:
+        fault_handlers.add(CAPDL_ENDPOINT.format(model.parent[pd]))
+    for name in sorted(sends - may_call - fault_handlers):
+        problems.append(f"rule 6: capDL: {pd!r} can send to endpoint {name!r}, which is neither a "
+                        f"call it may make nor its fault handler")
+    for name in sorted(may_call - sends):
+        problems.append(f"rule 6: capDL: {pd!r} may call through {name!r}, but holds no "
+                        f"capability to it")
+    return problems
+
+
+def passive_problems(objects, by_name, model):
+    """Rule 6: the monitor holds the scheduling contexts of exactly the
+    passive PDs (it takes each one away when that PD's init finishes)."""
+    index = by_name.get(CAPDL_MONITOR_CNODE)
+    body = objects[index].get("object", {}) if index is not None else {}
+    if not isinstance(body, dict) or not isinstance(body.get("CNode"), dict):
+        return [f"rule 6: capDL: no CNode {CAPDL_MONITOR_CNODE!r}, so passive PDs cannot be checked"]
+    held = set()
+    for slot in body["CNode"].get("slots", []):
+        cap = slot.get("cap", {}).get("SchedContext")
+        if cap is not None:
+            match = CAPDL_SCHED_CONTEXT.match(objects[cap["object"]].get("name", ""))
+            held.add(match.group(1) if match else repr(objects[cap["object"]].get("name")))
+    problems = []
+    for pd in sorted(held - model.passive):
+        problems.append(f"rule 6: capDL: the monitor holds the scheduling context of {pd!r}, making it "
+                        f"passive, but the description does not")
+    for pd in sorted(model.passive - held):
+        problems.append(f"rule 6: capDL: {pd!r} is passive, but the monitor does not hold its "
+                        f"scheduling context")
+    return problems
+
+
+# One line of the Microkit tool's report, "Kernel Objects Details": the
+# object's number, type, name and physical address.
+REPORT_OBJECT = re.compile(r"^\s*\d+ - ([^:]+): '([^']+)' @ (0x[0-9a-fA-F]+)\s*$")
+
+
+def framebuffers(board):
+    """[(device, start, end)] for each framebuffer the board's firmware scans
+    out: from its first row through what the firmware reserves for it, or
+    else to its last byte (rule 14)."""
+    screens = []
+    for device in board.devices.values():
+        mode = device.framebuffer
+        if mode is not None:
+            start = device.address - mode["first_row"] * mode["stride"]
+            end = start + mode["reserved"] if "reserved" in mode else device.address + device.registers
+            screens.append((device, start, end))
+    return screens
+
+
+def sdk_memory_problems(path, board):
+    """Rule 14: the RAM the Microkit SDK's kernel hands out for the board -
+    the `memory` ranges of its platform_gen.json - covers no framebuffer
+    the board's firmware scans out."""
+    try:
+        with open(path, encoding="utf-8") as handle:
+            memory = json.load(handle)["memory"]
+        ranges = [(int(entry["start"]), int(entry["end"])) for entry in memory]
+    except OSError as err:
+        raise InputError(f"cannot read the Microkit SDK's memory description {path}: {err}") from err
+    except (ValueError, KeyError, TypeError) as err:
+        raise InputError(f"{path}: not a Microkit SDK's platform_gen.json - no memory ranges ({err})") from err
+    if not ranges:
+        raise InputError(f"{path}: no memory ranges listed - not a Microkit SDK's platform_gen.json?")
+    if not board.board:
+        return []
+    problems = []
+    for low, high in ranges:
+        for device, start, end in framebuffers(board):
+            if low < end and start < high:
+                problems.append(f"rule 14: the Microkit SDK gives seL4 RAM from {low:#x} to {high:#x} ({path}), "
+                                f"over board {board.board!r}'s framebuffer {device.name!r} ({start:#x} to "
+                                f"{end:#x}), which the display hardware shows on the screen: seL4 could hand "
+                                f"it to any PD - the SDK's RAM must end below it")
+    return problems
+
+
+def report_problems(path, model, board):
+    """Rule 14: no kernel object the Microkit tool places lies in a
+    framebuffer the firmware scans out, but the frames of a region that
+    maps its window."""
+    try:
+        with open(path, encoding="utf-8") as handle:
+            lines = handle.read().splitlines()
+    except OSError as err:
+        raise InputError(f"cannot read the Microkit report {path}: {err}") from err
+    objects = [match.groups() for match in map(REPORT_OBJECT.match, lines) if match]
+    if not objects:
+        raise InputError(f"{path}: no kernel objects listed - not a Microkit report?")
+    if not board.board:
+        return []
+    problems = []
+    for kind, name, address in objects:
+        paddr = int(address, 16)
+        for device, start, end in framebuffers(board):
+            if not start <= paddr < end:
+                continue
+            frame = CAPDL_REGION_FRAME.match(name)
+            if frame and model.device_of.get(frame.group(1)) is device:
+                continue
+            problems.append(f"rule 14: {kind} {name!r} lies at {paddr:#x}, inside board {board.board!r}'s "
+                            f"framebuffer {device.name!r} ({start:#x} to {end:#x}), which the display "
+                            f"hardware shows on the screen: only the frames of its own window may be there")
+    return problems
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n", 1)[0])
+    parser.add_argument("--sdf", required=True, help="system description (.system)")
+    parser.add_argument("--grants", required=True, help="grants file (.grants)")
+    parser.add_argument("--board", help="Microkit board, for its device facts (BOARD.toml)")
+    parser.add_argument("--platforms", default=DEFAULT_PLATFORMS,
+                        help="folder of board files (default: platforms/ beside tools/)")
+    parser.add_argument("--capdl", help="capDL JSON from `microkit --capdl-json`")
+    parser.add_argument("--report", help="the Microkit tool's report (`microkit -r`), for rule 14")
+    parser.add_argument("--sdk-memory",
+                        help="the Microkit SDK's platform_gen.json for the board and configuration, for rule 14")
+    parser.add_argument("--qemu", help="the system's QEMU device file (systems/NAME.qemu), for rule 15")
+    parser.add_argument("--rules", default=DEFAULT_RULES,
+                        help="role rules (default: grant-rules.toml beside this tool)")
+    args = parser.parse_args()
+    board = Board(args.board, args.platforms)
+
+    try:
+        granted, problems, model = read_sdf(args.sdf, board)
+        listed, meta = read_grants(args.grants)
+        listed, unresolved = resolve_grant_irqs(listed, board)
+        problems.extend(unresolved)
+        problems.extend(grants_device_problems(listed, board))
+        rules = read_rules(args.rules)
+        problems.extend(role_problems(granted, meta, model, rules))
+        if meta["system"] != "test":
+            for region, prefill in sorted(model.test_prefills.items()):
+                problems.append(f"rule 12: memory_region {region!r} is prefilled from {prefill}, a test-only "
+                                f"stand-in: only a test system may have one")
+        if meta["system"] == "product" and model.restart_images:
+            problems.append(f"rule 13: a product system restarts no PD on its own - that needs a "
+                            f"decision the fault policy has not taken yet - but it has restart image(s) "
+                            f"{', '.join(sorted(model.restart_images))}")
+        for fact in sorted(granted - listed):
+            problems.append(f"rule 1: granted but not in {args.grants}: {fact}")
+        for fact in sorted(listed - granted):
+            problems.append(f"rule 1: listed in {args.grants} but not granted: {fact}")
+        if args.capdl:
+            problems.extend(capdl_problems(args.capdl, model))
+        if args.report:
+            problems.extend(report_problems(args.report, model, board))
+        if args.sdk_memory:
+            problems.extend(sdk_memory_problems(args.sdk_memory, board))
+        if args.qemu:
+            problems.extend(qemu_problems(args.qemu))
+    except InputError as err:
+        print(f"check-system: {err}", file=sys.stderr)
+        return EXIT_ERROR
+
+    if problems:
+        print(f"check-system: FAIL - {args.sdf}:", file=sys.stderr)
+        for problem in problems:
+            print(f"    {problem}", file=sys.stderr)
+        return EXIT_FAIL
+    checked = "description, grants and capDL" if args.capdl else "description and grants"
+    print(f"check-system: PASS - {args.sdf}: {checked} agree "
+          f"({len(granted)} grant(s))")
+    # The build says which PDs run a development-only program: such
+    # an image is never a product's.
+    for pd, image in development_only_pds(model, rules):
+        print(f"check-system: development only - {pd!r} runs {image}, which no product system may run: "
+              f"this is a {meta['system']} image")
+    return EXIT_PASS
+
+
+if __name__ == "__main__":
+    sys.exit(main())

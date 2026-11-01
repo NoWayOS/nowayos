@@ -1,0 +1,108 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    In QEMU: the network stack PD
+    against a hostile NIC driver. The stack and its grants are net-stack-test's;
+    in the driver's place is driver_stand_in, a test instrument holding the
+    driver's ends of the four queues, which passes back frames and
+    descriptors no honest driver would:
+
+        timer            monotonic time, as in net-stack-test
+        seed_source      the stack's fixed test seed, as in net-stack-test
+        driver_stand_in  takes every receive buffer the stack gives it and
+                         passes back two oversize frames (1515 and 2048
+                         bytes), three malformed descriptors (a frame shorter
+                         than an Ethernet header, an offset outside the
+                         buffers, one off a buffer boundary) and two frames
+                         smoltcp cannot use (an unknown EtherType, an IPv4
+                         header longer than its frame)
+        net_stack        drops and counts the first five, copies the last two
+                         out before smoltcp parses them, and carries on
+
+    No network card: the stand-in is the stack's whole network.
+
+    Capabilities: the stack's are exactly net-stack-test's (tools/test_tools.py
+    checks). driver_stand_in (role test) maps the four queues read-write, the
+    receive buffers read-write - as the card writes them - and the transmit
+    buffers read-only, and holds no device, interrupt or physical address.
+    Each PD the stack calls or waits on runs above it.
+
+    Every grant above is also listed in net-stack-bad-frames.grants, which
+    tools/check-system compares with this file and with the kernel objects
+    the Microkit tool generates (make image, make qemu-test).
+-->
+<system>
+    <memory_region name="rx_buffers" size="0x40000" />
+    <memory_region name="tx_buffers" size="0x40000" />
+    <memory_region name="rx_free" size="0x1000" />
+    <memory_region name="rx_active" size="0x1000" />
+    <memory_region name="tx_free" size="0x1000" />
+    <memory_region name="tx_active" size="0x1000" />
+    <!-- The stack's seed ring: the seed (seed_source's), control (the stack's). -->
+    <memory_region name="seed_ring" size="0x1000" />
+    <memory_region name="seed_ring_control" size="0x1000" />
+
+    <protection_domain name="timer" priority="220" stack_size="0x10000">
+        <program_image path="nowayos-timer.elf" />
+        <irq irq="@phys_timer" id="0" trigger="@phys_timer" />
+    </protection_domain>
+
+    <protection_domain name="seed_source" priority="160" stack_size="0x10000">
+        <program_image path="nowayos-net-stack-test.elf" />
+        <map mr="seed_ring" vaddr="0x4000_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+        <map mr="seed_ring_control" vaddr="0x4000_1000" perms="r"
+             setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+    </protection_domain>
+
+    <protection_domain name="driver_stand_in" priority="150" stack_size="0x10000">
+        <program_image path="nowayos-net-stack-test.elf" />
+        <map mr="rx_free" vaddr="0x4000_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+        <map mr="rx_active" vaddr="0x4000_1000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_1_vaddr" setvar_size="nowayos_rw_region_1_size" />
+        <map mr="tx_free" vaddr="0x4000_2000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_2_vaddr" setvar_size="nowayos_rw_region_2_size" />
+        <map mr="tx_active" vaddr="0x4000_3000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_3_vaddr" setvar_size="nowayos_rw_region_3_size" />
+        <map mr="rx_buffers" vaddr="0x5000_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_4_vaddr" setvar_size="nowayos_rw_region_4_size" />
+        <map mr="tx_buffers" vaddr="0x5100_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+    </protection_domain>
+
+    <protection_domain name="net_stack" priority="100" stack_size="0x80000">
+        <program_image path="nowayos-net-stack.elf" />
+        <map mr="rx_free" vaddr="0x4000_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+        <map mr="rx_active" vaddr="0x4000_1000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_1_vaddr" setvar_size="nowayos_rw_region_1_size" />
+        <map mr="tx_free" vaddr="0x4000_2000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_2_vaddr" setvar_size="nowayos_rw_region_2_size" />
+        <map mr="tx_active" vaddr="0x4000_3000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_3_vaddr" setvar_size="nowayos_rw_region_3_size" />
+        <map mr="rx_buffers" vaddr="0x5000_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+        <map mr="tx_buffers" vaddr="0x5100_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_4_vaddr" setvar_size="nowayos_rw_region_4_size" />
+        <map mr="seed_ring_control" vaddr="0x4000_4000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_5_vaddr" setvar_size="nowayos_rw_region_5_size" />
+        <map mr="seed_ring" vaddr="0x4000_5000" perms="r"
+             setvar_vaddr="nowayos_ro_region_1_vaddr" setvar_size="nowayos_ro_region_1_size" />
+    </protection_domain>
+
+    <!-- The stand-in and the stack notify each other, on the driver's channel. -->
+    <channel>
+        <end pd="driver_stand_in" id="0" />
+        <end pd="net_stack" id="0" />
+    </channel>
+    <!-- The stack calls the timer, which notifies it of its timeout. -->
+    <channel>
+        <end pd="net_stack" id="1" pp="true" notify="false" />
+        <end pd="timer" id="1" />
+    </channel>
+    <!-- seed_source notifies the stack when a seed waits. -->
+    <channel>
+        <end pd="seed_source" id="0" />
+        <end pd="net_stack" id="2" notify="false" />
+    </channel>
+</system>

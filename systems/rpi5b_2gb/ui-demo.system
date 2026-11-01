@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    ui-demo on the Raspberry Pi 5: systems/ui-demo.system with its
+    display PD also given the board's framebuffer - the firmware's, which the
+    HDMI monitor shows (firmware_fb in platforms/rpi5b_2gb.toml) - and the
+    board's facts about it. The same programs: the display PD
+    (nowayos-display-stub) asks the UI for frames the size of the
+    framebuffer's window, 1920x1064 r5g6b5 at scale 2, hashes each frame as
+    in QEMU, and, having a framebuffer, also shows the rectangles each
+    Present names there, at the monitor's own pixels from row 16,
+    and prints the hash of what the window then holds. ui-demo.expect holds
+    for it unchanged; rpi5b_2gb/ui-demo.expect adds the scan-out hashes.
+    The display PD also reads where the display is in its scan (hvs, the
+    HVS's first page, read-only) and copies each rectangle clear of it
+    .
+
+    The display's new grants: the framebuffer's window, read-write and
+    cached (only a display PD may map it: firmware-framebuffer-only-
+    display; and only a display PD may map it cached, cleaning each frame
+    to memory before PresentDone: cached-framebuffer-only-display);
+    and its facts, read-only (region 5). The UI still holds no
+    device: it draws into the framebuffer it shares with the display PD, as
+    in QEMU. Every grant is listed in rpi5b_2gb/ui-demo.grants.
+-->
+<system>
+    <memory_region name="present_messages" size="0x1000" />
+    <memory_region name="present_control" size="0x1000" />
+    <memory_region name="display_messages" size="0x1000" />
+    <memory_region name="display_control" size="0x1000" />
+    <memory_region name="framebuffer" size="0x400000" />
+    <memory_region name="input_messages" size="0x1000" />
+    <memory_region name="input_control" size="0x1000" />
+    <memory_region name="firmware_fb" size="@firmware_fb" phys_addr="@firmware_fb" />
+    <memory_region name="firmware_fb_facts" prefill_path="device-firmware_fb.bin" />
+    <memory_region name="hvs_regs" size="@hvs" phys_addr="@hvs" />
+
+    <protection_domain name="display" priority="3" stack_size="0x10000">
+        <program_image path="nowayos-display-stub.elf" />
+        <map mr="present_control" vaddr="0x4000_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+        <map mr="present_messages" vaddr="0x4000_1000" perms="r"
+             setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+        <map mr="display_messages" vaddr="0x4000_2000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_1_vaddr" setvar_size="nowayos_rw_region_1_size" />
+        <map mr="display_control" vaddr="0x4000_3000" perms="r"
+             setvar_vaddr="nowayos_ro_region_1_vaddr" setvar_size="nowayos_ro_region_1_size" />
+        <map mr="framebuffer" vaddr="0x5000_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_2_vaddr" setvar_size="nowayos_ro_region_2_size" />
+        <map mr="firmware_fb" vaddr="0x6000_0000" perms="rw" cached="true"
+             setvar_vaddr="nowayos_device_0_vaddr" setvar_size="nowayos_device_0_size" />
+        <map mr="firmware_fb_facts" vaddr="0x4000_4000" perms="r"
+             setvar_vaddr="nowayos_ro_region_5_vaddr" setvar_size="nowayos_ro_region_5_size" />
+        <map mr="hvs_regs" vaddr="0x200_0000" perms="r" cached="false"
+             setvar_vaddr="nowayos_device_1_vaddr" setvar_size="nowayos_device_1_size" />
+    </protection_domain>
+
+    <protection_domain name="ui" priority="1" stack_size="0x20000">
+        <program_image path="nowayos-ui-demo.elf" />
+        <map mr="present_messages" vaddr="0x4000_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+        <map mr="present_control" vaddr="0x4000_1000" perms="r"
+             setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+        <map mr="display_control" vaddr="0x4000_2000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_1_vaddr" setvar_size="nowayos_rw_region_1_size" />
+        <map mr="display_messages" vaddr="0x4000_3000" perms="r"
+             setvar_vaddr="nowayos_ro_region_1_vaddr" setvar_size="nowayos_ro_region_1_size" />
+        <map mr="framebuffer" vaddr="0x5000_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_2_vaddr" setvar_size="nowayos_rw_region_2_size" />
+        <map mr="input_control" vaddr="0x4000_4000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_3_vaddr" setvar_size="nowayos_rw_region_3_size" />
+        <map mr="input_messages" vaddr="0x4000_5000" perms="r"
+             setvar_vaddr="nowayos_ro_region_2_vaddr" setvar_size="nowayos_ro_region_2_size" />
+    </protection_domain>
+
+    <protection_domain name="input" priority="2" stack_size="0x10000">
+        <program_image path="nowayos-input-script.elf" />
+        <map mr="input_messages" vaddr="0x4000_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+        <map mr="input_control" vaddr="0x4000_1000" perms="r"
+             setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+    </protection_domain>
+
+    <!-- "Records waiting", both ways. -->
+    <channel>
+        <end pd="ui" id="0" />
+        <end pd="display" id="0" />
+    </channel>
+
+    <!-- "Events waiting" from the input PD; "ready for more" from the UI. -->
+    <channel>
+        <end pd="ui" id="1" />
+        <end pd="input" id="0" />
+    </channel>
+</system>

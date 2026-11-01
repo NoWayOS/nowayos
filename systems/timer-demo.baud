@@ -1,0 +1,4 @@
+# Line rates make qemu-test-all boots timer-demo at again: the Pi 5's
+# debug UART's. A timeout's interrupt can wake a client while another
+# prints; the deadlines keep them apart, which this run watches.
+115200

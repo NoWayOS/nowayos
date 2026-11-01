@@ -1,0 +1,35 @@
+# Lines tools/qemu-test must see, in this order, as whole serial lines.
+# The supervisor reads its stand-in counts before any child runs; a
+# count is at its limit, so it enters the fail-safe state, stopping every
+# child it does not keep - unnamed_child too, which its program does not
+# name; the kept child runs, faults, and is stopped and reported, and
+# nothing is reset. The "fault detail" line is not checked.
+# The six failsafe-* expect files differ only in the two lines on the counts.
+NOWAYOS: supervisor: starting; children kept_child (0) and stopped_child (1)
+NOWAYOS: supervisor: the counts cannot be read: there is no record
+NOWAYOS: supervisor: this start: a reset whose cause was not written down
+NOWAYOS: supervisor: restart count 4 of 4, sensitive count 2 of 2: enter the fail-safe state
+NOWAYOS: supervisor: stopped_child (1) stopped
+NOWAYOS: supervisor: an unknown child (2) stopped
+NOWAYOS: supervisor: in the fail-safe state; kept running: kept_child (0)
+NOWAYOS: isolation-probe: kept_child starting
+NOWAYOS: supervisor: kept_child stopped: data write at 0x40000000: permission fault (the mapping does not allow it)
+NOWAYOS: supervisor: in the fail-safe state: nothing is restarted
+
+# Output that fails the test at once if it appears anywhere (substring match):
+# a child it does not keep starting, the board reset, the reset returning, a
+# fault the monitor had to handle, a kernel error message, or the supervisor
+# or a probe failing.
+!stopped_child starting
+!unnamed_child starting
+!resetting the board
+!the reset returned
+!NOT stopped
+!MON|ERROR
+!seL4(CPU
+!ISOLATION FAILURE
+!no probe is defined
+!no children are defined
+!cannot stop
+!cannot supervise
+!cannot keep

@@ -1,0 +1,26 @@
+[package]
+name = "nowayos-ui"
+description = "First cut of NoWayOS's declarative UI core: bounded node tree, layout, hit-testing, focus and actions"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+nowayos-bounded.workspace = true
+nowayos-display.workspace = true
+# The glyph atlases, whose advances, kerning and line heights layout measures
+# text with. OFL-1.1, the signed-off font's licence, in a
+# crate of its own, which an image's SBOM names with the font.
+nowayos-glyphs.workspace = true
+# The icons: Lucide's, drawn into alpha masks at build time. ISC, in
+# a crate of its own, which an image's SBOM names with its licence.
+nowayos-icons.workspace = true
+nowayos-input.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true

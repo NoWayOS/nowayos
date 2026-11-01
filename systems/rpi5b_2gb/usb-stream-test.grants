@@ -1,0 +1,55 @@
+# Everything systems/rpi5b_2gb/usb-stream-test.system grants, one fact per
+# line (format: see tools/check-system). A change here is a security change:
+# call it out in the pull request.
+
+# A test system: usb0 and usb1 run nowayos-usb-tone, a test instrument;
+# the ticker its run length.
+system test
+role run_watchdog watchdog
+role timer driver
+role ticker test
+role usb0 test
+role usb1 test
+
+# The watchdog above everything; the timer above the PDs that call it.
+pd run_watchdog priority=250 budget=1000 period=1000
+pd timer priority=240 budget=1000 period=1000
+pd ticker priority=230 budget=1000 period=1000
+pd usb0 priority=100 budget=1000 period=1000
+pd usb1 priority=90 budget=1000 period=1000
+
+# The PM watchdog's page, the watchdog PD's alone; the system timer's page
+# and channel 1's interrupt, the timer PD's alone.
+device run_watchdog pm_watchdog rw
+device timer system_timer rw
+irq timer system_timer 97
+
+# Each controller's first page, by name from the board file: uncached, its PD
+# only.
+device usb0 xhci0 rw
+device usb1 xhci1 rw
+
+# Each controller's rings, contexts, buffers and streams, which it reads and
+# writes by DMA: the PD learns the region's physical address to give the
+# controller.
+map usb0 usb0_memory rw
+paddr usb0 usb0_memory
+map usb1 usb1_memory rw
+paddr usb1 usb1_memory
+
+# The board's facts about each controller. Configuration, read-only.
+map usb0 xhci0_facts r
+map usb1 xhci1_facts r
+
+# The run length, read-only; the ticker's tick to the watchdog.
+map ticker run_length r
+channel ticker run_watchdog notify=ticker
+
+# The ticker and each USB host PD call the timer for their ticks; the timer
+# notifies each.
+channel ticker timer notify=timer
+call ticker timer
+channel usb0 timer notify=timer
+call usb0 timer
+channel usb1 timer notify=timer
+call usb1 timer

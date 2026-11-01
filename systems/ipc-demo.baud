@@ -1,0 +1,4 @@
+# Line rates make qemu-test-all boots ipc-demo at again: the Pi 5's
+# debug UART's. The producer's budget can hold it mid-line at a real UART's
+# rate; the consumer prints only once notified, so the lines stay whole.
+115200

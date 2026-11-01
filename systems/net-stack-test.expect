@@ -1,0 +1,30 @@
+# Lines tools/qemu-test must see, in this order, as whole serial lines.
+# In QEMU: the network stack PD runs smoltcp over the
+# virtio-net driver's queues and takes a DHCP lease from QEMU's user-mode
+# network. The PDs start in priority order: the timer, the driver,
+# seed_source, then the stack, whose seed is already on its ring.
+NOWAYOS: timer: starting
+NOWAYOS: virtio-net: starting
+NOWAYOS: virtio-net: ready on transport 7, MAC 52:54:00:12:34:56
+NOWAYOS: net-stack-test seed_source: starting
+NOWAYOS: net-stack-test seed_source: a fixed test seed sent on the stack's seed ring
+NOWAYOS: net-stack: starting
+NOWAYOS: net-stack: seeded; interface up at 52:54:00:12:34:56: asking for a DHCP lease
+# AC 2: QEMU's DHCP server's lease, through the driver, parsed by smoltcp.
+NOWAYOS: net-stack: DHCP lease 10.0.2.15/24, gateway 10.0.2.2
+
+# Output that fails the test at once if it appears anywhere (substring match):
+# a fault reported by the Microkit monitor, a kernel error message, a panic,
+# a PD giving up, the stack not ready, refusing its seed, losing its lease or
+# dropping anything - an honest driver passes it no bad frame - or a queue
+# error.
+!MON|ERROR
+!seL4(CPU
+!panicked
+!gave up
+!not ready
+!a seed refused
+!lease lost
+!net-stack: dropped so far
+!could not
+!queue:

@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    In QEMU: a consumer that takes seeds as
+    fast as it can is held to its rate, and another still gets every seed
+    it asks for within its own.
+
+        entropy          the entropy PD (200), as in entropy-test, with two
+                         seed rings: ring 0 polite_consumer's, ring 1
+                         seed_flood's, each refilled at no more than
+                         nowayos-seed's SEEDS_PER_SECOND after its first fill,
+                         measured on the counter
+        timer            NoWayOS's timer PD (190), for polite_consumer
+        polite_consumer  a test PD (150): a seed every 200 ms, five times,
+                         slower than its rate; finds one each time
+        seed_flood       a test PD (100): takes seeds as fast as it can for
+                         2 s, notifying the entropy PD after every attempt,
+                         and reports how many it got
+
+    Each seed ring is read-only in its one consumer, its index read-only in
+    the entropy PD. Every grant is listed in entropy-rate-test.grants
+    (checked by tools/check-system).
+-->
+<system>
+    <memory_region name="rng_regs" size="@rng" phys_addr="@rng" />
+    <memory_region name="rng_requests" size="0x1000" />
+    <memory_region name="polite_ring" size="0x1000" />
+    <memory_region name="polite_ring_control" size="0x1000" />
+    <memory_region name="flood_ring" size="0x1000" />
+    <memory_region name="flood_ring_control" size="0x1000" />
+
+    <protection_domain name="entropy" priority="200" stack_size="0x10000">
+        <program_image path="nowayos-entropy-source.elf" />
+        <map mr="rng_regs" vaddr="0x200_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_device_0_vaddr" setvar_size="nowayos_device_0_size" />
+        <map mr="rng_requests" vaddr="0x300_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_dma_0_vaddr" setvar_size="nowayos_dma_0_size" />
+        <setvar symbol="nowayos_dma_0_paddr" region_paddr="rng_requests" />
+        <map mr="polite_ring" vaddr="0x4000_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+        <map mr="polite_ring_control" vaddr="0x4000_1000" perms="r"
+             setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+        <map mr="flood_ring" vaddr="0x4000_2000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_1_vaddr" setvar_size="nowayos_rw_region_1_size" />
+        <map mr="flood_ring_control" vaddr="0x4000_3000" perms="r"
+             setvar_vaddr="nowayos_ro_region_1_vaddr" setvar_size="nowayos_ro_region_1_size" />
+        <irq irq="@rng[0]" id="8" trigger="@rng" />
+    </protection_domain>
+
+    <protection_domain name="timer" priority="190" stack_size="0x10000">
+        <program_image path="nowayos-timer.elf" />
+        <irq irq="@phys_timer" id="0" trigger="@phys_timer" />
+    </protection_domain>
+
+    <protection_domain name="polite_consumer" priority="150" stack_size="0x10000">
+        <program_image path="nowayos-seed-consumer.elf" />
+        <map mr="polite_ring_control" vaddr="0x4000_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+        <map mr="polite_ring" vaddr="0x4000_1000" perms="r"
+             setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+    </protection_domain>
+
+    <protection_domain name="seed_flood" priority="100" stack_size="0x10000">
+        <program_image path="nowayos-seed-consumer.elf" />
+        <map mr="flood_ring_control" vaddr="0x4000_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+        <map mr="flood_ring" vaddr="0x4000_1000" perms="r"
+             setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+    </protection_domain>
+
+    <!-- The entropy PD and each consumer notify each other. -->
+    <channel>
+        <end pd="entropy" id="0" />
+        <end pd="polite_consumer" id="0" />
+    </channel>
+    <channel>
+        <end pd="entropy" id="1" />
+        <end pd="seed_flood" id="0" />
+    </channel>
+    <!-- polite_consumer calls the timer, which notifies it of its timeouts. -->
+    <channel>
+        <end pd="polite_consumer" id="1" pp="true" notify="false" />
+        <end pd="timer" id="1" />
+    </channel>
+</system>

@@ -1,0 +1,20 @@
+# Lines tools/qemu-test must see, in this order, as whole serial lines.
+# entropy-test with no random source: the entropy PD
+# finds none on transport 8 and hands out no seeds; the consumer is refused,
+# finds no seed on its ring and stays not ready.
+NOWAYOS: entropy: starting
+NOWAYOS: entropy: no random source on transport 8: it hands out no seeds
+NOWAYOS: seed-consumer: starting
+NOWAYOS: seed-consumer: not ready: a draw before its first seed is refused
+NOWAYOS: seed-consumer: not ready: no seed on its ring
+
+# Output that fails the test at once if it appears anywhere (substring match),
+# including in the second after the last line above: a fault, a panic, a PD
+# giving up, or the consumer seeded or drawing.
+!MON|ERROR
+!seL4(CPU
+!panicked
+!gave up
+!seed-consumer: seeded
+!seed-consumer: drew
+!seed ring 0 full

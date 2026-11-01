@@ -1,0 +1,28 @@
+# Lines tools/qemu-test must see, in this order, as whole serial lines.
+# In QEMU: the virtio-input driver PD finds QEMU's keyboard and
+# tablet, sets up their event queues, and turns the input
+# virtio-input-test.qmp sends into canonical events, which
+# input_print prints. Unknown and excess events are dropped and counted.
+NOWAYOS: virtio-input: starting
+NOWAYOS: virtio-input: 2 input devices ready, on transports 6 and 7
+NOWAYOS: input-print: key down 0x04
+NOWAYOS: input-print: key up 0x04
+NOWAYOS: input-print: pointer at (400, 240)
+NOWAYOS: input-print: button 0 down
+NOWAYOS: input-print: button 0 up
+NOWAYOS: virtio-input: dropped so far: 0 unknown type, 1 unknown code, 0 out of range, 0 ring full, 0 malformed queue entries
+NOWAYOS: virtio-input: dropped so far: 0 unknown type, 1 unknown code, 0 out of range, 4 ring full, 0 malformed queue entries
+NOWAYOS: input-print: key down 0x05
+NOWAYOS: input-print: key up 0x05
+NOWAYOS: input-print: key down 0x06
+NOWAYOS: input-print: key up 0x06
+
+# Output that fails the test at once if it appears anywhere (substring match):
+# a fault reported by the Microkit monitor, a kernel error message, a panic,
+# the PD giving up, or a record refused.
+!MON|ERROR
+!seL4(CPU
+!panicked
+!gave up
+!refused
+!key down 0x07

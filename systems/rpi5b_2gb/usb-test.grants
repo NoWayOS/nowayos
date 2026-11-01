@@ -1,0 +1,75 @@
+# Everything systems/rpi5b_2gb/usb-test.system grants, one fact per line.
+# tools/check-system fails the build if the system description grants anything
+# not listed here, or lists anything it does not grant, and checks the map
+# rights again in the kernel objects the Microkit tool generates (format: see
+# tools/check-system). A change here is a security change: call it out in the
+# pull request.
+
+# The kind of system, and each PD's role (tools/grant-rules.toml).
+system test
+role timer driver
+role usb0 input
+role usb1 input
+role input_broker broker
+role ui ui
+
+# The timer runs above the PDs that call it, and the broker above the USB
+# host PDs, so each notification finds it draining their rings at once;
+# usb0 runs above usb1, so their start-up lines do not mix; the UI's
+# stand-in below them all. Full budgets.
+pd timer priority=200 budget=1000 period=1000
+pd input_broker priority=150 budget=1000 period=1000
+pd usb0 priority=100 budget=1000 period=1000
+pd usb1 priority=90 budget=1000 period=1000
+pd ui priority=80 budget=1000 period=1000
+
+# Each controller's register window, by name from the board file: uncached,
+# its PD only: RP1's controllers, which U-Boot placed - no configuration page.
+device usb0 xhci0 rw
+device usb1 xhci1 rw
+
+# Each controller's rings, contexts and buffers, which it reads and writes by
+# DMA: the PD learns the region's physical address to give the controller.
+map usb0 usb0_memory rw
+paddr usb0 usb0_memory
+map usb1 usb1_memory rw
+paddr usb1 usb1_memory
+
+# The board's facts about each controller (device-xhciN.bin): which it is,
+# and on QEMU where to place its window. Configuration, read-only.
+map usb0 xhci0_facts r
+map usb1 xhci1_facts r
+
+# Only the timer PD holds the timer's interrupt.
+device timer system_timer rw
+irq timer system_timer 97
+
+# Each USB host PD calls the timer for its tick; the timer notifies it.
+channel usb0 timer notify=timer
+call usb0 timer
+channel usb1 timer notify=timer
+call usb1 timer
+
+# Configuration: the screen's size (800x480), read-only.
+map usb0 screen r
+map usb1 screen r
+map input_broker screen r
+
+# Each USB host PD's ring to the broker: messages written by the PD only,
+# the broker's index by the broker only; the broker's ring to the UI's
+# stand-in likewise. The PDs notify the broker; the broker the UI.
+map usb0 usb0_messages rw
+map usb0 usb0_control r
+map usb1 usb1_messages rw
+map usb1 usb1_control r
+map input_broker usb0_messages r
+map input_broker usb0_control rw
+map input_broker usb1_messages r
+map input_broker usb1_control rw
+channel input_broker usb0 notify=usb0
+channel input_broker usb1 notify=usb1
+map input_broker ui_messages rw
+map input_broker ui_control r
+map ui ui_control rw
+map ui ui_messages r
+channel input_broker ui notify=input_broker

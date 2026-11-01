@@ -1,0 +1,44 @@
+# Everything systems/rpi5b_2gb/pm-watchdog-test.system grants, one fact per
+# line. tools/check-system fails the build if the system description grants
+# anything not listed here, or lists anything it does not grant, and checks
+# the map rights again in the kernel objects the Microkit tool generates
+# (format: see tools/check-system). A change here is a security change: call
+# it out in the pull request.
+
+# A test system: the ticker and the heartbeat probes are test instruments.
+# The watchdog has the role watchdog - the only role that may hold the PM
+# block's page (pm-watchdog-only-watchdog) - and makes no call.
+system test
+role pm_watchdog watchdog
+role timer driver
+role ticker test
+role upper test
+role looper test
+role lower test
+
+# The watchdog above every PD it watches and above the PDs its ticks come
+# through; the ticker above the probes, so a looping probe cannot starve the
+# ticks. Full budgets: looper's lets it starve lower, as a looping PD would.
+pd pm_watchdog priority=250 budget=1000 period=1000
+pd timer priority=240 budget=1000 period=1000
+pd ticker priority=230 budget=1000 period=1000
+pd upper priority=200 budget=1000 period=1000
+pd looper priority=150 budget=1000 period=1000
+pd lower priority=100 budget=1000 period=1000
+
+# The PM block's page, uncached, in the watchdog only: the PM watchdog, and
+# the SoC's power domain and reset controls beside it, which its view never
+# touches. The system timer's page and its channel 1 interrupt in the timer
+# only.
+device pm_watchdog pm_watchdog rw
+device timer system_timer rw
+irq timer system_timer 97
+
+# The heartbeats; the ticker's ticks, one way; the ticker calls the timer,
+# which notifies it of each tick.
+channel pm_watchdog upper
+channel pm_watchdog looper
+channel pm_watchdog lower
+channel ticker pm_watchdog notify=ticker
+channel ticker timer notify=timer
+call ticker timer

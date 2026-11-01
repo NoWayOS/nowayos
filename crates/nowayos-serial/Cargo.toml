@@ -1,0 +1,17 @@
+[package]
+name = "nowayos-serial"
+description = "The byte stream between a serial driver PD and its client: bounded chunks on nowayos-ipc rings, one ring per direction"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+nowayos-ipc.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true

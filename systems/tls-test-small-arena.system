@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    What happens when a PD's heap arena is too small. The test PD
+    runs nowayos-tls-test's largest handshake on a 256 KiB arena, below that
+    handshake's peak: the arena refuses a request part way through, the PD
+    reports it and stops at the failed allocation, never carrying on with a
+    partial handshake. No channels, memory regions, devices or children.
+    Everything it grants is listed in tls-test-small-arena.grants (checked
+    by tools/check-system).
+-->
+<system>
+    <protection_domain name="tls_test_small_arena" priority="1" stack_size="0x20000">
+        <program_image path="nowayos-tls-test-small-arena.elf" />
+    </protection_domain>
+</system>

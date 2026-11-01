@@ -1,0 +1,58 @@
+# Everything systems/net-stack-bad-frames.system grants, one fact per line.
+# tools/check-system fails the build if the system description grants anything
+# not listed here, or lists anything it does not grant, and checks the map
+# rights again in the kernel objects the Microkit tool generates (format: see
+# tools/check-system). A change here is a security change: call it out in the
+# pull request.
+
+# A test system: seed_source and driver_stand_in are test instruments - a
+# fixed test seed, and a NIC driver that misbehaves on purpose. The stack has
+# the role network - no device memory, interrupt, physical address or channel
+# to a UI (tools/grant-rules.toml) - and exactly its grants in
+# net-stack-test.
+system test
+role timer driver
+role seed_source test
+role driver_stand_in test
+role net_stack network
+
+# Each PD the stack calls or waits on runs above it: the timer (which it
+# calls), seed_source, then the stand-in. Full budgets.
+pd timer priority=220 budget=1000 period=1000
+pd seed_source priority=160 budget=1000 period=1000
+pd driver_stand_in priority=150 budget=1000 period=1000
+pd net_stack priority=100 budget=1000 period=1000
+
+# Only the timer PD holds the timer interrupt.
+irq timer phys_timer
+
+# sDDF's four queues, each read-write in both PDs.
+map driver_stand_in rx_free rw
+map driver_stand_in rx_active rw
+map driver_stand_in tx_free rw
+map driver_stand_in tx_active rw
+map net_stack rx_free rw
+map net_stack rx_active rw
+map net_stack tx_free rw
+map net_stack tx_active rw
+
+# The buffers: the stand-in writes the receive buffers, as the card does, and
+# reads the transmit buffers; the stack, as in net-stack-test, maps the
+# receive buffers read-only and its transmit buffers read-write.
+map driver_stand_in rx_buffers rw
+map driver_stand_in tx_buffers r
+map net_stack rx_buffers r
+map net_stack tx_buffers rw
+
+# The stack's seed ring, as in net-stack-test.
+map seed_source seed_ring rw
+map seed_source seed_ring_control r
+map net_stack seed_ring r
+map net_stack seed_ring_control rw
+
+# The stand-in and the stack notify each other; the stack calls the timer,
+# which notifies it of its timeout; seed_source notifies the stack.
+channel driver_stand_in net_stack
+channel net_stack timer notify=timer
+call net_stack timer
+channel seed_source net_stack notify=seed_source

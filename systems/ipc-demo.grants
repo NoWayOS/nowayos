@@ -1,0 +1,24 @@
+# Everything systems/ipc-demo.system grants, one fact per line. tools/check-system
+# fails the build if the system description grants anything not listed here,
+# or lists anything it does not grant, and checks the map rights again in the
+# kernel objects the Microkit tool generates (format: see tools/check-system).
+# A change here is a security change: call it out in the pull request.
+
+# The kind of system, and each PD's role (tools/grant-rules.toml): the
+# producer stands in for an input PD, the consumer for the UI PD.
+system demo
+role input_producer input
+role input_consumer ui
+
+# The input side: above the UI side, at most half the CPU.
+pd input_producer priority=2 budget=5000 period=10000
+pd input_consumer priority=1 budget=1000 period=1000
+
+# The ring: each side writes only the region it owns.
+map input_producer input_ring_messages rw
+map input_producer input_ring_control r
+map input_consumer input_ring_messages r
+map input_consumer input_ring_control rw
+
+# Notifications both ways: "records waiting" and "ring drained".
+channel input_producer input_consumer

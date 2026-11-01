@@ -1,0 +1,58 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT OR Apache-2.0
+"""Runs the tests of the tools in tools/ (make tools-test), each test in a
+process of its own, JOBS at a time.
+
+    run-tests [JOBS]
+
+Most of the tests' time is waiting - pi-run's on a board emulated over a
+pseudo-terminal, at a real board's pace - so side by side they take seconds
+where one after another they took over two minutes. A failing test's output
+is printed whole. Exit status 0 only if every test passed. Python standard
+library only.
+"""
+import concurrent.futures
+import os
+import subprocess
+import sys
+import unittest
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def test_ids(suite):
+    for test in suite:
+        if isinstance(test, unittest.TestSuite):
+            yield from test_ids(test)
+        else:
+            yield test.id()
+
+
+def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    jobs = int(argv[0]) if argv else (os.cpu_count() or 4)
+    sys.path.insert(0, HERE)
+    suite = unittest.TestLoader().discover(HERE, pattern="test_*.py", top_level_dir=HERE)
+    tests = sorted(test_ids(suite))
+    env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
+
+    def run(test_id):
+        result = subprocess.run([sys.executable, "-m", "unittest", test_id], cwd=HERE, env=env,
+                                capture_output=True, text=True, check=False)
+        return test_id, result.returncode, result.stdout + result.stderr
+
+    failed = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=jobs) as pool:
+        for test_id, status, output in pool.map(run, tests):
+            if status != 0:
+                failed.append(test_id)
+                print(f"==> {test_id}\n{output}", flush=True)
+    if failed:
+        print(f"tools-test: FAIL - {len(failed)} of {len(tests)} tests: {' '.join(failed)}")
+        return 1
+    print(f"tools-test: PASS - {len(tests)} tests, {jobs} at a time")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

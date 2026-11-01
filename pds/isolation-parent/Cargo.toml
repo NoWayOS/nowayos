@@ -1,0 +1,22 @@
+[package]
+name = "nowayos-isolation-parent"
+description = "Isolation tests: parent PD that receives its probe children's faults, reports them and keeps them stopped"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "nowayos-isolation-parent"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+nowayos-fault.workspace = true
+sel4.workspace = true
+sel4-microkit.workspace = true
+
+[lints]
+workspace = true

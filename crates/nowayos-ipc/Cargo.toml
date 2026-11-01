@@ -1,0 +1,16 @@
+[package]
+name = "nowayos-ipc"
+description = "Typed, bounded messages between protection domains: explicit wire layout, panic-free codec and a copy-then-validate SPSC ring"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true

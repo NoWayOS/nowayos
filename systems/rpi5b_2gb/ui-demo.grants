@@ -1,0 +1,55 @@
+# Everything systems/rpi5b_2gb/ui-demo.system grants, one fact per line: those
+# of systems/ui-demo.grants, and the display's framebuffer and its facts.
+# tools/check-system fails the build if the system description grants anything
+# not listed here, or lists anything it does not grant, and checks the grants
+# again in the kernel objects the Microkit tool generates (format: see
+# tools/check-system). A change here is a security change: call it out in the
+# pull request.
+
+# The kind of system, and each PD's role (tools/grant-rules.toml).
+system demo
+role ui ui
+role display display
+role input input
+
+# The display above the input PD, and that above the UI, so a busy UI can
+# hold up neither the screen nor input.
+pd display priority=3 budget=1000 period=1000
+pd input priority=2 budget=1000 period=1000
+pd ui priority=1 budget=1000 period=1000
+
+# The Present ring: the UI writes the records, the display its index.
+map ui present_messages rw
+map ui present_control r
+map display present_messages r
+map display present_control rw
+
+# The display's ring: Configure and PresentDone.
+map display display_messages rw
+map display display_control r
+map ui display_messages r
+map ui display_control rw
+
+# The framebuffer: drawn by the UI, only read by the display.
+map ui framebuffer rw
+map display framebuffer r
+
+# The board's framebuffer, which the HDMI monitor shows, by name from the
+# board file: the display only, cached - it cleans every line it writes to
+# memory before PresentDone; and its facts, read-only.
+device display firmware_fb rw
+cached display firmware_fb
+map display firmware_fb_facts r
+
+# Where the display is in its scan: the HVS's first page, read-only,
+# the display only - it copies each rectangle while the scan is off its rows.
+device display hvs r
+
+# The input ring: canonical InputEvent records from the input PD.
+map input input_messages rw
+map input input_control r
+map ui input_messages r
+map ui input_control rw
+
+channel display ui
+channel input ui

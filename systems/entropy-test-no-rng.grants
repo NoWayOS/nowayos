@@ -1,0 +1,32 @@
+# Everything systems/entropy-test-no-rng.system grants, one fact per line.
+# tools/check-system fails the build if the system description grants anything
+# not listed here, or lists anything it does not grant, and checks the map
+# rights again in the kernel objects the Microkit tool generates (format: see
+# tools/check-system). A change here is a security change: call it out in the
+# pull request.
+
+# The kind of system, and each PD's role (tools/grant-rules.toml).
+system test
+role entropy entropy
+role seed_consumer test
+
+# The entropy PD runs above the PD it seeds.
+pd entropy priority=200 budget=1000 period=1000
+pd seed_consumer priority=100 budget=1000 period=1000
+
+# The random source: the page the board file names rng, transport 8's
+# interrupt and the request queue's DMA region, in the entropy PD only.
+device entropy rng rw
+irq entropy rng 56
+map entropy rng_requests rw
+paddr entropy rng_requests
+
+# The seed ring, one way: the entropy PD writes the seeds and reads the
+# consumer's index; the consumer reads the seeds and writes its index.
+map entropy seed_ring rw
+map entropy seed_ring_control r
+map seed_consumer seed_ring r
+map seed_consumer seed_ring_control rw
+
+# Each notifies the other: a seed waits; a seed was taken. Neither calls.
+channel entropy seed_consumer

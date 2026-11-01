@@ -1,0 +1,32 @@
+# tools/update-trial's first run: the device as made - release 1 in
+# slot A, rollback index 3, trust list v1 - boots slot A and takes the bundle
+# of release 2: trust list v2 first, then the whole image into slot B,
+# checked against the manifest and marked for one trial, security version 5.
+# The harness checks the SHA-256 the stand-in reports for slot B is release
+# 2's image's.
+NOWAYOS: supervisor: starting; children update_storage (0), update (1) and update_bundles (2)
+NOWAYOS: update-bundles: starting
+NOWAYOS: update-bundles: this image is release 1
+NOWAYOS: update-bundles: the disk handed to the storage stand-in: 1736 bytes
+NOWAYOS: update-bundles: 1 bundles from fw_cfg's opt/nowayos/bundles
+NOWAYOS: update-bundles: offering bundle 1 of 1
+NOWAYOS: update-storage: starting
+NOWAYOS: update-storage: the disk the last run left: booted slot A
+NOWAYOS: update-storage: copy A on the disk: generation 1: slot A boots; nothing marked; rollback index 3; trust list v1
+NOWAYOS: update-storage: copy B on the disk: empty
+NOWAYOS: update: starting
+NOWAYOS: update: starting: slot A boots; trial: none; rollback index 3; trust list v1 (held, checked against the anchors)
+NOWAYOS: update: slot A runs, from the slot marked good; 1 trust anchor(s) in the image
+NOWAYOS: update-storage: copy B written: generation 2: slot A boots; nothing marked; rollback index 3; trust list v2
+NOWAYOS: update-storage: copy A written: generation 3: slot A boots; slot B marked for one trial, security version 5; rollback index 3; trust list v2
+NOWAYOS: update: bundle 1: staged in slot B for one trial; restart wanted
+NOWAYOS: update-bundles: all 1 bundles offered
+
+# Output that fails the run at once if it appears anywhere.
+!MON|ERROR
+!seL4(CPU
+!panicked
+!gave up
+!not taken
+!: does not decode
+!refused
