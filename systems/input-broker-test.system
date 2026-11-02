@@ -9,10 +9,13 @@
     ring to ui - input_print, a test instrument, run in the UI's place -
     which prints each event.
 
-    At start-up input_flood sends a malformed record, a pointer position off
-    the screen, a button the screen does not have and a flood of key events:
-    the broker refuses the first and third, clamps the second onto the
-    screen, and drops and counts the flood beyond the rate.
+    At start-up input_flood - standing in for a touch screen's driver, as
+    QEMU 7.2 has no multi-touch device - sends a malformed record, a pointer
+    position off the screen, a button the screen does not have, a touch
+    contact it does not have, one touch and a flood of touch moves: the
+    broker refuses the record, the button and the contact, clamps the
+    pointer onto the screen, passes the touch, and drops and counts the
+    flood beyond the rate.
     input-broker-test.qmp then types on the keyboard and moves and clicks the
     tablet, which must reach ui unaffected.
 

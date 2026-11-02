@@ -1,20 +1,23 @@
 # Lines tools/qemu-test must see, in this order, as whole serial lines.
 # In QEMU: the input broker PD. input_flood, standing in for a
-# faulty driver, sends source 3 a malformed record (refused and counted), a
-# pointer off the screen (clamped onto it), a button the screen does not have
-# (refused and counted) and 200 key events: the first 64 events pass, then
-# source 3 is over its rate and the rest are dropped and counted, bar the odd
-# one its bucket earns meanwhile. Then the keyboard (source 2) and the tablet
-# (source 1), driven over QMP, reach the UI's stand-in unaffected.
+# faulty touch screen's driver, sends source 3 a malformed record (refused
+# and counted), a pointer off the screen (clamped onto it), a button the
+# screen does not have and a touch contact past its ten (both refused and
+# counted), one touch - its start and end reach the UI - and 200 touch
+# moves: the first 64 events pass, then source 3 is over its rate and the
+# rest are dropped and counted, bar the odd one its bucket earns meanwhile.
+# Then the keyboard (source 2) and the tablet (source 1), driven over QMP,
+# reach the UI's stand-in unaffected.
 NOWAYOS: virtio-input: starting
 NOWAYOS: virtio-input: 2 input devices ready, on transports 6 and 7
 NOWAYOS: input-broker: starting; 3 sources, screen 800x480, each source 64 events at once and 250 a second
-NOWAYOS: input-flood: sending a malformed record, a pointer off the screen, a button the screen does not have and 200 key events
+NOWAYOS: input-flood: sending a malformed record, a pointer off the screen, a button the screen does not have, a touch contact it does not have, a touch and 200 touch moves
 NOWAYOS: input-broker: refused a record from source 3: invalid value in field `tag`
 NOWAYOS: input-broker: refused an event from source 3: unknown pointer button 9
-NOWAYOS: input-broker: source 3 so far: 2 forwarded, 0 over the rate, 1 invalid, 1 malformed, 0 did not fit the UI's ring
+NOWAYOS: input-broker: source 3 so far: 1 forwarded, 0 over the rate, 2 invalid, 1 malformed, 0 did not fit the UI's ring
 NOWAYOS: input-print: pointer at (799, 0)
-NOWAYOS: input-print: key down 0x1d
+NOWAYOS: input-print: touch 0 start at (100, 100)
+NOWAYOS: input-print: touch 0 end at (100, 100)
 NOWAYOS: input-broker: source 3 is over its rate: dropping and counting
 NOWAYOS: input-flood: done
 NOWAYOS: input-print: key down 0x04

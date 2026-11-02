@@ -7,8 +7,10 @@
 //! 8-byte device events, each from one of two sources or an unknown third,
 //! at ticks that move on or jump back. Checks: nothing panics; drop counts
 //! only grow; whatever the translator makes is a key HID defines, a button
-//! from 0 to 2, a position on the screen or a turn of the wheel of 1 to 127
-//! notches either way; the broker forwards only events
+//! from 0 to 2, a position on the screen, a turn of the wheel of 1 to 127
+//! notches either way, or a touch of a contact under 10, on the screen, that
+//! starts only when up and moves or ends only when down; one device event
+//! makes at most 11 (a report's end: a move and ten touches); the broker forwards only events
 //! within the screen's limits, and each source's counts add up to what it
 //! sent.
 
@@ -17,8 +19,8 @@
 use libfuzzer_sys::fuzz_target;
 use nowayos_fuzz::Input;
 use nowayos_input::broker::{Broker, Verdict};
-use nowayos_input::evdev::{EVENT_LEN, Translator};
-use nowayos_input::{InputEvent, InputLimits, KeyCode};
+use nowayos_input::evdev::{EVENT_LEN, MAX_CONTACTS, Translator};
+use nowayos_input::{InputEvent, InputLimits, KeyCode, TouchPhase};
 
 /// The broker's sources: the keyboard and the tablet, as in QEMU.
 const SOURCES: usize = 2;
@@ -38,6 +40,7 @@ fuzz_target!(|data: &[u8]| {
     let mut broker =
         limits.and_then(|limits| Broker::<SOURCES>::new(limits, burst, ticks_per_token));
     let mut sent = [0u32; SOURCES];
+    let mut down = [false; MAX_CONTACTS];
     let mut now = 0u64;
     while !input.is_empty() {
         let source = usize::from(input.byte() % 3);
@@ -46,7 +49,19 @@ fuzz_target!(|data: &[u8]| {
             step => now.saturating_add(u64::from(step)),
         };
         let before = translator.dropped();
-        let translated = translator.translate(&input.array::<EVENT_LEN>());
+        let mut made = [None; MAX_CONTACTS + 1];
+        let mut count = 0usize;
+        translator.translate(&input.array::<EVENT_LEN>(), |event| {
+            assert!(
+                count < made.len(),
+                "more than {} events from one",
+                made.len()
+            );
+            if let Some(slot) = made.get_mut(count) {
+                *slot = Some(event);
+            }
+            count = count.saturating_add(1);
+        });
         let after = translator.dropped();
         assert!(
             after.unknown_type >= before.unknown_type
@@ -54,36 +69,46 @@ fuzz_target!(|data: &[u8]| {
                 && after.out_of_range >= before.out_of_range,
             "drop counts went down: {before:?} to {after:?}"
         );
-        let Some(event) = translated else {
-            continue;
-        };
-        let valid = match event {
-            InputEvent::KeyDown(key) | InputEvent::KeyUp(key) => {
-                KeyCode::new(key.usage()) == Some(key)
-            }
-            InputEvent::PointerButton { button, .. } => button <= 2,
-            InputEvent::PointerMove { x, y } => on_axis(x, width) && on_axis(y, height),
-            InputEvent::Wheel { notches } => notches != 0 && notches != i8::MIN,
-            InputEvent::Touch { .. } => false,
-        };
-        assert!(valid, "{event:?} on a {width}x{height} screen");
-        let (Some(broker), Some(limits)) = (broker.as_mut(), limits) else {
-            continue;
-        };
-        let verdict = broker.admit(source, event, now);
-        let consistent = match (verdict, sent.get_mut(source)) {
-            (Verdict::UnknownSource, None) => true,
-            (Verdict::UnknownSource, Some(_)) | (_, None) => false,
-            (verdict, Some(count)) => {
-                *count = count.saturating_add(1);
-                match verdict {
-                    Verdict::Forward(forwarded) => limits.validate(forwarded) == Ok(forwarded),
-                    Verdict::Invalid(error) => limits.normalise(event) == Err(error),
-                    _ => true,
+        for event in made.into_iter().flatten() {
+            let valid = match event {
+                InputEvent::KeyDown(key) | InputEvent::KeyUp(key) => {
+                    KeyCode::new(key.usage()) == Some(key)
                 }
-            }
-        };
-        assert!(consistent, "{event:?} from source {source}: {verdict:?}");
+                InputEvent::PointerButton { button, .. } => button <= 2,
+                InputEvent::PointerMove { x, y } => on_axis(x, width) && on_axis(y, height),
+                InputEvent::Wheel { notches } => notches != 0 && notches != i8::MIN,
+                InputEvent::Touch { id, x, y, phase } => {
+                    let state = down.get_mut(usize::from(id));
+                    let ordered = matches!(
+                        (phase, state.as_deref().copied()),
+                        (TouchPhase::Start, Some(false))
+                            | (TouchPhase::Move | TouchPhase::End, Some(true))
+                    );
+                    if let Some(state) = state {
+                        *state = phase != TouchPhase::End;
+                    }
+                    ordered && on_axis(x, width) && on_axis(y, height)
+                }
+            };
+            assert!(valid, "{event:?} on a {width}x{height} screen");
+            let (Some(broker), Some(limits)) = (broker.as_mut(), limits) else {
+                continue;
+            };
+            let verdict = broker.admit(source, event, now);
+            let consistent = match (verdict, sent.get_mut(source)) {
+                (Verdict::UnknownSource, None) => true,
+                (Verdict::UnknownSource, Some(_)) | (_, None) => false,
+                (verdict, Some(count)) => {
+                    *count = count.saturating_add(1);
+                    match verdict {
+                        Verdict::Forward(forwarded) => limits.validate(forwarded) == Ok(forwarded),
+                        Verdict::Invalid(error) => limits.normalise(event) == Err(error),
+                        _ => true,
+                    }
+                }
+            };
+            assert!(consistent, "{event:?} from source {source}: {verdict:?}");
+        }
     }
     if let Some(broker) = broker {
         for (source, sent) in sent.into_iter().enumerate() {
