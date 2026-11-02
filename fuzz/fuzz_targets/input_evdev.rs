@@ -7,7 +7,8 @@
 //! 8-byte device events, each from one of two sources or an unknown third,
 //! at ticks that move on or jump back. Checks: nothing panics; drop counts
 //! only grow; whatever the translator makes is a key HID defines, a button
-//! from 0 to 2 or a position on the screen; the broker forwards only events
+//! from 0 to 2, a position on the screen or a turn of the wheel of 1 to 127
+//! notches either way; the broker forwards only events
 //! within the screen's limits, and each source's counts add up to what it
 //! sent.
 
@@ -62,6 +63,7 @@ fuzz_target!(|data: &[u8]| {
             }
             InputEvent::PointerButton { button, .. } => button <= 2,
             InputEvent::PointerMove { x, y } => on_axis(x, width) && on_axis(y, height),
+            InputEvent::Wheel { notches } => notches != 0 && notches != i8::MIN,
             InputEvent::Touch { .. } => false,
         };
         assert!(valid, "{event:?} on a {width}x{height} screen");

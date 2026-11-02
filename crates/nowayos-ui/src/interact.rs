@@ -43,6 +43,9 @@ pub enum UiEvent {
 /// scrolls instead of pressing.
 pub(crate) const DRAG_SLOP: u32 = 8;
 
+/// How many lines a notch of a mouse's wheel scrolls the scroll view.
+pub(crate) const WHEEL_LINES: u32 = 3;
+
 impl<const N: usize> Tree<N> {
     /// The deepest node whose area contains `point`, preferring later
     /// siblings (drawn on top). Parts of a child outside its parent's area
@@ -192,6 +195,9 @@ impl<const N: usize> Tree<N> {
     ///   hides it ([`focus_visible`](Self::focus_visible)); a move
     ///   of a mouse or a tablet shows the pointer, and a touch hides it
     ///   ([`pointer_shown`](Self::pointer_shown)).
+    /// * A mouse's wheel scrolls a list picker under the pointer a row a
+    ///   notch, and otherwise the scroll view, wherever the pointer is,
+    ///   three lines a notch; away from the user scrolls up.
     /// * Tab / Shift+Tab and the Down / Up arrows move focus - except in a
     ///   focused radio group, where the arrow keys choose the next or
     ///   previous option, wrapping round.
@@ -249,6 +255,10 @@ impl<const N: usize> Tree<N> {
                 }
             }
             InputEvent::PointerButton { .. } | InputEvent::Touch { .. } => None,
+            InputEvent::Wheel { notches } => {
+                self.wheel(notches);
+                None
+            }
             InputEvent::KeyDown(key) if key.is_shift() => {
                 self.set_shift_key(key, true);
                 None
@@ -706,6 +716,32 @@ impl<const N: usize> Tree<N> {
             offset.saturating_sub(page)
         };
         let _ = self.scroll_to(target);
+    }
+
+    /// A mouse's wheel turned `notches` (positive away from the user): a
+    /// list picker under the pointer shows earlier or later options, a row
+    /// a notch, and otherwise the scroll view moves [`WHEEL_LINES`] lines a
+    /// notch.
+    fn wheel(&mut self, notches: i8) {
+        let up = i64::from(notches);
+        if let Some(id) = self.hit_test(self.pointer)
+            && let Some(&NodeKind::ListPicker { top, .. }) = self.get(id).map(|node| &node.kind)
+        {
+            let row = self
+                .get(id)
+                .and_then(|node| node.list_row(1))
+                .map_or(1, |row| i64::from(row.size.height.max(1)));
+            self.drag_list(id, top, up.saturating_neg().saturating_mul(row));
+            return;
+        }
+        let (Some(offset), Some(metrics)) = (self.scroll_offset(), self.metrics) else {
+            return;
+        };
+        let lines = i64::from(metrics.line_height().saturating_mul(WHEEL_LINES));
+        let target = i64::from(offset)
+            .saturating_sub(up.saturating_mul(lines))
+            .max(0);
+        let _ = self.scroll_to(u32::try_from(target).unwrap_or(u32::MAX));
     }
 
     /// A touch starting at height `y`: on a list picker it may

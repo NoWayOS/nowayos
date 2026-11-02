@@ -38,6 +38,7 @@ fn event() -> impl Strategy<Value = InputEvent> {
             .prop_map(|(button, down)| InputEvent::PointerButton { button, down }),
         (any::<u8>(), any::<i32>(), any::<i32>(), phase())
             .prop_map(|(id, x, y, phase)| InputEvent::Touch { id, x, y, phase }),
+        any::<i8>().prop_map(|notches| InputEvent::Wheel { notches }),
     ]
 }
 

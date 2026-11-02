@@ -235,6 +235,14 @@ pub enum InputEvent {
         /// Where the contact is in its life.
         phase: TouchPhase,
     },
+    /// A mouse's wheel turned `notches` detents: positive away from the
+    /// user, which scrolls up, and negative towards the user, as HID and
+    /// evdev count. It carries no position: the UI scrolls what the pointer
+    /// is over.
+    Wheel {
+        /// Detents turned.
+        notches: i8,
+    },
 }
 
 const TAG_KEY_DOWN: u8 = 1;
@@ -242,20 +250,23 @@ const TAG_KEY_UP: u8 = 2;
 const TAG_POINTER_MOVE: u8 = 3;
 const TAG_POINTER_BUTTON: u8 = 4;
 const TAG_TOUCH: u8 = 5;
+const TAG_WHEEL: u8 = 6;
 
 /// Wire layout, 12 bytes, little-endian; every byte not listed is zero:
 ///
-/// | Bytes | Key events | `PointerMove` | `PointerButton` | `Touch` |
-/// | --- | --- | --- | --- | --- |
-/// | 0 | tag 1 / 2 | tag 3 | tag 4 | tag 5 |
-/// | 1 | — | — | button | id |
-/// | 2 | — | — | down (0/1) | phase (1–4) |
-/// | 3 | — | — | — | — |
-/// | 4–7 | key usage (`u16`), then zero | `x` (`i32`) | — | `x` (`i32`) |
-/// | 8–11 | — | `y` (`i32`) | — | `y` (`i32`) |
+/// | Bytes | Key events | `PointerMove` | `PointerButton` | `Touch` | `Wheel` |
+/// | --- | --- | --- | --- | --- | --- |
+/// | 0 | tag 1 / 2 | tag 3 | tag 4 | tag 5 | tag 6 |
+/// | 1 | — | — | button | id | notches (`i8`) |
+/// | 2 | — | — | down (0/1) | phase (1–4) | — |
+/// | 3 | — | — | — | — | — |
+/// | 4–7 | key usage (`u16`), then zero | `x` (`i32`) | — | `x` (`i32`) | — |
+/// | 8–11 | — | `y` (`i32`) | — | `y` (`i32`) | — |
+///
+/// Version 2 added `Wheel`.
 impl Message for InputEvent {
     const KIND: u16 = INPUT_EVENT_KIND;
-    const VERSION: u16 = 1;
+    const VERSION: u16 = 2;
     const PAYLOAD_LEN: usize = 12;
 
     fn encode_payload(&self, out: &mut Writer<'_>) -> Result<(), EncodeError> {
@@ -290,6 +301,12 @@ impl Message for InputEvent {
                 out.write_zeros(1)?;
                 out.write_i32(x)?;
                 out.write_i32(y)
+            }
+            Self::Wheel { notches } => {
+                let [notches] = notches.to_le_bytes();
+                out.write_u8(TAG_WHEEL)?;
+                out.write_u8(notches)?;
+                out.write_zeros(10)
             }
         }
     }
@@ -329,6 +346,11 @@ impl Message for InputEvent {
                 let y = input.read_i32()?;
                 Ok(Self::Touch { id, x, y, phase })
             }
+            TAG_WHEEL => {
+                let notches = i8::from_le_bytes([input.read_u8()?]);
+                input.read_zeros(10)?;
+                Ok(Self::Wheel { notches })
+            }
             _ => Err(DecodeError::InvalidValue { field: "tag" }),
         }
     }
@@ -366,6 +388,8 @@ mod tests {
             y: 200,
             phase: TouchPhase::Cancel,
         });
+        round_trip(InputEvent::Wheel { notches: -128 });
+        round_trip(InputEvent::Wheel { notches: 3 });
     }
 
     #[test]
@@ -382,6 +406,8 @@ mod tests {
         );
         let buf = round_trip(InputEvent::KeyDown(KeyCode::A));
         assert_eq!(buf[HEADER_LEN..], [1, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0]);
+        let buf = round_trip(InputEvent::Wheel { notches: -2 });
+        assert_eq!(buf[HEADER_LEN..], [6, 0xFE, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
     }
 
     fn payload_with(mutate: impl FnOnce(&mut [u8])) -> Result<InputEvent, DecodeError> {
@@ -397,8 +423,13 @@ mod tests {
             Err(DecodeError::InvalidValue { field: "tag" })
         );
         assert_eq!(
-            payload_with(|p| p[0] = 6),
+            payload_with(|p| p[0] = 7),
             Err(DecodeError::InvalidValue { field: "tag" })
+        );
+        // A wheel's bytes 2 to 11 are padding: here the key usage's byte.
+        assert_eq!(
+            payload_with(|p| p[0] = TAG_WHEEL),
+            Err(DecodeError::NonZeroPadding)
         );
         // Key usage 0x03 ("ErrorUndefined") is not a key.
         assert_eq!(

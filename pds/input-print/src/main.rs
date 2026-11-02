@@ -124,5 +124,8 @@ fn print(event: &InputEvent) {
         InputEvent::Touch { id, x, y, .. } => {
             debug_println!("NOWAYOS: input-print: touch {id} at ({x}, {y})");
         }
+        InputEvent::Wheel { notches } => {
+            debug_println!("NOWAYOS: input-print: wheel {notches:+}");
+        }
     }
 }
