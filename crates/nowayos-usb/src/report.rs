@@ -33,13 +33,19 @@
 //! ([`Layout::report_bytes`]): a report longer than a packet would arrive
 //! in pieces, and a later piece could decode as a report of its own. And
 //! [`AbsolutePointer`] turns each report into canonical events: a touch's
-//! start, moves and end for a touchscreen; pointer moves and buttons for a
-//! tablet. Only one contact is followed; a multi-touch screen's first
-//! contact drives it.
+//! start, moves and end for a touchscreen; pointer moves, buttons and its
+//! wheel for a tablet. Only one contact is followed; a multi-touch screen's
+//! first contact drives it.
+//!
+//! A mouse speaks the boot protocol unless its descriptor lays out a wheel:
+//! [`Layout::find_relative`] then picks out relative X and Y, its buttons
+//! and the wheel, the USB host PD sets the report protocol, and
+//! [`RelativePointer`] turns each report into pointer moves, buttons and
+//! turns of the wheel.
 
 use core::fmt;
 
-use nowayos_input::{InputEvent, InputLimits, TouchPhase};
+use nowayos_input::{InputEvent, InputLimits, PointerTracker, TouchPhase};
 
 /// The longest report descriptor read.
 pub const DESCRIPTOR_MAX: usize = 512;
@@ -73,6 +79,8 @@ pub mod usage {
     pub const X: u16 = 0x30;
     /// Generic Desktop Y.
     pub const Y: u16 = 0x31;
+    /// Generic Desktop Wheel.
+    pub const WHEEL: u16 = 0x38;
     /// Digitizers Tip Switch: the finger or stylus touches.
     pub const TIP_SWITCH: u16 = 0x42;
 }
@@ -136,6 +144,9 @@ pub struct Field {
     pub max: i32,
     /// Whether it is a variable (not an array) holding an absolute value.
     pub absolute_variable: bool,
+    /// Whether it is a variable holding a relative value: a change since
+    /// the last report.
+    pub relative_variable: bool,
 }
 
 impl Field {
@@ -369,6 +380,7 @@ pub fn parse(descriptor: &[u8]) -> Result<Fields, ReportError> {
                                     min: globals.min,
                                     max: globals.max,
                                     absolute_variable: variable && !relative,
+                                    relative_variable: variable && relative,
                                 }) {
                                     break;
                                 }
@@ -467,16 +479,20 @@ pub fn parse(descriptor: &[u8]) -> Result<Fields, ReportError> {
     Ok(fields)
 }
 
-/// What kind of absolute pointer a layout is.
+/// What kind of pointer a layout is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum PointerKind {
     /// A touchscreen: a tip switch, so touches.
     Touch,
     /// A tablet or absolute mouse: buttons, so pointer moves and clicks.
     Pointer,
+    /// A mouse in the report protocol: relative motion, buttons and a
+    /// wheel.
+    Mouse,
 }
 
-/// Where one absolute pointer's values are in its reports.
+/// Where one pointer's values are in its reports: an absolute pointer's
+/// ([`Layout::find`]) or a mouse's ([`Layout::find_relative`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Layout {
     /// The report its fields are in (0: the device uses no IDs).
@@ -487,8 +503,12 @@ pub struct Layout {
     pub y: Field,
     /// Its tip switch, for a touchscreen.
     pub tip: Option<Field>,
-    /// Its first three buttons, for a tablet.
+    /// Its first three buttons, for a tablet or mouse.
     pub buttons: [Option<Field>; 3],
+    /// Its wheel, relative, in the same report.
+    pub wheel: Option<Field>,
+    /// Whether X and Y are relative: a mouse's.
+    pub relative: bool,
     /// The bytes of its report as the device sends it, its report ID's
     /// included ([`Fields::report_bytes`]): a report longer than a packet
     /// of its endpoint would arrive in pieces, so the USB host PD uses the
@@ -499,7 +519,8 @@ pub struct Layout {
 impl Layout {
     /// The first absolute pointer `fields` hold: absolute variable X and Y
     /// from the Generic Desktop page, in one report, each with a range, and
-    /// that report's tip switch or buttons 1 to 3. `None` if there is none.
+    /// that report's tip switch or buttons 1 to 3, and its wheel if it has
+    /// one. `None` if there is none.
     #[must_use]
     pub fn find(fields: &Fields) -> Option<Self> {
         let all = fields;
@@ -530,18 +551,96 @@ impl Layout {
                 in_report(usage::BUTTON, 2),
                 in_report(usage::BUTTON, 3),
             ],
+            wheel: in_report(usage::GENERIC_DESKTOP, usage::WHEEL)
+                .filter(|field| field.relative_variable),
+            relative: false,
             report_bytes: all.report_bytes(x.report_id),
         })
     }
 
-    /// A touchscreen if it has a tip switch, otherwise a pointer.
+    /// The first mouse with a wheel `fields` hold: relative variable X, Y
+    /// and wheel from the Generic Desktop page, in one report, and that
+    /// report's buttons 1 to 3. `None` if there is none - a mouse without a
+    /// wheel stays in the boot protocol, which carries all it has.
+    #[must_use]
+    pub fn find_relative(fields: &Fields) -> Option<Self> {
+        let all = fields;
+        let fields = fields.as_slice();
+        let relative = |usage: u16, report: Option<u8>| {
+            fields.iter().copied().find(|field| {
+                field.page == usage::GENERIC_DESKTOP
+                    && field.usage == usage
+                    && field.relative_variable
+                    && report.is_none_or(|id| field.report_id == id)
+            })
+        };
+        let x = relative(usage::X, None)?;
+        let y = relative(usage::Y, Some(x.report_id))?;
+        let wheel = relative(usage::WHEEL, Some(x.report_id))?;
+        let button = |usage: u16| {
+            fields.iter().copied().find(|field| {
+                field.report_id == x.report_id
+                    && field.page == usage::BUTTON
+                    && field.usage == usage
+            })
+        };
+        Some(Self {
+            report_id: x.report_id,
+            x,
+            y,
+            tip: None,
+            buttons: [button(1), button(2), button(3)],
+            wheel: Some(wheel),
+            relative: true,
+            report_bytes: all.report_bytes(x.report_id),
+        })
+    }
+
+    /// A mouse if X and Y are relative, a touchscreen if it has a tip
+    /// switch, otherwise a pointer.
     #[must_use]
     pub const fn kind(&self) -> PointerKind {
-        if self.tip.is_some() {
+        if self.relative {
+            PointerKind::Mouse
+        } else if self.tip.is_some() {
             PointerKind::Touch
         } else {
             PointerKind::Pointer
         }
+    }
+
+    /// The fields of `report` after its report ID, if it is this layout's
+    /// report.
+    fn body<'a>(&self, report: &'a [u8]) -> Option<&'a [u8]> {
+        if self.report_id == 0 {
+            return Some(report);
+        }
+        match report.split_first() {
+            Some((id, body)) if *id == self.report_id => Some(body),
+            _ => None,
+        }
+    }
+
+    /// The turn of the wheel `body` holds, if the layout has a wheel and it
+    /// turned: up to 127 notches either way.
+    fn wheel(&self, body: &[u8]) -> Option<InputEvent> {
+        let turned = self.wheel?.value(body)?.clamp(-127, 127);
+        let notches = i8::try_from(turned).ok()?;
+        (notches != 0).then_some(InputEvent::Wheel { notches })
+    }
+
+    /// The bitmap of buttons 1 to 3 down in `body`.
+    fn buttons(&self, body: &[u8]) -> u8 {
+        let mut buttons = 0u8;
+        for (index, field) in (0u8..).zip(self.buttons) {
+            if field
+                .and_then(|field| field.value(body))
+                .is_some_and(|value| value != 0)
+            {
+                buttons |= 1 << index;
+            }
+        }
+        buttons
     }
 }
 
@@ -558,8 +657,9 @@ pub struct AbsolutePointer {
     refused: u32,
 }
 
-/// The most events one report makes: a move or touch, and three buttons.
-pub const MAX_ABSOLUTE_EVENTS: usize = 4;
+/// The most events one report makes: a move or touch, three buttons and a
+/// turn of the wheel.
+pub const MAX_ABSOLUTE_EVENTS: usize = 5;
 
 impl AbsolutePointer {
     /// A pointer laid out as `layout`, mapped onto the screen `limits`
@@ -606,18 +706,10 @@ impl AbsolutePointer {
     /// Takes a copy of one report and passes `emit` the events it makes:
     /// for a touchscreen a touch's start, its moves and its end; for a
     /// tablet the pointer's new position if it moved, then each button that
-    /// changed. A report of another report ID, or too short to hold the
-    /// fields, changes nothing and is counted.
+    /// changed, then a turn of its wheel. A report of another report ID, or
+    /// too short to hold the fields, changes nothing and is counted.
     pub fn report(&mut self, report: &[u8], mut emit: impl FnMut(InputEvent)) {
-        let body = if self.layout.report_id == 0 {
-            Some(report)
-        } else {
-            match report.split_first() {
-                Some((id, body)) if *id == self.layout.report_id => Some(body),
-                _ => None,
-            }
-        };
-        let Some(body) = body else {
+        let Some(body) = self.layout.body(report) else {
             self.refused = self.refused.saturating_add(1);
             return;
         };
@@ -658,16 +750,11 @@ impl AbsolutePointer {
                     emit(InputEvent::PointerMove { x: at.0, y: at.1 });
                 }
                 self.at = Some(at);
-                let mut buttons = 0u8;
-                for (index, field) in (0u8..).zip(self.layout.buttons) {
-                    if field
-                        .and_then(|field| field.value(body))
-                        .is_some_and(|value| value != 0)
-                    {
-                        buttons |= 1 << index;
-                    }
-                }
+                let buttons = self.layout.buttons(body);
                 self.set_buttons(buttons, &mut emit);
+                if let Some(wheel) = self.layout.wheel(body) {
+                    emit(wheel);
+                }
             }
         }
     }
@@ -685,6 +772,89 @@ impl AbsolutePointer {
                 phase: TouchPhase::End,
             });
         }
+        self.set_buttons(0, &mut emit);
+    }
+
+    fn set_buttons(&mut self, buttons: u8, emit: &mut impl FnMut(InputEvent)) {
+        for button in 0..3u8 {
+            let mask = 1u8 << button;
+            if (self.buttons ^ buttons) & mask != 0 {
+                emit(InputEvent::PointerButton {
+                    button,
+                    down: buttons & mask != 0,
+                });
+            }
+        }
+        self.buttons = buttons;
+    }
+}
+
+/// A mouse in the report protocol: its layout, the pointer it moves and
+/// its buttons.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RelativePointer {
+    layout: Layout,
+    pointer: PointerTracker,
+    buttons: u8,
+    /// Reports refused: too short, or of another report ID.
+    refused: u32,
+}
+
+/// The most events one mouse report makes: a move, three buttons and a
+/// turn of the wheel.
+pub const MAX_RELATIVE_EVENTS: usize = 5;
+
+impl RelativePointer {
+    /// A mouse laid out as `layout` ([`Layout::find_relative`]), its
+    /// pointer in the middle of the screen `limits` gives.
+    #[must_use]
+    pub fn new(layout: Layout, limits: InputLimits) -> Self {
+        Self {
+            layout,
+            pointer: PointerTracker::new(limits),
+            buttons: 0,
+            refused: 0,
+        }
+    }
+
+    /// The layout.
+    #[must_use]
+    pub const fn layout(&self) -> &Layout {
+        &self.layout
+    }
+
+    /// Reports refused so far.
+    #[must_use]
+    pub const fn refused(&self) -> u32 {
+        self.refused
+    }
+
+    /// Takes a copy of one report and passes `emit` the pointer's new
+    /// position if it moved, then each button that changed, then a turn of
+    /// the wheel. A report of another report ID - a composite device's
+    /// other reports - or too short to hold X and Y changes nothing and is
+    /// counted.
+    pub fn report(&mut self, report: &[u8], mut emit: impl FnMut(InputEvent)) {
+        let Some(body) = self.layout.body(report) else {
+            self.refused = self.refused.saturating_add(1);
+            return;
+        };
+        let (Some(dx), Some(dy)) = (self.layout.x.value(body), self.layout.y.value(body)) else {
+            self.refused = self.refused.saturating_add(1);
+            return;
+        };
+        if dx != 0 || dy != 0 {
+            emit(self.pointer.apply_delta(dx, dy));
+        }
+        let buttons = self.layout.buttons(body);
+        self.set_buttons(buttons, &mut emit);
+        if let Some(wheel) = self.layout.wheel(body) {
+            emit(wheel);
+        }
+    }
+
+    /// Releases every button held down - when the mouse goes away.
+    pub fn release_all(&mut self, mut emit: impl FnMut(InputEvent)) {
         self.set_buttons(0, &mut emit);
     }
 
@@ -746,6 +916,39 @@ pub(crate) mod tests {
         0x75, 0x10, //     Report Size (16)
         0x95, 0x02, //     Report Count (2)
         0x81, 0x02, //     Input (Data, Variable, Absolute)
+        0xC0, //         End Collection
+        0xC0, //       End Collection
+    ];
+
+    /// A mouse with a wheel, invented from the HID Usage Tables' Generic
+    /// Desktop usages: three buttons, five bits of padding, then X, Y and
+    /// the wheel, relative, -127 to 127, 8 bits each - no report ID.
+    pub(crate) const WHEEL_MOUSE: &[u8] = &[
+        0x05, 0x01, // Usage Page (Generic Desktop)
+        0x09, 0x02, // Usage (Mouse)
+        0xA1, 0x01, // Collection (Application)
+        0x09, 0x01, //   Usage (Pointer)
+        0xA1, 0x00, //   Collection (Physical)
+        0x05, 0x09, //     Usage Page (Button)
+        0x19, 0x01, //     Usage Minimum (1)
+        0x29, 0x03, //     Usage Maximum (3)
+        0x15, 0x00, //     Logical Minimum (0)
+        0x25, 0x01, //     Logical Maximum (1)
+        0x95, 0x03, //     Report Count (3)
+        0x75, 0x01, //     Report Size (1)
+        0x81, 0x02, //     Input (Data, Variable, Absolute)
+        0x95, 0x01, //     Report Count (1)
+        0x75, 0x05, //     Report Size (5)
+        0x81, 0x01, //     Input (Constant)
+        0x05, 0x01, //     Usage Page (Generic Desktop)
+        0x09, 0x30, //     Usage (X)
+        0x09, 0x31, //     Usage (Y)
+        0x09, 0x38, //     Usage (Wheel)
+        0x15, 0x81, //     Logical Minimum (-127)
+        0x25, 0x7F, //     Logical Maximum (127)
+        0x75, 0x08, //     Report Size (8)
+        0x95, 0x03, //     Report Count (3)
+        0x81, 0x06, //     Input (Data, Variable, Relative)
         0xC0, //         End Collection
         0xC0, //       End Collection
     ];
@@ -907,6 +1110,105 @@ pub(crate) mod tests {
                     down: false
                 }
             ]
+        );
+        // Its wheel, the last byte: a notch away, then a notch back.
+        assert_eq!(layout.wheel.map(|wheel| wheel.bit), Some(40));
+        assert_eq!(
+            events(&mut tablet, &[0, 0xFF, 0x7F, 0, 0, 1]),
+            [InputEvent::Wheel { notches: 1 }]
+        );
+        assert_eq!(
+            events(&mut tablet, &[0, 0xFF, 0x7F, 0, 0, 0xFF]),
+            [InputEvent::Wheel { notches: -1 }]
+        );
+    }
+
+    #[test]
+    fn only_a_relative_mouse_with_a_wheel_is_laid_out_as_one() {
+        let fields = parse(WHEEL_MOUSE).unwrap();
+        let layout = Layout::find_relative(&fields).unwrap();
+        assert_eq!(layout.kind(), PointerKind::Mouse);
+        assert_eq!(
+            (
+                layout.x.bit,
+                layout.y.bit,
+                layout.wheel.map(|wheel| wheel.bit)
+            ),
+            (8, 16, Some(24))
+        );
+        assert!(layout.buttons.iter().all(Option::is_some));
+        assert_eq!(layout.report_bytes, 4);
+        // Not an absolute pointer; and neither a tablet nor a touchscreen
+        // is a mouse.
+        assert_eq!(Layout::find(&fields), None);
+        assert_eq!(Layout::find_relative(&parse(TABLET).unwrap()), None);
+        assert_eq!(Layout::find_relative(&parse(TOUCHSCREEN).unwrap()), None);
+        // The same mouse without its wheel: the boot protocol serves it.
+        let mut no_wheel = WHEEL_MOUSE.to_vec();
+        let at = no_wheel
+            .windows(2)
+            .position(|item| item == [0x09, 0x38])
+            .unwrap();
+        no_wheel.drain(at..at + 2);
+        let count = no_wheel
+            .windows(2)
+            .position(|item| item == [0x95, 0x03])
+            .unwrap();
+        no_wheel[count + 1] = 2;
+        assert_eq!(Layout::find_relative(&parse(&no_wheel).unwrap()), None);
+    }
+
+    #[test]
+    fn a_wheel_mouse_moves_clicks_and_scrolls() {
+        let layout = Layout::find_relative(&parse(WHEEL_MOUSE).unwrap()).unwrap();
+        let mut mouse = RelativePointer::new(layout, limits());
+        let mut events = |report: &[u8]| {
+            let mut out = Vec::new();
+            mouse.report(report, |event| out.push(event));
+            out
+        };
+        // From the middle of 800 x 480: right 10, up 5, the left button
+        // down and a notch away.
+        assert_eq!(
+            events(&[0x01, 10, 0xFB, 1]),
+            [
+                InputEvent::PointerMove { x: 410, y: 235 },
+                InputEvent::PointerButton {
+                    button: 0,
+                    down: true
+                },
+                InputEvent::Wheel { notches: 1 },
+            ]
+        );
+        assert_eq!(
+            events(&[0x00, 0, 0, 0xFF]),
+            [
+                InputEvent::PointerButton {
+                    button: 0,
+                    down: false
+                },
+                InputEvent::Wheel { notches: -1 },
+            ]
+        );
+        // -128 is past the range: as far as -127.
+        assert_eq!(
+            events(&[0x00, 0, 0, 0x80]),
+            [InputEvent::Wheel { notches: -127 }]
+        );
+        // Nothing moved or turned: no events. Too short for Y: refused.
+        assert_eq!(events(&[0x00, 0, 0, 0]), []);
+        assert_eq!(events(&[0x02, 1]), []);
+        assert_eq!(mouse.refused(), 1);
+        // The right button held when the mouse goes: released.
+        mouse.report(&[0x02, 0, 0, 0], |_| {});
+        let mut released = Vec::new();
+        mouse.release_all(|event| released.push(event));
+        assert_eq!(
+            released,
+            [InputEvent::PointerButton {
+                button: 1,
+                down: false
+            }]
         );
     }
 
@@ -1089,6 +1391,7 @@ pub(crate) mod tests {
             min: -127,
             max: 127,
             absolute_variable: false,
+            relative_variable: true,
         };
         assert_eq!(field.value(&[0xF0, 0x0F]), Some(-1));
         assert_eq!(field.value(&[0x10, 0x00]), Some(1));
@@ -1121,10 +1424,30 @@ pub(crate) mod tests {
                                     assert!((0..800).contains(&x) && (0..480).contains(&y));
                                 }
                                 InputEvent::PointerButton { button, .. } => assert!(button < 3),
+                                InputEvent::Wheel { notches } => assert!(notches != 0 && notches != i8::MIN),
                                 other => panic!("{other:?}"),
                             }
                         });
                         prop_assert!(count <= MAX_ABSOLUTE_EVENTS);
+                    }
+                }
+                if let Some(layout) = Layout::find_relative(&fields) {
+                    prop_assert!(layout.wheel.is_some());
+                    let mut mouse = RelativePointer::new(layout, limits());
+                    for report in [&bytes[..bytes.len().min(64)], &[0u8; 64][..], &[0xFF; 64][..]] {
+                        let mut count = 0;
+                        mouse.report(report, |event| {
+                            count += 1;
+                            match event {
+                                InputEvent::PointerMove { x, y } => {
+                                    assert!((0..800).contains(&x) && (0..480).contains(&y));
+                                }
+                                InputEvent::PointerButton { button, .. } => assert!(button < 3),
+                                InputEvent::Wheel { notches } => assert!(notches != 0 && notches != i8::MIN),
+                                other => panic!("{other:?}"),
+                            }
+                        });
+                        prop_assert!(count <= MAX_RELATIVE_EVENTS);
                     }
                 }
             }

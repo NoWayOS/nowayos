@@ -16,14 +16,17 @@
 //!    an Evaluate Context if it differs, then all 18 bytes;
 //! 4. GET_DESCRIPTOR(Configuration), its 9-byte header for the total
 //!    length, then the whole configuration (up to [`CONFIG_MAX`] bytes),
-//!    walked for HID interfaces that speak the boot protocol;
+//!    walked for HID interfaces that speak the boot protocol, then the
+//!    report descriptor of each absolute pointer and each boot mouse;
 //! 5. Configure Endpoint with their interrupt IN endpoints - and, for a
 //!    machine that streams ([`Enumeration::start_streaming`]), the
 //!    isochronous endpoint of each audio stream ([`audio`]) - then
 //!    SET_CONFIGURATION;
-//! 6. for each boot interface, SET_PROTOCOL(boot), and for a keyboard
-//!    SET_IDLE(0) - a device that stalls either is reset and carried on
-//!    with, since some do;
+//! 6. for each boot interface, SET_PROTOCOL(boot) - but SET_PROTOCOL(report)
+//!    for a mouse whose report descriptor lays out a wheel
+//!    ([`Layout::find_relative`]) - and for a keyboard SET_IDLE(0) - a
+//!    device that stalls either is reset and carried on with, since some
+//!    do;
 //! 7. for each audio stream it supports, SET_INTERFACE to its alternate
 //!    setting, after the Configure Endpoint that set its endpoint up (xHCI
 //!    1.2, section 4.6.6), then, where its endpoint has the control or its
@@ -400,8 +403,10 @@ impl Enumeration {
         &self.boot
     }
 
-    /// The absolute pointer interface `index` of [`Self::boot`] lays out,
-    /// if its report descriptor was read and found one.
+    /// The pointer interface `index` of [`Self::boot`] lays out, if its
+    /// report descriptor was read and found one: an absolute pointer's, or
+    /// a mouse's with a wheel, which is then in the report protocol.
+    /// `None` for a mouse leaves it in the boot protocol.
     #[must_use]
     pub fn layout(&self, index: usize) -> Option<Layout> {
         self.layouts.get(index).copied().flatten()
@@ -610,7 +615,12 @@ impl Enumeration {
                 }
             } else if interface.device != BootDevice::Absolute {
                 self.state = State::SettingProtocol(from);
-                return Step::Control(Setup::set_boot_protocol(interface.interface));
+                let report = interface.device == BootDevice::Mouse && self.layout(from).is_some();
+                return Step::Control(if report {
+                    Setup::set_report_protocol(interface.interface)
+                } else {
+                    Setup::set_boot_protocol(interface.interface)
+                });
             }
             // A mouse: no SET_IDLE; an absolute pointer: neither, as it is
             // no boot device. On to the next interface.
@@ -625,13 +635,19 @@ impl Enumeration {
     }
 
     /// Reads the report descriptor of the next interface from `n` that
-    /// needs one - an absolute pointer's - or, when none is left, goes on
+    /// needs one - an absolute pointer's, or a mouse's that has one - or,
+    /// when none is left, goes on
     /// to configure the device's endpoints; or stops if no interface is
     /// left to use.
     fn next_report(&mut self, from: usize) -> Step {
         let mut n = from;
         while let Some(interface) = self.interface(n) {
-            if interface.device == BootDevice::Absolute {
+            let wanted = match interface.device {
+                BootDevice::Absolute => true,
+                BootDevice::Mouse => interface.report_len > 0,
+                BootDevice::Keyboard => false,
+            };
+            if wanted {
                 self.state = State::ReadingReport(n);
                 let length = interface
                     .report_len
@@ -776,17 +792,23 @@ impl Enumeration {
                 }
             }
             (State::ReadingReport(n), Outcome::ControlData(bytes)) => {
-                // Nothing this driver can use leaves no layout, and the
-                // interface goes once every descriptor is read: a
+                // Nothing this driver can use leaves no layout: an absolute
+                // pointer's interface goes once every descriptor is read,
+                // and a mouse stays in the boot protocol. So does a
                 // descriptor not read whole, as its reports could be longer
                 // than the walk saw, and a layout whose report does not fit
                 // one packet of its endpoint, as it would arrive in pieces.
                 let layout = self.interface(n).and_then(|interface| {
                     let room = usize::from(interface.max_packet).min(hid::REPORT_MAX);
+                    let find = if interface.device == BootDevice::Mouse {
+                        Layout::find_relative
+                    } else {
+                        Layout::find
+                    };
                     (usize::from(interface.report_len) <= bytes.len())
                         .then(|| report::parse(bytes).ok())
                         .flatten()
-                        .and_then(|fields| Layout::find(&fields))
+                        .and_then(|fields| find(&fields))
                         .filter(|layout| usize::from(layout.report_bytes) <= room)
                 });
                 if let Some(slot) = self.layouts.get_mut(n) {
@@ -1027,6 +1049,82 @@ mod tests {
         assert!(!machine.finished());
         assert_eq!(machine.on(Outcome::ControlDone), Step::Poll);
         assert!(machine.polling() && machine.finished());
+    }
+
+    /// A mouse enumerated to its configuration, whose HID descriptor names
+    /// a report descriptor: the machine and the step it asks for.
+    fn wheel_mouse() -> (Enumeration, Step) {
+        use crate::descriptor::tests::WHEEL_MOUSE_CONFIG;
+        let (mut machine, _) = Enumeration::start(1, None);
+        let mut step = Step::ResetPort;
+        for outcome in [
+            Outcome::PortEnabled(Speed::Full),
+            Outcome::SlotEnabled(2),
+            Outcome::CommandDone,
+            Outcome::ControlData(&KEYBOARD_DEVICE[..8]),
+            Outcome::ControlData(&KEYBOARD_DEVICE),
+            Outcome::ControlData(&WHEEL_MOUSE_CONFIG[..9]),
+            Outcome::ControlData(&WHEEL_MOUSE_CONFIG),
+        ] {
+            step = machine.on(outcome);
+        }
+        (machine, step)
+    }
+
+    #[test]
+    fn a_mouse_with_a_wheel_is_set_to_the_report_protocol() {
+        use crate::report::tests::WHEEL_MOUSE;
+        let (mut machine, step) = wheel_mouse();
+        assert_eq!(step, Step::Control(Setup::get_report_descriptor(0, 52)));
+        assert_eq!(
+            machine.on(Outcome::ControlData(WHEEL_MOUSE)),
+            Step::ConfigureEndpoints
+        );
+        assert_eq!(
+            machine.layout(0).map(|layout| layout.kind()),
+            Some(crate::report::PointerKind::Mouse)
+        );
+        assert_eq!(
+            machine.on(Outcome::CommandDone),
+            Step::Control(Setup::set_configuration(1))
+        );
+        assert_eq!(
+            machine.on(Outcome::ControlDone),
+            Step::Control(Setup::set_report_protocol(0))
+        );
+        assert_eq!(machine.on(Outcome::ControlDone), Step::Poll);
+    }
+
+    #[test]
+    fn a_mouse_without_a_wheel_layout_stays_in_the_boot_protocol() {
+        use crate::report::tests::TABLET;
+        // A descriptor that cannot be read: the control endpoint is reset,
+        // and the mouse kept.
+        let (mut machine, _) = wheel_mouse();
+        assert_eq!(
+            machine.on(Outcome::ControlFailed(Completion::STALL)),
+            Step::ResetControl
+        );
+        assert_eq!(machine.on(Outcome::CommandDone), Step::ConfigureEndpoints);
+        assert_eq!(machine.layout(0), None);
+        machine.on(Outcome::CommandDone);
+        assert_eq!(
+            machine.on(Outcome::ControlDone),
+            Step::Control(Setup::set_boot_protocol(0))
+        );
+        // A descriptor with no relative X, Y and wheel (a tablet's).
+        let (mut machine, _) = wheel_mouse();
+        assert_eq!(
+            machine.on(Outcome::ControlData(TABLET)),
+            Step::ConfigureEndpoints
+        );
+        assert_eq!(machine.layout(0), None);
+        assert_eq!(machine.boot().len(), 1);
+        machine.on(Outcome::CommandDone);
+        assert_eq!(
+            machine.on(Outcome::ControlDone),
+            Step::Control(Setup::set_boot_protocol(0))
+        );
     }
 
     #[test]

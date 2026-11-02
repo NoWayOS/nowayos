@@ -60,9 +60,10 @@
 //! (`make fuzz` runs them on arbitrary bytes).
 //!
 //! Provisional: USB 1.1 and 2.0 devices on a controller's root ports -
-//! keyboards and mice through the boot protocol, any other HID interface
-//! whose report descriptor, walked within bounds, lays out one absolute
-//! pointer (a tablet or a touchscreen's first contact), and audio streaming
+//! keyboards and mice through the boot protocol - but a mouse whose report
+//! descriptor lays out a wheel through the report protocol - any other HID
+//! interface whose report descriptor, walked within bounds, lays out one
+//! absolute pointer (a tablet or a touchscreen's first contact), and audio streaming
 //! interfaces' isochronous endpoints, and a camera's Motion JPEG
 //! video on its isochronous endpoint; a microphone streamed only
 //! while its client asks (`capture`). Hubs, other classes, bulk

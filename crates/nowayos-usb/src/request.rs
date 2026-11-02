@@ -139,6 +139,16 @@ impl Setup {
         }
     }
 
+    /// HID SET_PROTOCOL to the report protocol (1), for `interface`: a
+    /// mouse whose reports carry its wheel.
+    #[must_use]
+    pub const fn set_report_protocol(interface: u8) -> Self {
+        Self {
+            value: 1,
+            ..Self::set_boot_protocol(interface)
+        }
+    }
+
     /// HID SET_IDLE with duration 0, for `interface`: report only when
     /// something changes (HID 1.11, section 7.2.4).
     #[must_use]
