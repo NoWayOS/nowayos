@@ -2,7 +2,8 @@
 //! A list picker: one choice of up to 64 options in a list of 3 to
 //! 8 rows that scrolls inside itself, with one tab stop; the arrows move a
 //! highlight, Enter or Space chooses it, a tap on a row chooses that one, a
-//! touch dragged on the list scrolls it, and the application sets a choice
+//! touch dragged on the list or a mouse's wheel over it scrolls it, and the
+//! application sets a choice
 //! back; a session's wipe clears it.
 
 #![allow(
@@ -176,6 +177,23 @@ fn a_tap_on_a_row_chooses_it_and_a_drag_scrolls_the_list() {
     tree.handle(touch(y - 900, TouchPhase::Move));
     assert_eq!(state(&tree, picker).0, 6);
     tree.handle(touch(y - 900, TouchPhase::End));
+}
+
+#[test]
+fn the_wheel_over_the_list_scrolls_it_a_row_a_notch() {
+    let (mut tree, picker) = screen();
+    let (x, y) = centre(tree.get(picker).unwrap().list_row(3).unwrap());
+    tree.handle(InputEvent::PointerMove { x, y });
+    // Towards the user shows later options.
+    assert_eq!(tree.handle(InputEvent::Wheel { notches: -2 }), None);
+    assert_eq!(state(&tree, picker).0, 2);
+    tree.handle(InputEvent::Wheel { notches: 1 });
+    assert_eq!(state(&tree, picker).0, 1);
+    // Never past either end, and it chooses nothing.
+    tree.handle(InputEvent::Wheel { notches: -100 });
+    assert_eq!(state(&tree, picker).0, 6);
+    tree.handle(InputEvent::Wheel { notches: 100 });
+    assert_eq!(state(&tree, picker), (0, 0, None));
 }
 
 #[test]

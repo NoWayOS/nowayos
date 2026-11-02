@@ -1037,9 +1037,9 @@ pub enum NodeKind {
     /// by `offset` pixels; nothing inside is drawn or hit outside the view.
     /// At most one in a tree, never inside another
     /// ([`UiBuilder::scroll_view`](crate::builder::UiBuilder::scroll_view)).
-    /// Page Up and Page Down scroll it a page at a time, a touch dragged on
-    /// it scrolls it, and focus moving onto a control it hides scrolls that
-    /// control into view.
+    /// Page Up and Page Down scroll it a page at a time, a mouse's wheel
+    /// three lines a notch, a touch dragged on it scrolls it, and focus
+    /// moving onto a control it hides scrolls that control into view.
     Scroll {
         /// How far its child is moved up, in pixels: kept by layout
         /// between 0 and how much taller the child is than the view.

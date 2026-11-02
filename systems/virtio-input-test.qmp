@@ -20,3 +20,9 @@ wait NOWAYOS: virtio-input: dropped so far: 0 unknown type, 1 unknown code, 0 ou
 # four-slot ring:
 # the first four are forwarded, the rest dropped and counted.
 send {"execute": "input-send-event", "arguments": {"events": [{"type": "key", "data": {"down": true, "key": {"type": "qcode", "data": "b"}}}, {"type": "key", "data": {"down": false, "key": {"type": "qcode", "data": "b"}}}, {"type": "key", "data": {"down": true, "key": {"type": "qcode", "data": "c"}}}, {"type": "key", "data": {"down": false, "key": {"type": "qcode", "data": "c"}}}, {"type": "key", "data": {"down": true, "key": {"type": "qcode", "data": "d"}}}, {"type": "key", "data": {"down": false, "key": {"type": "qcode", "data": "d"}}}, {"type": "key", "data": {"down": true, "key": {"type": "qcode", "data": "e"}}}, {"type": "key", "data": {"down": false, "key": {"type": "qcode", "data": "e"}}}]}}
+# Turn the tablet's wheel a notch away from the user, then a notch back:
+# each a canonical wheel event.
+wait NOWAYOS: input-print: key up 0x06
+send {"execute": "input-send-event", "arguments": {"events": [{"type": "btn", "data": {"down": true, "button": "wheel-up"}}, {"type": "btn", "data": {"down": false, "button": "wheel-up"}}]}}
+wait NOWAYOS: input-print: wheel +1
+send {"execute": "input-send-event", "arguments": {"events": [{"type": "btn", "data": {"down": true, "button": "wheel-down"}}, {"type": "btn", "data": {"down": false, "button": "wheel-down"}}]}}

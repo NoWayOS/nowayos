@@ -50,7 +50,7 @@ fn on_screen(limits: &InputLimits, x: i32, y: i32) -> bool {
 /// `event` is within `limits`.
 fn within(limits: &InputLimits, event: InputEvent) -> bool {
     match event {
-        InputEvent::KeyDown(_) | InputEvent::KeyUp(_) => true,
+        InputEvent::KeyDown(_) | InputEvent::KeyUp(_) | InputEvent::Wheel { .. } => true,
         InputEvent::PointerMove { x, y } => on_screen(limits, x, y),
         InputEvent::PointerButton { button, .. } => button < limits.buttons(),
         InputEvent::Touch { id, x, y, .. } => id < limits.touch_points() && on_screen(limits, x, y),

@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! A scroll view: one child laid out at its natural height and
-//! shown through the view, scrolled by Page Up and Page Down, by a touch
-//! dragged on it and by focus moving onto a control it hides; at most one
+//! shown through the view, scrolled by Page Up and Page Down, by a mouse's
+//! wheel, by a touch dragged on it and by focus moving onto a control it
+//! hides; at most one
 //! in a screen and never nested; back at the top after a session's wipe.
 
 #![allow(
@@ -82,6 +83,26 @@ fn page_down_and_up_scroll_a_page_less_a_line_within_the_range() {
     for area in tree.dirty_rects() {
         assert!(area.top() >= view_rect.top(), "{area:?}");
     }
+}
+
+#[test]
+fn the_wheel_scrolls_three_lines_a_notch_within_the_range() {
+    let (mut tree, view, _) = screen();
+    let view_height = tree.get(view).unwrap().rect().size.height;
+    // Wherever the pointer is: here over the title, outside the view.
+    tree.handle(InputEvent::PointerMove { x: 5, y: 5 });
+    // Towards the user scrolls down: three lines of 10 a notch.
+    assert_eq!(tree.handle(InputEvent::Wheel { notches: -1 }), None);
+    assert_eq!(tree.scroll_offset(), Some(30));
+    tree.handle(InputEvent::Wheel { notches: -2 });
+    assert_eq!(tree.scroll_offset(), Some(90));
+    tree.handle(InputEvent::Wheel { notches: 1 });
+    assert_eq!(tree.scroll_offset(), Some(60));
+    // Never past either end.
+    tree.handle(InputEvent::Wheel { notches: -127 });
+    assert_eq!(tree.scroll_offset(), Some(390 - view_height));
+    tree.handle(InputEvent::Wheel { notches: i8::MAX });
+    assert_eq!(tree.scroll_offset(), Some(0));
 }
 
 #[test]

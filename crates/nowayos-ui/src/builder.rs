@@ -439,8 +439,8 @@ pub trait UiBuilder {
     /// A scroll view of `child` (contract v9): `child` - a column -
     /// at its natural height, shown through the view, which takes the room
     /// its parent leaves unless `layout` gives it a height. Page Up and Page
-    /// Down, a touch dragged on it, and focus moving onto a control it
-    /// hides scroll it.
+    /// Down, a mouse's wheel, a touch dragged on it, and focus moving onto
+    /// a control it hides scroll it.
     ///
     /// # Errors
     ///

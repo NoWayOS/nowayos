@@ -14,7 +14,8 @@
 //! counted ([`Translator::dropped`]): never forwarded, never a panic.
 //! Absolute positions (QEMU's virtio tablet: 0 to [`ABS_MAX`] on each axis)
 //! are scaled to the screen and reported once per report (`SYN_REPORT`), as
-//! one [`InputEvent::PointerMove`].
+//! one [`InputEvent::PointerMove`]. The wheel (`REL_WHEEL`) is reported at
+//! once, as an [`InputEvent::Wheel`]; no other relative axis is known.
 
 use crate::{InputEvent, KeyCode};
 
@@ -25,7 +26,7 @@ pub const EVENT_LEN: usize = 8;
 pub const EV_SYN: u16 = 0x00;
 /// A key or button.
 pub const EV_KEY: u16 = 0x01;
-/// Relative motion: not supported here.
+/// Relative motion: only the wheel is known.
 pub const EV_REL: u16 = 0x02;
 /// An absolute axis.
 pub const EV_ABS: u16 = 0x03;
@@ -38,6 +39,8 @@ pub const SYN_REPORT: u16 = 0x00;
 pub const ABS_X: u16 = 0x00;
 /// The vertical axis.
 pub const ABS_Y: u16 = 0x01;
+/// The wheel, in detents: positive away from the user.
+pub const REL_WHEEL: u16 = 0x08;
 /// The primary, secondary and middle buttons.
 pub const BTN_LEFT: u16 = 0x110;
 /// The secondary button.
@@ -55,7 +58,8 @@ pub struct DropCounts {
     pub unknown_type: u32,
     /// Keys, buttons and axes it does not know.
     pub unknown_code: u32,
-    /// Key values other than 0, 1 and 2; positions beyond [`ABS_MAX`].
+    /// Key values other than 0, 1 and 2; positions beyond [`ABS_MAX`]; a
+    /// wheel turned more than 127 detents at once.
     pub out_of_range: u32,
 }
 
@@ -138,6 +142,7 @@ impl Translator {
                     y: scale(y, self.height),
                 })
             }
+            EV_REL => self.wheel(code, value),
             EV_MSC => None,
             _ => {
                 self.dropped.unknown_type = self.dropped.unknown_type.saturating_add(1);
@@ -150,6 +155,21 @@ impl Translator {
     #[must_use]
     pub const fn dropped(&self) -> DropCounts {
         self.dropped
+    }
+
+    /// A turn of the wheel, `value` detents (signed); a turn of nothing
+    /// makes no event.
+    fn wheel(&mut self, code: u16, value: u32) -> Option<InputEvent> {
+        if code != REL_WHEEL {
+            self.dropped.unknown_code = self.dropped.unknown_code.saturating_add(1);
+            return None;
+        }
+        let turned = i32::from_le_bytes(value.to_le_bytes());
+        let Some(notches) = i8::try_from(turned).ok().filter(|&n| n != i8::MIN) else {
+            self.dropped.out_of_range = self.dropped.out_of_range.saturating_add(1);
+            return None;
+        };
+        (notches != 0).then_some(InputEvent::Wheel { notches })
     }
 
     fn key(&mut self, code: u16, value: u32) -> Option<InputEvent> {
@@ -383,21 +403,43 @@ mod tests {
         assert_eq!(t.translate(&event(EV_ABS, 0x2F, 10)), None);
         assert_eq!(t.translate(&event(EV_ABS, ABS_X, ABS_MAX + 1)), None);
         assert_eq!(t.translate(&event(EV_KEY, BTN_LEFT, 2)), None);
+        assert_eq!(t.translate(&event(EV_REL, REL_WHEEL, 128)), None);
+        assert_eq!(
+            t.translate(&event(EV_REL, REL_WHEEL, (-128i32).cast_unsigned())),
+            None
+        );
         assert_eq!(
             t.dropped(),
             DropCounts {
-                unknown_type: 2,
-                unknown_code: 2,
-                out_of_range: 2
+                unknown_type: 1,
+                unknown_code: 3,
+                out_of_range: 4
             }
         );
-        assert_eq!(t.dropped().total(), 6);
+        assert_eq!(t.dropped().total(), 8);
         assert_eq!(
             t.translate(&event(EV_MSC, 4, 0x1E)),
             None,
             "scan codes are ignored"
         );
-        assert_eq!(t.dropped().total(), 6);
+        assert_eq!(t.dropped().total(), 8);
+    }
+
+    #[test]
+    fn wheel_turns_are_reported_at_once() {
+        let mut t = Translator::new(800, 480);
+        let turn = |t: &mut Translator, notches: i32| {
+            t.translate(&event(EV_REL, REL_WHEEL, notches.cast_unsigned()))
+        };
+        assert_eq!(turn(&mut t, 1), Some(InputEvent::Wheel { notches: 1 }));
+        assert_eq!(turn(&mut t, -1), Some(InputEvent::Wheel { notches: -1 }));
+        assert_eq!(turn(&mut t, 127), Some(InputEvent::Wheel { notches: 127 }));
+        assert_eq!(
+            turn(&mut t, -127),
+            Some(InputEvent::Wheel { notches: -127 })
+        );
+        assert_eq!(turn(&mut t, 0), None, "a turn of nothing is no event");
+        assert_eq!(t.dropped().total(), 0);
     }
 
     proptest! {
