@@ -1,16 +1,18 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Fuzz target: HID report descriptors, and the reports of the absolute
-//! pointer one lays out - a touchscreen or a tablet
+//! Fuzz target: HID report descriptors, and the reports of the pointer one
+//! lays out - a touchscreen, a tablet or a mouse with a wheel
 //! (`nowayos_usb::report`). A device is not trusted, so the descriptor is
-//! the fuzzer's bytes, or a touchscreen's, a tablet's or a ten-contact
-//! screen's with some bytes changed and cut to any length, and the reports
-//! are the fuzzer's too. Checks:
+//! the fuzzer's bytes, or a touchscreen's, a tablet's, a wheel mouse's or a
+//! ten-contact screen's with some bytes changed and cut to any length, and
+//! the reports are the fuzzer's too. Checks:
 //!
 //! * parsing never panics and keeps every bound: at most 32 fields
 //!   recorded, each 1 to 32 bits, none past the end of its report, and
 //!   every report at most 64 bytes, its ID's byte included;
-//! * a layout it finds has X and Y with a range, in one report;
-//! * no report panics or makes more than 4 events; every position is on
+//! * a layout it finds has X and Y with a range, in one report - or, for a
+//!   mouse, relative X, Y and wheel in one report;
+//! * no report panics or makes more than 5 events; a turn of the wheel is
+//!   1 to 127 notches either way; every position is on
 //!   the screen, of any size the fuzzer picks; a touch starts only when
 //!   none is in progress, moves and ends only while one is, and buttons go
 //!   down only when up and up only when down; when the device goes, a
@@ -22,7 +24,8 @@ use libfuzzer_sys::fuzz_target;
 use nowayos_fuzz::Input;
 use nowayos_input::{InputEvent, InputLimits, TouchPhase};
 use nowayos_usb::report::{
-    AbsolutePointer, Layout, MAX_ABSOLUTE_EVENTS, MAX_FIELDS, REPORT_BITS, parse,
+    AbsolutePointer, Layout, MAX_ABSOLUTE_EVENTS, MAX_FIELDS, MAX_RELATIVE_EVENTS, REPORT_BITS,
+    RelativePointer, parse,
 };
 
 /// A single-touch touchscreen: report ID 2, tip switch, contact ID, X and Y.
@@ -41,6 +44,15 @@ const TABLET: [u8; 74] = [
     0x05, 0x01, 0x09, 0x30, 0x09, 0x31, 0x15, 0x00, 0x26, 0xFF, 0x7F, 0x35, 0x00, 0x46, 0xFF, 0x7F,
     0x75, 0x10, 0x95, 0x02, 0x81, 0x02, 0x05, 0x01, 0x09, 0x38, 0x15, 0x81, 0x25, 0x7F, 0x35, 0x00,
     0x45, 0x00, 0x75, 0x08, 0x95, 0x01, 0x81, 0x06, 0xC0, 0xC0,
+];
+
+/// A mouse with a wheel, as `nowayos_usb::report`'s tests lay it out:
+/// three buttons, padding, then X, Y and the wheel, relative, 8 bits each.
+const WHEEL_MOUSE: [u8; 52] = [
+    0x05, 0x01, 0x09, 0x02, 0xA1, 0x01, 0x09, 0x01, 0xA1, 0x00, 0x05, 0x09, 0x19, 0x01, 0x29, 0x03,
+    0x15, 0x00, 0x25, 0x01, 0x95, 0x03, 0x75, 0x01, 0x81, 0x02, 0x95, 0x01, 0x75, 0x05, 0x81, 0x01,
+    0x05, 0x01, 0x09, 0x30, 0x09, 0x31, 0x09, 0x38, 0x15, 0x81, 0x25, 0x7F, 0x75, 0x08, 0x95, 0x03,
+    0x81, 0x06, 0xC0, 0xC0,
 ];
 
 /// A ten-contact screen, as `nowayos_usb::report`'s tests lay it out:
@@ -66,7 +78,7 @@ fuzz_target!(|data: &[u8]| {
     let input = Input::new(data);
     let mut buf = [0u8; 600];
     let screen = multi_touch();
-    let len = match input.byte().checked_rem(4).unwrap_or(0) {
+    let len = match input.byte().checked_rem(5).unwrap_or(0) {
         0 => {
             let n = usize::from(input.u16()).min(buf.len());
             for byte in buf.iter_mut().take(n) {
@@ -78,6 +90,7 @@ fuzz_target!(|data: &[u8]| {
             let base: &[u8] = match pick {
                 1 => &TOUCHSCREEN,
                 2 => &TABLET,
+                3 => &WHEEL_MOUSE,
                 _ => &screen,
             };
             for (to, from) in buf.iter_mut().zip(base) {
@@ -108,10 +121,18 @@ fuzz_target!(|data: &[u8]| {
     for id in 0..=u8::MAX {
         assert!(fields.report_bytes(id) <= 64);
     }
-    let Some(layout) = Layout::find(&fields) else {
+    let Some(layout) = Layout::find(&fields).or_else(|| Layout::find_relative(&fields)) else {
         return;
     };
-    assert!(layout.x.max > layout.x.min && layout.y.max > layout.y.min);
+    if layout.relative {
+        let wheel = layout.wheel.unwrap_or_default();
+        assert!(
+            layout.x.relative_variable && layout.y.relative_variable && wheel.relative_variable
+        );
+        assert!(layout.tip.is_none() && wheel.report_id == layout.x.report_id);
+    } else {
+        assert!(layout.x.max > layout.x.min && layout.y.max > layout.y.min);
+    }
     assert!(layout.x.report_id == layout.y.report_id);
     assert_eq!(layout.report_bytes, fields.report_bytes(layout.report_id));
     let width = input.u16().max(1);
@@ -119,7 +140,10 @@ fuzz_target!(|data: &[u8]| {
     let Some(limits) = InputLimits::new(width, height) else {
         return;
     };
-    let mut pointer = AbsolutePointer::new(layout, limits);
+    let mut absolute = (!layout.relative).then(|| AbsolutePointer::new(layout, limits));
+    let mut relative = layout
+        .relative
+        .then(|| RelativePointer::new(layout, limits));
     let mut touching = false;
     let mut buttons = [false; 3];
     let check = |event: InputEvent, touching: &mut bool, buttons: &mut [bool; 3]| match event {
@@ -152,6 +176,7 @@ fuzz_target!(|data: &[u8]| {
                 *state = down;
             }
         }
+        InputEvent::Wheel { notches } => assert!(notches != 0 && notches != i8::MIN),
         _ => assert!(
             matches!(
                 event,
@@ -173,14 +198,30 @@ fuzz_target!(|data: &[u8]| {
         for byte in report.iter_mut().take(n) {
             *byte = input.byte();
         }
+        let report = report.get(..n).unwrap_or_default();
         let mut count = 0usize;
-        pointer.report(report.get(..n).unwrap_or_default(), |event| {
+        let mut seen = |event: InputEvent| {
+            assert!(
+                !(layout.relative && matches!(event, InputEvent::Touch { .. })),
+                "a touch from a mouse"
+            );
             count = count.saturating_add(1);
             check(event, &mut touching, &mut buttons);
-        });
-        assert!(count <= MAX_ABSOLUTE_EVENTS);
+        };
+        if let Some(pointer) = absolute.as_mut() {
+            pointer.report(report, &mut seen);
+        }
+        if let Some(mouse) = relative.as_mut() {
+            mouse.report(report, &mut seen);
+        }
+        assert!(count <= MAX_ABSOLUTE_EVENTS.max(MAX_RELATIVE_EVENTS));
     }
-    pointer.release_all(|event| check(event, &mut touching, &mut buttons));
+    if let Some(pointer) = absolute.as_mut() {
+        pointer.release_all(|event| check(event, &mut touching, &mut buttons));
+    }
+    if let Some(mouse) = relative.as_mut() {
+        mouse.release_all(|event| check(event, &mut touching, &mut buttons));
+    }
     assert!(!touching, "a touch left in progress");
     assert!(buttons.iter().all(|down| !down), "a button left down");
 });

@@ -727,6 +727,15 @@ pub(crate) mod tests {
         7, 5, 0x81, 3, 8, 0, 10, //
     ];
 
+    /// A boot mouse whose report descriptor, 52 bytes, lays out a wheel
+    /// (`report::tests::WHEEL_MOUSE`).
+    pub(crate) const WHEEL_MOUSE_CONFIG: [u8; 34] = [
+        9, 2, 34, 0, 1, 1, 0, 0xA0, 50, //
+        9, 4, 0, 0, 1, 3, 1, 2, 0, // interface 0: HID, boot, mouse
+        9, 0x21, 0x01, 0x01, 0, 1, 0x22, 52, 0, //
+        7, 5, 0x81, 3, 8, 0, 10, //
+    ];
+
     #[test]
     fn a_tablets_interface_comes_with_its_report_descriptors_length() {
         let boot = boot_interfaces(&TABLET_CONFIG).unwrap();

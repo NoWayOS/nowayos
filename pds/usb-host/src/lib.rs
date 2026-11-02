@@ -144,7 +144,7 @@ use nowayos_usb::enumerate::{Enumeration, Outcome, Step, Video};
 use nowayos_usb::hid::{Dropped, KeyRepeat, Keyboard, Mouse};
 use nowayos_usb::isoch::{FrameClock, Tone};
 use nowayos_usb::port::{PortWrite, Speed};
-use nowayos_usb::report::{AbsolutePointer, Field, PointerKind};
+use nowayos_usb::report::{AbsolutePointer, Field, PointerKind, RelativePointer};
 use nowayos_usb::trb::{Completion, ISOCH_MAX, kind};
 use sel4_microkit::{Channel, ChannelSet, Handler, Infallible, debug_println, pd_name};
 
@@ -329,6 +329,9 @@ enum Decoder {
     Mouse(Mouse),
     /// A touchscreen or tablet, laid out as its report descriptor says.
     Absolute(AbsolutePointer),
+    /// A mouse with a wheel, in the report protocol, laid out as its
+    /// report descriptor says.
+    Relative(RelativePointer),
 }
 
 impl Decoder {
@@ -336,10 +339,11 @@ impl Decoder {
     const fn name(&self) -> &'static str {
         match self {
             Self::Keyboard(..) => "keyboard",
-            Self::Mouse(_) => "mouse",
+            Self::Mouse(_) | Self::Relative(_) => "mouse",
             Self::Absolute(pointer) => match pointer.layout().kind() {
                 PointerKind::Touch => "touchscreen",
                 PointerKind::Pointer => "tablet",
+                PointerKind::Mouse => "mouse",
             },
         }
     }
@@ -349,6 +353,10 @@ impl Decoder {
             Self::Keyboard(keyboard, _) => keyboard.dropped(),
             Self::Mouse(mouse) => mouse.dropped(),
             Self::Absolute(pointer) => Dropped {
+                wrong_length: pointer.refused(),
+                ..Dropped::default()
+            },
+            Self::Relative(pointer) => Dropped {
                 wrong_length: pointer.refused(),
                 ..Dropped::default()
             },
@@ -365,6 +373,7 @@ impl Decoder {
             }),
             Self::Mouse(mouse) => mouse.report(report, emit),
             Self::Absolute(pointer) => pointer.report(report, emit),
+            Self::Relative(pointer) => pointer.report(report, emit),
         }
     }
 
@@ -376,6 +385,7 @@ impl Decoder {
             }
             Self::Mouse(mouse) => mouse.release_all(emit),
             Self::Absolute(pointer) => pointer.release_all(emit),
+            Self::Relative(pointer) => pointer.release_all(emit),
         }
     }
 }
@@ -1784,7 +1794,10 @@ impl UsbHost {
         for (index, (to, from)) in decoders.iter_mut().zip(machine.boot().iter()).enumerate() {
             *to = match from.device {
                 BootDevice::Keyboard => Some(Decoder::Keyboard(Keyboard::new(), KeyRepeat::new())),
-                BootDevice::Mouse => self.limits.map(|limits| Decoder::Mouse(Mouse::new(limits))),
+                BootDevice::Mouse => self.limits.map(|limits| match machine.layout(index) {
+                    Some(layout) => Decoder::Relative(RelativePointer::new(layout, limits)),
+                    None => Decoder::Mouse(Mouse::new(limits)),
+                }),
                 BootDevice::Absolute => {
                     machine
                         .layout(index)
@@ -1822,6 +1835,23 @@ impl UsbHost {
                             "NOWAYOS: {}: port {port}: its tip switch at {}",
                             self.name,
                             Place(tip)
+                        );
+                    }
+                }
+                Decoder::Relative(pointer) => {
+                    let layout = pointer.layout();
+                    debug_println!(
+                        "NOWAYOS: {}: port {port}: mouse ready, report protocol: report ID {}; X at {}; Y at {}",
+                        self.name,
+                        layout.report_id,
+                        Place(layout.x),
+                        Place(layout.y)
+                    );
+                    if let Some(wheel) = layout.wheel {
+                        debug_println!(
+                            "NOWAYOS: {}: port {port}: its wheel at {}",
+                            self.name,
+                            Place(wheel)
                         );
                     }
                 }

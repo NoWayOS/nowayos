@@ -51,3 +51,14 @@ wait NOWAYOS: input-print: key down 0x07
 wait NOWAYOS: input-print: key down 0x07
 send {"execute": "input-send-event", "arguments": {"events": [{"type": "key", "data": {"down": false, "key": {"type": "qcode", "data": "d"}}}]}}
 wait NOWAYOS: input-print: key up 0x07
+# Turn the wheel a notch away: QEMU gives it to its newest pointer, the
+# tablet, whose reports carry it.
+send {"execute": "input-send-event", "arguments": {"events": [{"type": "btn", "data": {"down": true, "button": "wheel-up"}}, {"type": "btn", "data": {"down": false, "button": "wheel-up"}}]}}
+wait NOWAYOS: input-print: wheel +1
+# Unplug the tablet, and turn the wheel a notch back: now the mouse's, in
+# the report protocol. A second's pause first, as above.
+pause 1100
+send {"execute": "device_del", "arguments": {"id": "tablet"}}
+wait NOWAYOS: usb0: port 7: unplugged
+send {"execute": "input-send-event", "arguments": {"events": [{"type": "btn", "data": {"down": true, "button": "wheel-down"}}, {"type": "btn", "data": {"down": false, "button": "wheel-down"}}]}}
+wait NOWAYOS: input-print: wheel -1
