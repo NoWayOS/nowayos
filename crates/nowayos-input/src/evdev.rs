@@ -16,8 +16,20 @@
 //! are scaled to the screen and reported once per report (`SYN_REPORT`), as
 //! one [`InputEvent::PointerMove`]. The wheel (`REL_WHEEL`) is reported at
 //! once, as an [`InputEvent::Wheel`]; no other relative axis is known.
+//!
+//! **Touches** come as the Linux input layer's multi-touch protocol B: each
+//! contact in a slot (`ABS_MT_SLOT`), given a tracking ID when it lands and
+//! -1 when it lifts (`ABS_MT_TRACKING_ID`), and its position
+//! (`ABS_MT_POSITION_X`, `_Y`). At each report's end every slot that changed
+//! makes one [`InputEvent::Touch`] - its start, once both coordinates are
+//! known, then moves, then its end where it was last seen - whose `id` is
+//! the slot. A slot from [`MAX_CONTACTS`] on is refused and counted; a
+//! contact's position beyond [`ABS_MAX`] is clamped to the edge. Once a
+//! device has sent a multi-touch event, its single-touch emulation
+//! (`ABS_X`, `ABS_Y`, `BTN_TOUCH`) is ignored, so a touch is not also a
+//! pointer move.
 
-use crate::{InputEvent, KeyCode};
+use crate::{InputEvent, KeyCode, TouchPhase};
 
 /// The size of one event.
 pub const EVENT_LEN: usize = 8;
@@ -39,6 +51,16 @@ pub const SYN_REPORT: u16 = 0x00;
 pub const ABS_X: u16 = 0x00;
 /// The vertical axis.
 pub const ABS_Y: u16 = 0x01;
+/// The multi-touch slot the events after it are about.
+pub const ABS_MT_SLOT: u16 = 0x2F;
+/// A contact's horizontal position.
+pub const ABS_MT_POSITION_X: u16 = 0x35;
+/// A contact's vertical position.
+pub const ABS_MT_POSITION_Y: u16 = 0x36;
+/// A contact's tracking ID: -1 when it lifts.
+pub const ABS_MT_TRACKING_ID: u16 = 0x39;
+/// A multi-touch device's single-touch emulation: touching or not.
+pub const BTN_TOUCH: u16 = 0x14A;
 /// The wheel, in detents: positive away from the user.
 pub const REL_WHEEL: u16 = 0x08;
 /// The primary, secondary and middle buttons.
@@ -51,6 +73,10 @@ pub const BTN_MIDDLE: u16 = 0x112;
 /// The largest absolute position QEMU's virtio tablet reports on each axis.
 pub const ABS_MAX: u32 = 0x7FFF;
 
+/// The most contacts followed at once: slots 0 to 9, the input broker's ten
+/// touch IDs.
+pub const MAX_CONTACTS: usize = 10;
+
 /// How many events of each kind were dropped.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DropCounts {
@@ -59,7 +85,8 @@ pub struct DropCounts {
     /// Keys, buttons and axes it does not know.
     pub unknown_code: u32,
     /// Key values other than 0, 1 and 2; positions beyond [`ABS_MAX`]; a
-    /// wheel turned more than 127 detents at once.
+    /// wheel turned more than 127 detents at once; a multi-touch slot from
+    /// [`MAX_CONTACTS`] on, and every event about it.
     pub out_of_range: u32,
 }
 
@@ -73,6 +100,20 @@ impl DropCounts {
     }
 }
 
+/// One multi-touch slot: whether a contact is in it, where, and what is
+/// still to be said about it at the report's end.
+#[derive(Clone, Copy, Debug, Default)]
+struct Contact {
+    /// A contact is in the slot: it has a tracking ID.
+    down: bool,
+    /// Its start was reported.
+    started: bool,
+    x: Option<u32>,
+    y: Option<u32>,
+    /// Something changed since the last report.
+    changed: bool,
+}
+
 /// Turns one device's events into canonical events, for a screen of
 /// `width` x `height` pixels.
 #[derive(Clone, Copy, Debug)]
@@ -82,6 +123,12 @@ pub struct Translator {
     x: Option<u32>,
     y: Option<u32>,
     moved: bool,
+    /// The slot the next multi-touch events are about, if it is followed.
+    slot: Option<usize>,
+    contacts: [Contact; MAX_CONTACTS],
+    /// The device has sent a multi-touch event: its single-touch emulation
+    /// is ignored.
+    multitouch: bool,
     dropped: DropCounts,
 }
 
@@ -95,6 +142,15 @@ impl Translator {
             x: None,
             y: None,
             moved: false,
+            slot: Some(0),
+            contacts: [Contact {
+                down: false,
+                started: false,
+                x: None,
+                y: None,
+                changed: false,
+            }; MAX_CONTACTS],
+            multitouch: false,
             dropped: DropCounts {
                 unknown_type: 0,
                 unknown_code: 0,
@@ -103,50 +159,137 @@ impl Translator {
         }
     }
 
-    /// The canonical event `event` makes, if any. Positions wait for the
-    /// report's end: a `SYN_REPORT` after a change of either axis makes one
+    /// Passes `emit` the canonical events `event` makes, if any - at most
+    /// one, but for a multi-touch report's end, which makes one for each
+    /// slot that changed. Positions wait for the report's end: a
+    /// `SYN_REPORT` after a change of either axis makes one
     /// [`InputEvent::PointerMove`], once both axes are known.
-    pub fn translate(&mut self, event: &[u8; EVENT_LEN]) -> Option<InputEvent> {
+    pub fn translate(&mut self, event: &[u8; EVENT_LEN], mut emit: impl FnMut(InputEvent)) {
         let [t0, t1, c0, c1, v0, v1, v2, v3] = *event;
         let kind = u16::from_le_bytes([t0, t1]);
         let code = u16::from_le_bytes([c0, c1]);
         let value = u32::from_le_bytes([v0, v1, v2, v3]);
-        match kind {
+        let one = match kind {
+            EV_KEY if code == BTN_TOUCH && self.multitouch => None,
             EV_KEY => self.key(code, value),
+            EV_ABS if (ABS_MT_SLOT..=ABS_MT_TRACKING_ID).contains(&code) => {
+                self.multitouch = true;
+                self.contact(code, value);
+                None
+            }
+            EV_ABS if self.multitouch && matches!(code, ABS_X | ABS_Y) => None,
             EV_ABS => {
                 if value > ABS_MAX {
                     self.dropped.out_of_range = self.dropped.out_of_range.saturating_add(1);
-                    return None;
+                    return;
                 }
                 match code {
                     ABS_X => self.x = Some(value),
                     ABS_Y => self.y = Some(value),
                     _ => {
                         self.dropped.unknown_code = self.dropped.unknown_code.saturating_add(1);
-                        return None;
+                        return;
                     }
                 }
                 self.moved = true;
                 None
             }
-            EV_SYN => {
-                if code != SYN_REPORT || !self.moved {
-                    return None;
-                }
-                let (Some(x), Some(y)) = (self.x, self.y) else {
-                    return None;
-                };
-                self.moved = false;
-                Some(InputEvent::PointerMove {
-                    x: scale(x, self.width),
-                    y: scale(y, self.height),
-                })
+            EV_SYN if code == SYN_REPORT => {
+                self.touches(&mut emit);
+                self.pointer()
             }
+            EV_SYN => None,
             EV_REL => self.wheel(code, value),
             EV_MSC => None,
             _ => {
                 self.dropped.unknown_type = self.dropped.unknown_type.saturating_add(1);
                 None
+            }
+        };
+        if let Some(event) = one {
+            emit(event);
+        }
+    }
+
+    /// The pointer's move at a report's end, if either axis changed and
+    /// both are known.
+    fn pointer(&mut self) -> Option<InputEvent> {
+        if !self.moved {
+            return None;
+        }
+        let (Some(x), Some(y)) = (self.x, self.y) else {
+            return None;
+        };
+        self.moved = false;
+        Some(InputEvent::PointerMove {
+            x: scale(x, self.width),
+            y: scale(y, self.height),
+        })
+    }
+
+    /// A multi-touch event, `code` from `ABS_MT_SLOT` to
+    /// `ABS_MT_TRACKING_ID`, about the current slot.
+    fn contact(&mut self, code: u16, value: u32) {
+        if code == ABS_MT_SLOT {
+            self.slot = usize::try_from(value)
+                .ok()
+                .filter(|slot| *slot < MAX_CONTACTS);
+            if self.slot.is_none() {
+                self.dropped.out_of_range = self.dropped.out_of_range.saturating_add(1);
+            }
+            return;
+        }
+        let Some(contact) = self.slot.and_then(|slot| self.contacts.get_mut(slot)) else {
+            self.dropped.out_of_range = self.dropped.out_of_range.saturating_add(1);
+            return;
+        };
+        match code {
+            ABS_MT_TRACKING_ID => {
+                // -1 lifts the contact; any other ID puts one down.
+                contact.down = i32::from_le_bytes(value.to_le_bytes()) >= 0;
+                contact.changed = true;
+            }
+            ABS_MT_POSITION_X => {
+                contact.x = Some(value.min(ABS_MAX));
+                contact.changed = true;
+            }
+            ABS_MT_POSITION_Y => {
+                contact.y = Some(value.min(ABS_MAX));
+                contact.changed = true;
+            }
+            _ => self.dropped.unknown_code = self.dropped.unknown_code.saturating_add(1),
+        }
+    }
+
+    /// At a report's end, a touch event for each slot that changed: a
+    /// contact's start once both its coordinates are known, then its moves,
+    /// then its end where it was last seen.
+    fn touches(&mut self, emit: &mut impl FnMut(InputEvent)) {
+        let (width, height) = (self.width, self.height);
+        for (id, contact) in (0u8..).zip(self.contacts.iter_mut()) {
+            if !contact.changed {
+                continue;
+            }
+            contact.changed = false;
+            let at = contact
+                .x
+                .zip(contact.y)
+                .map(|(x, y)| (scale(x, width), scale(y, height)));
+            let phase = match (contact.down, contact.started) {
+                (true, false) => at.map(|_| TouchPhase::Start),
+                (true, true) => Some(TouchPhase::Move),
+                (false, true) => Some(TouchPhase::End),
+                (false, false) => None,
+            };
+            if phase == Some(TouchPhase::Start) {
+                contact.started = true;
+            }
+            // An empty slot keeps nothing for the next contact in it.
+            if !contact.down {
+                *contact = Contact::default();
+            }
+            if let (Some(phase), Some((x, y))) = (phase, at) {
+                emit(InputEvent::Touch { id, x, y, phase });
             }
         }
     }
@@ -310,6 +453,22 @@ mod tests {
 
     use super::*;
 
+    /// The one event, if any, `t` makes of `event`.
+    fn one(t: &mut Translator, event: [u8; EVENT_LEN]) -> Option<InputEvent> {
+        let mut made = all(t, &[event]);
+        assert!(made.len() <= 1, "{made:?}");
+        made.pop()
+    }
+
+    /// Every event `t` makes of `events`, in order.
+    fn all(t: &mut Translator, events: &[[u8; EVENT_LEN]]) -> Vec<InputEvent> {
+        let mut made = Vec::new();
+        for event in events {
+            t.translate(event, |canonical| made.push(canonical));
+        }
+        made
+    }
+
     fn event(kind: u16, code: u16, value: u32) -> [u8; EVENT_LEN] {
         let mut bytes = [0; EVENT_LEN];
         bytes[..2].copy_from_slice(&kind.to_le_bytes());
@@ -337,49 +496,49 @@ mod tests {
     fn presses_releases_and_repeats() {
         let mut t = Translator::new(800, 480);
         assert_eq!(
-            t.translate(&event(EV_KEY, 30, 1)),
+            one(&mut t, event(EV_KEY, 30, 1)),
             Some(InputEvent::KeyDown(KeyCode::A))
         );
         assert_eq!(
-            t.translate(&event(EV_KEY, 30, 2)),
+            one(&mut t, event(EV_KEY, 30, 2)),
             Some(InputEvent::KeyDown(KeyCode::A))
         );
         assert_eq!(
-            t.translate(&event(EV_KEY, 30, 0)),
+            one(&mut t, event(EV_KEY, 30, 0)),
             Some(InputEvent::KeyUp(KeyCode::A))
         );
-        assert_eq!(t.translate(&event(EV_KEY, 30, 7)), None);
+        assert_eq!(one(&mut t, event(EV_KEY, 30, 7)), None);
         assert_eq!(t.dropped().out_of_range, 1);
     }
 
     #[test]
     fn tablet_positions_are_scaled_and_reported_once_per_report() {
         let mut t = Translator::new(800, 480);
-        assert_eq!(t.translate(&event(EV_ABS, ABS_X, 16384)), None);
-        assert_eq!(t.translate(&event(EV_ABS, ABS_Y, 16384)), None);
+        assert_eq!(one(&mut t, event(EV_ABS, ABS_X, 16384)), None);
+        assert_eq!(one(&mut t, event(EV_ABS, ABS_Y, 16384)), None);
         assert_eq!(
-            t.translate(&event(EV_SYN, SYN_REPORT, 0)),
+            one(&mut t, event(EV_SYN, SYN_REPORT, 0)),
             Some(InputEvent::PointerMove { x: 400, y: 240 })
         );
         assert_eq!(
-            t.translate(&event(EV_SYN, SYN_REPORT, 0)),
+            one(&mut t, event(EV_SYN, SYN_REPORT, 0)),
             None,
             "nothing moved"
         );
-        t.translate(&event(EV_ABS, ABS_X, ABS_MAX));
+        one(&mut t, event(EV_ABS, ABS_X, ABS_MAX));
         assert_eq!(
-            t.translate(&event(EV_SYN, SYN_REPORT, 0)),
+            one(&mut t, event(EV_SYN, SYN_REPORT, 0)),
             Some(InputEvent::PointerMove { x: 799, y: 240 })
         );
         assert_eq!(
-            t.translate(&event(EV_KEY, BTN_LEFT, 1)),
+            one(&mut t, event(EV_KEY, BTN_LEFT, 1)),
             Some(InputEvent::PointerButton {
                 button: 0,
                 down: true
             })
         );
         assert_eq!(
-            t.translate(&event(EV_KEY, BTN_MIDDLE, 0)),
+            one(&mut t, event(EV_KEY, BTN_MIDDLE, 0)),
             Some(InputEvent::PointerButton {
                 button: 2,
                 down: false
@@ -388,24 +547,114 @@ mod tests {
     }
 
     #[test]
+    fn contacts_start_move_and_end_by_slot() {
+        let mut t = Translator::new(800, 480);
+        let touch = |id, x, y, phase| InputEvent::Touch { id, x, y, phase };
+        // Two fingers down in one report: slot 0 in the middle, slot 1 at
+        // the top left.
+        assert_eq!(
+            all(
+                &mut t,
+                &[
+                    event(EV_ABS, ABS_MT_SLOT, 0),
+                    event(EV_ABS, ABS_MT_TRACKING_ID, 7),
+                    event(EV_ABS, ABS_MT_POSITION_X, 16384),
+                    event(EV_ABS, ABS_MT_POSITION_Y, 16384),
+                    event(EV_ABS, ABS_MT_SLOT, 1),
+                    event(EV_ABS, ABS_MT_TRACKING_ID, 8),
+                    event(EV_ABS, ABS_MT_POSITION_X, 0),
+                    event(EV_ABS, ABS_MT_POSITION_Y, 0),
+                    event(EV_SYN, SYN_REPORT, 0),
+                ]
+            ),
+            [
+                touch(0, 400, 240, TouchPhase::Start),
+                touch(1, 0, 0, TouchPhase::Start)
+            ]
+        );
+        // Slot 1 moves past the edge - clamped there - and slot 0 lifts.
+        assert_eq!(
+            all(
+                &mut t,
+                &[
+                    event(EV_ABS, ABS_MT_POSITION_X, 0x1_0000),
+                    event(EV_ABS, ABS_MT_SLOT, 0),
+                    event(EV_ABS, ABS_MT_TRACKING_ID, u32::MAX),
+                    event(EV_SYN, SYN_REPORT, 0),
+                ]
+            ),
+            [
+                touch(0, 400, 240, TouchPhase::End),
+                touch(1, 799, 0, TouchPhase::Move)
+            ]
+        );
+        // A new contact in slot 0 keeps nothing of the last one: no start
+        // until both coordinates come.
+        assert_eq!(
+            all(
+                &mut t,
+                &[
+                    event(EV_ABS, ABS_MT_TRACKING_ID, 9),
+                    event(EV_ABS, ABS_MT_POSITION_X, 0),
+                    event(EV_SYN, SYN_REPORT, 0),
+                ]
+            ),
+            []
+        );
+        assert_eq!(t.dropped().total(), 0);
+    }
+
+    #[test]
+    fn a_slot_past_the_limit_is_refused_and_emulation_ignored() {
+        let mut t = Translator::new(800, 480);
+        assert_eq!(
+            all(
+                &mut t,
+                &[
+                    event(EV_ABS, ABS_MT_SLOT, 10),
+                    event(EV_ABS, ABS_MT_TRACKING_ID, 1),
+                    event(EV_ABS, ABS_MT_POSITION_X, 5),
+                    event(EV_SYN, SYN_REPORT, 0),
+                ]
+            ),
+            []
+        );
+        assert_eq!(t.dropped().out_of_range, 3);
+        // A multi-touch device's single-touch emulation is not a pointer.
+        assert_eq!(
+            all(
+                &mut t,
+                &[
+                    event(EV_KEY, BTN_TOUCH, 1),
+                    event(EV_ABS, ABS_X, 100),
+                    event(EV_ABS, ABS_Y, 100),
+                    event(EV_SYN, SYN_REPORT, 0),
+                ]
+            ),
+            []
+        );
+        assert_eq!(t.dropped().total(), 3);
+    }
+
+    #[test]
     fn a_position_needs_both_axes() {
         let mut t = Translator::new(800, 480);
-        t.translate(&event(EV_ABS, ABS_X, 100));
-        assert_eq!(t.translate(&event(EV_SYN, SYN_REPORT, 0)), None);
+        one(&mut t, event(EV_ABS, ABS_X, 100));
+        assert_eq!(one(&mut t, event(EV_SYN, SYN_REPORT, 0)), None);
     }
 
     #[test]
     fn unknown_and_out_of_range_events_are_dropped_and_counted() {
         let mut t = Translator::new(800, 480);
-        assert_eq!(t.translate(&event(EV_REL, 0, 5)), None);
-        assert_eq!(t.translate(&event(0x1F, 0, 0)), None);
-        assert_eq!(t.translate(&event(EV_KEY, 0x2FF, 1)), None);
-        assert_eq!(t.translate(&event(EV_ABS, 0x2F, 10)), None);
-        assert_eq!(t.translate(&event(EV_ABS, ABS_X, ABS_MAX + 1)), None);
-        assert_eq!(t.translate(&event(EV_KEY, BTN_LEFT, 2)), None);
-        assert_eq!(t.translate(&event(EV_REL, REL_WHEEL, 128)), None);
+        assert_eq!(one(&mut t, event(EV_REL, 0, 5)), None);
+        assert_eq!(one(&mut t, event(0x1F, 0, 0)), None);
+        assert_eq!(one(&mut t, event(EV_KEY, 0x2FF, 1)), None);
+        assert_eq!(one(&mut t, event(EV_ABS, 0x28, 10)), None);
+        assert_eq!(one(&mut t, event(EV_ABS, ABS_X, ABS_MAX + 1)), None);
+        assert_eq!(one(&mut t, event(EV_KEY, BTN_LEFT, 2)), None);
+        assert_eq!(one(&mut t, event(EV_REL, REL_WHEEL, 128)), None);
         assert_eq!(
-            t.translate(&event(EV_REL, REL_WHEEL, (-128i32).cast_unsigned())),
+            one(&mut t, event(EV_REL, REL_WHEEL, (-128i32).cast_unsigned())),
             None
         );
         assert_eq!(
@@ -418,7 +667,7 @@ mod tests {
         );
         assert_eq!(t.dropped().total(), 8);
         assert_eq!(
-            t.translate(&event(EV_MSC, 4, 0x1E)),
+            one(&mut t, event(EV_MSC, 4, 0x1E)),
             None,
             "scan codes are ignored"
         );
@@ -429,7 +678,7 @@ mod tests {
     fn wheel_turns_are_reported_at_once() {
         let mut t = Translator::new(800, 480);
         let turn = |t: &mut Translator, notches: i32| {
-            t.translate(&event(EV_REL, REL_WHEEL, notches.cast_unsigned()))
+            one(t, event(EV_REL, REL_WHEEL, notches.cast_unsigned()))
         };
         assert_eq!(turn(&mut t, 1), Some(InputEvent::Wheel { notches: 1 }));
         assert_eq!(turn(&mut t, -1), Some(InputEvent::Wheel { notches: -1 }));
@@ -447,18 +696,46 @@ mod tests {
         fn any_event_is_translated_or_dropped_never_a_panic(bytes in prop::array::uniform8(any::<u8>()), width in 1u32..4096, height in 1u32..4096) {
             let mut t = Translator::new(width, height);
             let before = t.dropped().total();
-            if let Some(InputEvent::PointerMove { x, y }) = t.translate(&bytes) {
+            if let Some(InputEvent::PointerMove { x, y }) = one(&mut t, bytes) {
                 prop_assert!(x >= 0 && (x as u32) < width && y >= 0 && (y as u32) < height);
             }
             prop_assert!(t.dropped().total() >= before);
         }
 
         #[test]
+        fn touches_start_move_and_end_in_order_on_the_screen(
+            steps in prop::collection::vec((0u16..4, 0u32..14, any::<u32>()), 0..200),
+        ) {
+            let codes = [ABS_MT_SLOT, ABS_MT_TRACKING_ID, ABS_MT_POSITION_X, ABS_MT_POSITION_Y];
+            let mut t = Translator::new(800, 480);
+            let mut down = [false; MAX_CONTACTS];
+            for (which, slot, value) in steps {
+                let code = codes[usize::from(which)];
+                let value = if code == ABS_MT_SLOT { slot } else { value };
+                let mut made = all(&mut t, &[event(EV_ABS, code, value), event(EV_SYN, SYN_REPORT, 0)]);
+                for touch in made.drain(..) {
+                    let InputEvent::Touch { id, x, y, phase } = touch else {
+                        return Err(TestCaseError::fail(format!("{touch:?}")));
+                    };
+                    let id = usize::from(id);
+                    prop_assert!(id < MAX_CONTACTS);
+                    prop_assert!((0..800).contains(&x) && (0..480).contains(&y));
+                    match phase {
+                        TouchPhase::Start => prop_assert!(!down[id]),
+                        TouchPhase::Move | TouchPhase::End => prop_assert!(down[id]),
+                        TouchPhase::Cancel => prop_assert!(false),
+                    }
+                    down[id] = phase != TouchPhase::End;
+                }
+            }
+        }
+
+        #[test]
         fn positions_always_land_on_the_screen(x in 0u32..=ABS_MAX, y in 0u32..=ABS_MAX) {
             let mut t = Translator::new(800, 480);
-            t.translate(&event(EV_ABS, ABS_X, x));
-            t.translate(&event(EV_ABS, ABS_Y, y));
-            let Some(InputEvent::PointerMove { x, y }) = t.translate(&event(EV_SYN, SYN_REPORT, 0)) else {
+            one(&mut t, event(EV_ABS, ABS_X, x));
+            one(&mut t, event(EV_ABS, ABS_Y, y));
+            let Some(InputEvent::PointerMove { x, y }) = one(&mut t, event(EV_SYN, SYN_REPORT, 0)) else {
                 return Err(TestCaseError::fail("no move"));
             };
             prop_assert!((0..800).contains(&x) && (0..480).contains(&y));

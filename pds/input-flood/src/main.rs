@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! `nowayos-input-flood`: a test instrument standing in for a faulty or
-//! hostile input driver. At start-up it sends the input broker,
-//! through its ring, one malformed record (a valid header, an event tag no
-//! event has), a pointer position off the screen, a button the screen does
-//! not have, and then [`FLOOD`] key events - far more than the broker lets
-//! one source send at once.
+//! hostile input driver - a touch screen's, as QEMU 7.2 has no multi-touch
+//! device. At start-up it sends the input broker, through its ring, one
+//! malformed record (a valid header, an event tag no event has), a pointer
+//! position off the screen, a button the screen does not have, a touch
+//! contact the screen does not have, one touch - its start and end - and
+//! then [`FLOOD`] touch moves - far more than the broker lets one source
+//! send at once.
 //!
 //! Its ring holds four records, so whenever the ring is full it notifies
 //! the broker, which runs above it and drains the ring at once. The UI runs
@@ -18,7 +20,7 @@
 #![no_std]
 #![no_main]
 
-use nowayos_input::{InputEvent, KeyCode};
+use nowayos_input::{InputEvent, KeyCode, TouchPhase};
 use nowayos_ipc::{HEADER_LEN, Producer, SendError, encode};
 use nowayos_region::{RingTx, read_only, read_write, ring_producer};
 use sel4_microkit::{Channel, Handler, Infallible, debug_println, protection_domain};
@@ -33,9 +35,11 @@ const BROKER: Channel = Channel::new(0);
 const RING_SLOTS: usize = 4;
 const RING_SLOT: usize = 32;
 
-/// How many key events the flood holds: `Z` pressed and released, over and
-/// over.
-const FLOOD: u32 = 200;
+/// How many touch moves the flood holds: contact 0 sliding to and fro.
+const FLOOD: i32 = 200;
+
+/// A contact number past the broker's ten.
+const NO_SUCH_CONTACT: u8 = 10;
 
 /// An event tag no `InputEvent` has.
 const MALFORMED_TAG: u8 = 0x7F;
@@ -59,7 +63,7 @@ fn flood() -> Result<(), &'static str> {
         .map_err(|_| "the ring to the broker")?;
     let mut tx = Producer::new(&ring).map_err(|_| "the ring to the broker is broken")?;
     debug_println!(
-        "{TAG} sending a malformed record, a pointer off the screen, a button the screen does not have and {FLOOD} key events"
+        "{TAG} sending a malformed record, a pointer off the screen, a button the screen does not have, a touch contact it does not have, a touch and {FLOOD} touch moves"
     );
     send_bytes(&mut tx, &malformed()?)?;
     send(&mut tx, &InputEvent::PointerMove { x: 5000, y: -20 })?;
@@ -70,13 +74,17 @@ fn flood() -> Result<(), &'static str> {
             down: true,
         },
     )?;
+    let touch = |id, x, phase| InputEvent::Touch {
+        id,
+        x,
+        y: 100,
+        phase,
+    };
+    send(&mut tx, &touch(NO_SUCH_CONTACT, 100, TouchPhase::Start))?;
+    send(&mut tx, &touch(0, 100, TouchPhase::Start))?;
+    send(&mut tx, &touch(0, 100, TouchPhase::End))?;
     for n in 0..FLOOD {
-        let event = if n % 2 == 0 {
-            InputEvent::KeyDown(KeyCode::Z)
-        } else {
-            InputEvent::KeyUp(KeyCode::Z)
-        };
-        send(&mut tx, &event)?;
+        send(&mut tx, &touch(0, n.rem_euclid(100), TouchPhase::Move))?;
     }
     BROKER.notify();
     Ok(())

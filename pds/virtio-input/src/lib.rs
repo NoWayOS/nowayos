@@ -191,13 +191,13 @@ impl VirtioInputPd {
             if len != EVENT_LEN {
                 continue;
             }
-            if let Some(canonical) = device.translator.translate(&event) {
+            device.translator.translate(&event, |canonical| {
                 if tx.try_send::<InputEvent>(&canonical).is_ok() {
                     sent = true;
                 } else {
                     *ring_full = ring_full.saturating_add(1);
                 }
-            }
+            });
         }
         device.mmio.notify(EVENT_QUEUE);
         Ok(sent)

@@ -17,8 +17,8 @@
 #![no_std]
 #![no_main]
 
-use nowayos_input::InputEvent;
 use nowayos_input::broker::{UI_RING_SLOT, UI_RING_SLOTS};
+use nowayos_input::{InputEvent, TouchPhase};
 use nowayos_ipc::{Consumer, ConsumerMemory, RecvError};
 use nowayos_region::{RegionError, RingRx, read_only, read_write, ring_consumer};
 use sel4_microkit::{ChannelSet, Handler, Infallible, debug_println, pd_name, protection_domain};
@@ -121,8 +121,14 @@ fn print(event: &InputEvent) {
             "NOWAYOS: input-print: button {button} {}",
             if *down { "down" } else { "up" }
         ),
-        InputEvent::Touch { id, x, y, .. } => {
-            debug_println!("NOWAYOS: input-print: touch {id} at ({x}, {y})");
+        InputEvent::Touch { id, x, y, phase } => {
+            let phase = match phase {
+                TouchPhase::Start => "start",
+                TouchPhase::Move => "move",
+                TouchPhase::End => "end",
+                TouchPhase::Cancel => "cancel",
+            };
+            debug_println!("NOWAYOS: input-print: touch {id} {phase} at ({x}, {y})");
         }
         InputEvent::Wheel { notches } => {
             debug_println!("NOWAYOS: input-print: wheel {notches:+}");
