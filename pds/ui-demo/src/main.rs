@@ -10,7 +10,7 @@
 //!
 //! The demo's screens are built once the display has announced its layout
 //! and device scale, laid out in its viewport with the theme's metrics at
-//! that scale: the Pi 5's window, 1920 x 1064 at scale 2, in QEMU
+//! that scale: the Pi 5's window, 1920 x 1080 at scale 2, in QEMU
 //! and on the Pi.
 //!
 //! Input arrives from the input PD as canonical `InputEvent` records. After

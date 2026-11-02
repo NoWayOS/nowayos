@@ -6,7 +6,7 @@
 # r5g6b5 byte written. crates/nowayos-display/tests/test_pattern.rs computes
 # both from nowayos_display::test_pattern, so the chain is closed.
 NOWAYOS: fb-test: starting
-NOWAYOS: fb-test: the board's framebuffer: 1920x1080 r5g6b5, 3840 bytes a row, its window from row 16
+NOWAYOS: fb-test: the board's framebuffer: 1920x1080 r5g6b5, 3840 bytes a row, its window from row 0
 NOWAYOS: fb-test: the 800x480 test pattern, hash 0x26a5f77654fa9525, shown at 2x at (160, 60)
 NOWAYOS: fb-test: wrote 1600x960 r5g6b5 pixels, hash 0x1393522b0fe1ba25; read back the same
 

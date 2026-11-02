@@ -21,15 +21,15 @@ pub const LEAST_SCREEN: Size = Size::new(800, 480);
 /// The device scale a display announces for a screen `pixels` in size:
 /// the largest whole number up to [`MAX_SCALE`] that divides both
 /// sides and still leaves at least [`LEAST_SCREEN`] layout units each way -
-/// 2 for the Pi 5's 1920 x 1064 window, a 960 x 532 screen; 1 for an
+/// 2 for the Pi 5's 1920 x 1080 window, a 960 x 540 screen; 1 for an
 /// 800 x 480 one, or any screen no larger scale suits.
 ///
 /// ```
 /// use nowayos_display::{Size, device_scale};
 ///
-/// assert_eq!(device_scale(Size::new(1920, 1064)), 2);
+/// assert_eq!(device_scale(Size::new(1920, 1080)), 2);
 /// assert_eq!(device_scale(Size::new(800, 480)), 1);
-/// assert_eq!(device_scale(Size::new(3840, 2128)), 2, "no larger than MAX_SCALE");
+/// assert_eq!(device_scale(Size::new(3840, 2160)), 2, "no larger than MAX_SCALE");
 /// ```
 #[must_use]
 pub fn device_scale(pixels: Size) -> u32 {
@@ -105,9 +105,9 @@ impl Placement {
     /// the largest whole-number scale ([`centred_below`](Self::centred_below)),
     /// as the kiosk's 800 x 480 is shown at 2x on the Pi 5; or, a frame too
     /// tall for that, at its own size in the rows below them, centred
-    /// across and down those rows, as a frame the size of the Pi 5's
-    /// window, 1920 x 1064, is shown from row 16 with no border. `None` if
-    /// it fits neither way.
+    /// across and down those rows, as a 1920 x 1064 frame is shown from
+    /// row 16 of a 1920 x 1080 screen with no border. `None` if it fits
+    /// neither way.
     ///
     /// ```
     /// use nowayos_display::{Placement, Size};
@@ -279,7 +279,7 @@ pub struct FrameChoice {
 /// ```
 /// use nowayos_display::{PixelFormat, Size, frame_for};
 ///
-/// let window = Size::new(1920, 1064);
+/// let window = Size::new(1920, 1080);
 /// let native = frame_for(window, PixelFormat::Rgb565, 0x40_0000).unwrap();
 /// assert_eq!((native.layout.size(), native.scale, native.native), (window, 2, true));
 /// let kiosk = frame_for(window, PixelFormat::Rgb565, 0x17_7000).unwrap();
@@ -490,11 +490,11 @@ mod tests {
     /// nothing in a region too small for either.
     #[test]
     fn a_display_asks_for_its_screen_or_else_the_kiosks_frame() {
-        let window = Size::new(1920, 1064);
+        let window = Size::new(1920, 1080);
         for (region, size, format, scale, native) in [
             (0x40_0000, window, PixelFormat::Rgb565, 2, true),
-            (4_085_760, window, PixelFormat::Rgb565, 2, true),
-            (4_085_759, KIOSK_FRAME, PixelFormat::Xrgb8888, 1, false),
+            (4_147_200, window, PixelFormat::Rgb565, 2, true),
+            (4_147_199, KIOSK_FRAME, PixelFormat::Xrgb8888, 1, false),
             (0x17_7000, KIOSK_FRAME, PixelFormat::Xrgb8888, 1, false),
             (1_536_000, KIOSK_FRAME, PixelFormat::Xrgb8888, 1, false),
         ] {

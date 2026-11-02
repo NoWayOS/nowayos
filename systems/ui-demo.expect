@@ -2,30 +2,30 @@
 # The clickable demo in QEMU. The input PD plays the
 # host demo's session one step per frame; the display stub hashes each frame.
 # Frame N's hash is that of the approved golden image of step N,
-# crates/nowayos-demo/session/NN-*.png, as r5g6b5: the Pi 5's 1920x1064
+# crates/nowayos-demo/session/NN-*.png, as r5g6b5: the Pi 5's 1920x1080
 # window at scale 2, drawn at its own pixels - a host test
 # (crates/nowayos-demo/tests/frame_hash.rs) checks these lines against them.
 # Frames 1 and 2 equal frame 0 (a tap outside every control and keys with
 # nothing focused change nothing), and frame 9 equals it again (Start again).
 NOWAYOS: display-stub: starting
-NOWAYOS: display-stub: announced 1920x1064 Rgb565 at scale 2
+NOWAYOS: display-stub: announced 1920x1080 Rgb565 at scale 2
 NOWAYOS: input-script: starting; 10 steps to play
 NOWAYOS: ui: starting
-NOWAYOS: ui: the display is 1920x1064 Rgb565 at scale 2
-NOWAYOS: display-stub: frame 0 hash 0xa1d7ff36f18a8b5e
-NOWAYOS: display-stub: frame 1 hash 0xa1d7ff36f18a8b5e
-NOWAYOS: display-stub: frame 2 hash 0xa1d7ff36f18a8b5e
+NOWAYOS: ui: the display is 1920x1080 Rgb565 at scale 2
+NOWAYOS: display-stub: frame 0 hash 0x77e5a94401f98b5e
+NOWAYOS: display-stub: frame 1 hash 0x77e5a94401f98b5e
+NOWAYOS: display-stub: frame 2 hash 0x77e5a94401f98b5e
 NOWAYOS: ui: input record rejected: invalid value in field `tag`
-NOWAYOS: display-stub: frame 3 hash 0xa1a6c1e2b51a9df2
-NOWAYOS: display-stub: frame 4 hash 0x1f109f765165f4fd
-NOWAYOS: display-stub: frame 5 hash 0x80b7a1054e522dd6
+NOWAYOS: display-stub: frame 3 hash 0x829684697d7a9df2
+NOWAYOS: display-stub: frame 4 hash 0x4f5509e052fb94fd
+NOWAYOS: display-stub: frame 5 hash 0x2016b36888f2add6
 NOWAYOS: ui: action Help
-NOWAYOS: display-stub: frame 6 hash 0x6da482d0089f7e92
+NOWAYOS: display-stub: frame 6 hash 0x7fd4af972b977e92
 NOWAYOS: ui: action Continue
-NOWAYOS: display-stub: frame 7 hash 0x040c3097a0720af6
-NOWAYOS: display-stub: frame 8 hash 0x040c3097a0720af6
+NOWAYOS: display-stub: frame 7 hash 0x658e3526cd412af6
+NOWAYOS: display-stub: frame 8 hash 0x658e3526cd412af6
 NOWAYOS: ui: action Start again
-NOWAYOS: display-stub: frame 9 hash 0xa1d7ff36f18a8b5e
+NOWAYOS: display-stub: frame 9 hash 0x77e5a94401f98b5e
 NOWAYOS: ui: frame 9 shown
 NOWAYOS: input-script: session done
 

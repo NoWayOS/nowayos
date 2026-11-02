@@ -24,7 +24,7 @@ pd display priority=3 budget=1000 period=1000
 pd input_broker priority=2 budget=1000 period=1000
 pd ui priority=1 budget=1000 period=1000
 
-# Configuration: the screen's size (1920x1064), read-only where it is needed.
+# Configuration: the screen's size (1920x1080), read-only where it is needed.
 map virtio_input screen r
 map display screen r
 map input_broker screen r

@@ -209,8 +209,8 @@ The check fails (exit 1) unless all of these hold:
     or seL4 could give what the screen shows to any PD. The
     kernel's own boot objects, which the report leaves out, lie in that
     RAM, so they cannot reach the framebuffer either; on Microkit 2.3.1's
-    release SDK they ended 0x8080 bytes into the Pi 5's, which is why its
-    window starts at row 16.
+    release SDK they ended 0x8080 bytes into the Pi 5's, whose window
+    then started at row 16.
 15. The random source where only the entropy PD reaches it: with
     --qemu, the system's QEMU device file; it may put virtio-rng
     (`-device virtio-rng-device`) on no bus but `virtio-mmio-bus.8`,

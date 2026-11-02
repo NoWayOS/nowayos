@@ -13,7 +13,7 @@
 //!   with its device scale: screens are laid out in the layout's
 //!   size divided by it, at the theme's metrics for it ([`UiLoop::viewport`],
 //!   [`UiLoop::metrics`]), and drawn at the layout's own pixels - the Pi 5's
-//!   1920 x 1064 window at scale 2, a 960 x 532 screen, crisp;
+//!   1920 x 1080 window at scale 2, a 960 x 540 screen, crisp;
 //! * the framebuffer, a region the UI maps read-write and the display PD
 //!   read-only, viewed as atomic bytes (`nowayos-region`'s `Frame`);
 //! * the renderer (`nowayos-render-eg`), drawing exactly the pixels of the
@@ -214,7 +214,7 @@ impl UiLoop {
     /// The viewport to lay screens out in, once the display has announced
     /// its layout: the whole layout, in pixels. Laid out with
     /// [`metrics`](Self::metrics), a screen takes the layout's size divided
-    /// by the scale in layout units - 960 x 532 on the Pi 5 at scale 2.
+    /// by the scale in layout units - 960 x 540 on the Pi 5 at scale 2.
     #[must_use]
     pub fn viewport(&self) -> Option<Rect> {
         self.end.layout().map(|layout| layout.bounds())

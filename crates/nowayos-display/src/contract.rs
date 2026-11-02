@@ -25,7 +25,7 @@
 //!    each way. The UI checks that the layout fits its region and
 //!    refuses to draw otherwise ([`UiEnd::receive`](crate::UiEnd::receive)),
 //!    and lays its screens out in the layout's size divided by the scale:
-//!    the Pi 5's 1920 x 1064 window at scale 2 is a 960 x 532 screen, drawn
+//!    the Pi 5's 1920 x 1080 window at scale 2 is a 960 x 540 screen, drawn
 //!    at the monitor's own pixels.
 //! 2. The UI draws, then sends [`Present`]: a sequence number and up to
 //!    [`MAX_DAMAGE_RECTS`] rectangles that changed.
@@ -613,8 +613,8 @@ mod tests {
     }
 
     #[test]
-    fn the_pi_5s_window_at_scale_2_is_a_960_by_532_screen() {
-        let window = layout(1920, 1064, 3840, PixelFormat::Rgb565);
+    fn the_pi_5s_window_at_scale_2_is_a_960_by_540_screen() {
+        let window = layout(1920, 1080, 3840, PixelFormat::Rgb565);
         let message = Configure::scaled(window, 2).unwrap();
         assert_eq!((message.layout(), message.scale()), (window, 2));
         assert_eq!(nowayos_ipc::decode(&record(&message)), Ok(message));

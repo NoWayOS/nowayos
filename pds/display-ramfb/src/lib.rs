@@ -9,7 +9,7 @@
 //! a DMA region whose physical address it learns, which the Microkit tool
 //! therefore places contiguously (`nowayos_hw::ramfb`) - and announces the
 //! layout to the UI PD: the screen at its own pixels, at the device scale
-//! `nowayos_display::device_scale` gives it - 1920 x 1064 at 2,
+//! `nowayos_display::device_scale` gives it - 1920 x 1080 at 2,
 //! the Pi 5's window - in r5g6b5, the Pi 5's format, so the UI draws
 //! exactly the frames the Pi shows. ramfb shows XRGB8888, so each row is
 //! converted as it is copied. For each `Present` the UI sends, it checks the
