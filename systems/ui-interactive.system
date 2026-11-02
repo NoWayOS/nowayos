@@ -26,11 +26,11 @@
     read-only in the display). The driver's, as in input-broker-test.system.
     The display holds fw_cfg's registers uncached, one 4 KiB DMA region for
     fw_cfg's requests and the scan-out buffer, four 2 MiB DMA pages - the
-    screen, 1920x1064, in XRGB8888 - and learns both regions' physical
+    screen, 1920x1080, in XRGB8888 - and learns both regions' physical
     addresses, so the Microkit tool places each contiguously. The broker
-    holds no device, interrupt or DMA memory. The screen's size, 1920x1064 -
+    holds no device, interrupt or DMA memory. The screen's size, 1920x1080 -
     the Pi 5's window, drawn at its own pixels at device scale 2 -
-    is configuration: a region prefilled from screen-1920x1064.bin
+    is configuration: a region prefilled from screen-1920x1080.bin
     (tools/board-system writes it), read-only in the display, the driver and
     the broker (rule 12). Only the display and the driver hold devices.
 
@@ -61,7 +61,7 @@
     <memory_region name="pointer_control" size="0x1000" />
     <memory_region name="keyboard_messages" size="0x1000" />
     <memory_region name="keyboard_control" size="0x1000" />
-    <memory_region name="screen" prefill_path="screen-1920x1064.bin" />
+    <memory_region name="screen" prefill_path="screen-1920x1080.bin" />
 
     <protection_domain name="virtio_input" priority="4" stack_size="0x10000">
         <program_image path="nowayos-virtio-input.elf" />

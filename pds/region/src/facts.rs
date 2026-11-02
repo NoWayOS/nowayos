@@ -542,11 +542,11 @@ mod tests {
         let page = TestPage::fresh();
         fill(
             page,
-            &framebuffer_record(0x3E_5800, [1920, 1080, 3840, 1, 16]),
+            &framebuffer_record(0x3F_4800, [1920, 1080, 3840, 1, 0]),
         );
         let facts = read(page).unwrap();
         assert_eq!(facts.compatible(), b"simple-framebuffer");
-        assert_eq!(facts.registers(), 0x3E_5800);
+        assert_eq!(facts.registers(), 0x3F_4800);
         let mode = facts.framebuffer().unwrap();
         assert_eq!(
             (
@@ -556,7 +556,7 @@ mod tests {
                 mode.format(),
                 mode.first_row()
             ),
-            (1920, 1080, 3840, FramebufferFormat::R5g6b5, 16)
+            (1920, 1080, 3840, FramebufferFormat::R5g6b5, 0)
         );
         assert_eq!(mode.format().bytes_per_pixel(), 2);
         // A version 1 record has no mode, whatever follows it.

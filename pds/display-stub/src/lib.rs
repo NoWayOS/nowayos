@@ -16,9 +16,9 @@
 //! firmware scans out (device 0 and the board's facts about it, read-only
 //! region 5: the Pi 5's `firmware_fb`, `systems/rpi5b_2gb/ui-demo.system`),
 //! it announces the framebuffer's window at the window's own pixels and
-//! format: on the Pi 5, 1920 x 1064 r5g6b5 from the monitor's row 16, at
+//! format: on the Pi 5, 1920 x 1080 r5g6b5, the whole monitor, at
 //! device scale 2 (`nowayos_display::device_scale`), so the UI lays out a
-//! 960 x 532 screen and draws it crisp, filling the monitor with no border
+//! 960 x 540 screen and draws it crisp, filling the monitor with no border
 //! and nothing doubled. Granted none (QEMU's `ui-demo`), it announces the
 //! same screen, the Pi 5's window, and only hashes: QEMU runs exactly the
 //! frames the Pi shows. It never needs to know the board: only whether it
@@ -79,8 +79,8 @@ use crate::scan::Scan;
 const UI: Channel = Channel::new(0);
 
 /// The screen announced when the system grants no framebuffer: the Pi 5's
-/// window, 1920 x 1064 r5g6b5, so QEMU runs the frames the Pi shows.
-pub const STAND_IN: Size = Size::new(1920, 1064);
+/// window, 1920 x 1080 r5g6b5, so QEMU runs the frames the Pi shows.
+pub const STAND_IN: Size = Size::new(1920, 1080);
 
 /// The stand-in screen's format: the Pi 5's framebuffer's.
 pub const STAND_IN_FORMAT: PixelFormat = PixelFormat::Rgb565;

@@ -218,7 +218,7 @@ impl TextMetrics {
     /// The same metrics at device scale `scale`: layout gives every
     /// length a style names - padding, gaps, fixed widths and heights,
     /// which a screen states in layout units - `scale` pixels for each
-    /// unit, so a screen written for a 960 x 532 layout fills a 1920 x 1064
+    /// unit, so a screen written for a 960 x 540 layout fills a 1920 x 1080
     /// viewport at scale 2. Text is measured in pixels from the atlas the
     /// metrics were made from, which must be the one drawn at that scale (a
     /// theme's metrics at a scale give it: `nowayos-render-eg`'s

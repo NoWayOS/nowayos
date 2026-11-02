@@ -50,7 +50,7 @@
 //! ([`Theme::metrics_at`]) is drawn at 2 pixels a unit: its text
 //! from the atlas rasterised at twice the size - 36 px for the light
 //! theme's 18 px body text - and every line, ring and border twice as
-//! wide, so a screen drawn for the Pi 5's 1920 x 1064 window is crisp at
+//! wide, so a screen drawn for the Pi 5's 1920 x 1080 window is crisp at
 //! the monitor's own pixels, never a smaller frame doubled. [`render`]
 //! takes the scale from the tree ([`Tree::scale`]). Each pixel's coverage, from 0 to 255, blends the text's
 //! colour over the colour the node is known to draw beneath it - the

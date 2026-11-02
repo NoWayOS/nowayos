@@ -4,7 +4,7 @@
 //! golden image in `session/`.
 //!
 //! Each frame is drawn as the UI PD draws it on the Pi 5 and in QEMU:
-//! the Pi 5's 1920 x 1064 window at device scale 2, into a frame
+//! the Pi 5's 1920 x 1080 window at device scale 2, into a frame
 //! in the monitor's own format, r5g6b5 (`RawFramebuffer`), so a golden
 //! image holds exactly the colours the monitor shows - each channel back
 //! from 5 or 6 bits to 8 as `PixelFormat::decode` gives it.

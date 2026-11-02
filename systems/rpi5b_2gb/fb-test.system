@@ -10,7 +10,7 @@
     framebuffer (its display-test takes ramfb instead).
 
     Capabilities: the framebuffer's window - the board's device firmware_fb,
-    RAM the display hardware scans out, from screen row 16 - uncached,
+    RAM the display hardware scans out, every row of it - uncached,
     read-write; and the board's facts about it (its mode), read-only. No
     interrupt, no channel. Every grant is also listed in fb-test.grants.
 -->

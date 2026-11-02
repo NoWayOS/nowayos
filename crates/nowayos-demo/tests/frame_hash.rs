@@ -21,7 +21,7 @@ use nowayos_display::{FrameHash, FramebufferLayout, PixelFormat};
 use nowayos_testkit::Framebuffer;
 
 /// The frame the UI PD draws for golden image `name`: the Pi 5's window,
-/// 1920 x 1064, in the display's format, r5g6b5, packed. The
+/// 1920 x 1080, in the display's format, r5g6b5, packed. The
 /// golden image holds the colours r5g6b5 gives back, so each converts to
 /// exactly the bytes the UI stored.
 fn frame(root: &Path, name: &str) -> Vec<u8> {
@@ -52,8 +52,8 @@ fn golden_hash(root: &Path, name: &str) -> u64 {
 
 /// The hash of what the Pi 5's framebuffer window holds once the display
 /// PD has shown golden image `name`: the frame at the
-/// monitor's own pixels, 1064 rows of 3840 bytes from the window's first
-/// byte - screen row 16 - which the display PD reads back and hashes.
+/// monitor's own pixels, 1080 rows of 3840 bytes from the window's first
+/// byte - screen row 0 - which the display PD reads back and hashes.
 fn scan_out_hash(root: &Path, name: &str) -> u64 {
     let frame = frame(root, name);
     let mut hash = FrameHash::new();

@@ -4,13 +4,13 @@
 //!
 //! The board's facts give the framebuffer's window and mode
 //! (`firmware_fb` in `platforms/rpi5b_2gb.toml`: a `simple-framebuffer`,
-//! 1920 x 1080 `r5g6b5`, its window from row 16). [`bind_window`] reads
+//! 1920 x 1080 `r5g6b5`, its window the whole of it). [`bind_window`] reads
 //! them from the facts region (`nowayos_region::device_facts`, read-only
 //! region 5) and binds the window (`nowayos_hw::Scanout`, from device N's
 //! symbols); [`bind`] also places a frame of the given size on the screen
 //! ([`Placement::in_window`]): a frame the size of the window at its own
-//! pixels - the UI drawing at the monitor's resolution, 1920 x 1064 from
-//! row 16 - or a smaller one scaled by the largest whole number
+//! pixels - the UI drawing at the monitor's resolution, 1920 x 1080 on
+//! the Pi 5 - or a smaller one scaled by the largest whole number
 //! that fits, centred. A [`Screen`] then clears the window to black and
 //! shows a frame a row at a time ([`Screen::show_row`]), or only the
 //! rectangles that changed ([`Screen::show_rect`]): each row
@@ -159,7 +159,7 @@ pub fn bind_window(index: usize) -> Result<(Scanout, FramebufferMode), FbError> 
 }
 
 /// The size of the part of the screen `mode`'s window holds: its whole
-/// width, from its first row to the last - 1920 x 1064 on the Pi 5. A frame
+/// width, from its first row to the last - 1920 x 1080 on the Pi 5. A frame
 /// of this size is shown at the monitor's own pixels.
 #[must_use]
 pub fn window_size(mode: &FramebufferMode) -> Size {
@@ -546,13 +546,56 @@ mod tests {
         }
     }
 
-    /// The Pi 5's mode, as its board facts give it.
+    /// A 1920 x 1080 mode whose window starts at row 16, as the Pi 5's did
+    /// under Microkit 2.3.1's release SDK: a window below rows that are not
+    /// the display's to write.
     fn pi5() -> FramebufferMode {
         FramebufferMode::new(1920, 1080, 3840, FramebufferFormat::R5g6b5, 16).unwrap()
     }
 
     fn pi5_window() -> Memory {
         Memory(vec![0xEE; 1064 * 3840])
+    }
+
+    /// The Pi 5's mode, as its board facts give it: the window is the
+    /// whole framebuffer.
+    fn pi5_whole() -> FramebufferMode {
+        FramebufferMode::new(1920, 1080, 3840, FramebufferFormat::R5g6b5, 0).unwrap()
+    }
+
+    /// A window that is the whole screen is the monitor's every row: a frame
+    /// its size is shown at its own pixels from row 0, its rows counted
+    /// from the monitor's top, and the kiosk's frame centred as before.
+    #[test]
+    fn a_window_from_row_0_shows_a_frame_on_every_row() {
+        assert_eq!(window_size(&pi5_whole()), Size::new(1920, 1080));
+        let mut native = Screen::new(
+            Memory(vec![0xEE; 1080 * 3840]),
+            pi5_whole(),
+            Size::new(1920, 1080),
+            PixelFormat::Rgb565,
+        )
+        .unwrap();
+        let shown = native.placement();
+        assert_eq!((shown.scale(), shown.x(), shown.y()), (1, 0, 0));
+        assert_eq!(native.rows_of(Rect::new(40, 0, 100, 10)), Some((0, 10)));
+        assert_eq!(
+            native.rows_of(Rect::new(0, 1000, 1920, 80)),
+            Some((1000, 1080))
+        );
+        native.clear().unwrap();
+        let memory = native.into_window().0;
+        assert!(memory.iter().all(|&b| b == 0), "every row cleared");
+        let kiosk = Screen::new(
+            Memory(vec![0xEE; 1080 * 3840]),
+            pi5_whole(),
+            Size::new(800, 480),
+            PixelFormat::Xrgb8888,
+        )
+        .unwrap();
+        let shown = kiosk.placement();
+        assert_eq!((shown.scale(), shown.x(), shown.y()), (2, 160, 60));
+        assert_eq!(kiosk.rows_of(Rect::new(0, 5, 800, 3)), Some((70, 76)));
     }
 
     #[test]
@@ -729,7 +772,7 @@ mod tests {
         );
     }
 
-    /// A frame the size of the Pi 5's window, as a UI at the monitor's own
+    /// A frame the size of the window, as a UI at the monitor's own
     /// pixels draws it: shown at 1x from the window's first byte,
     /// no border; a rectangle shown writes exactly the frame's pixels on
     /// its rows, widened to whole words, and nothing else.

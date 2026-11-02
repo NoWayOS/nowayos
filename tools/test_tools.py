@@ -1348,15 +1348,15 @@ class CheckSystemDevices(unittest.TestCase):
 
     def test_the_pi_5s_framebuffer_is_in_its_board_file(self):
         """Firmware_fb on rpi5b_2gb - the firmware's 1920 x 1080
-        r5g6b5 framebuffer at 0x3f80_0000, its window from row 16, page
-        aligned and ending with the framebuffer, inside seL4's RAM."""
+        r5g6b5 framebuffer at 0x3f80_0000, its window every row of it, page
+        aligned and ending with the framebuffer."""
         fb = self.tool.read_board(os.path.join(HERE, os.pardir, "platforms", "rpi5b_2gb.toml"))["firmware_fb"]
         self.assertEqual(fb.framebuffer, {"width": 1920, "height": 1080, "stride": 3840, "format": "r5g6b5",
-                                          "first_row": 16, "reserved": 0x80_0000})
-        # The firmware's whole reservation, 0x3f80_0000 to 0x4000_0000 -
-        # to seL4's RAM's end, 0x3fc0_0000, and on - is rule 14's to keep clear.
-        self.assertEqual(fb.address - 16 * 3840 + fb.framebuffer["reserved"], 0x4000_0000)
-        self.assertEqual(fb.address, 0x3F80_0000 + 16 * 3840)
+                                          "first_row": 0, "reserved": 0x80_0000})
+        # The firmware's whole reservation, 0x3f80_0000 to 0x4000_0000, is
+        # rule 14's to keep clear.
+        self.assertEqual(fb.address + fb.framebuffer["reserved"], 0x4000_0000)
+        self.assertEqual(fb.address, 0x3F80_0000)
         self.assertEqual(fb.address + fb.registers, 0x3F80_0000 + 1080 * 3840)
         self.assertEqual(fb.size, -(-fb.registers // 0x1000) * 0x1000)
         self.assertLessEqual(fb.address + fb.size, 0x3FC0_0000)
@@ -4205,9 +4205,9 @@ class BoardSystem(unittest.TestCase):
                                              devices=self.devices("rpi5b_2gb"), board="rpi5b_2gb")
         self.assertEqual(problems, [])
         compatible = b"simple-framebuffer"
-        expected = (b"".join(n.to_bytes(4, "little") for n in (2, 0x3E_5800, len(compatible)))
+        expected = (b"".join(n.to_bytes(4, "little") for n in (2, 0x3F_4800, len(compatible)))
                     + compatible.ljust(64, b"\0")
-                    + b"".join(n.to_bytes(4, "little") for n in (1920, 1080, 3840, 1, 16)))
+                    + b"".join(n.to_bytes(4, "little") for n in (1920, 1080, 3840, 1, 0)))
         self.assertEqual(files, {"device-firmware_fb.bin": expected})
         self.assertEqual(len(expected), 96)
 

@@ -7,20 +7,20 @@
 NOWAYOS: virtio-input: starting
 NOWAYOS: virtio-input: 2 input devices ready, on transports 6 and 7
 NOWAYOS: display: starting
-NOWAYOS: display: showing a 1920x1064 Xrgb8888 screen on QEMU's ramfb, from 1920x1064 Rgb565 frames at scale 2
-NOWAYOS: input-broker: starting; 2 sources, screen 1920x1064, each source 64 events at once and 250 a second
+NOWAYOS: display: showing a 1920x1080 Xrgb8888 screen on QEMU's ramfb, from 1920x1080 Rgb565 frames at scale 2
+NOWAYOS: input-broker: starting; 2 sources, screen 1920x1080, each source 64 events at once and 250 a second
 NOWAYOS: ui: starting
-NOWAYOS: ui: the display is 1920x1064 Rgb565 at scale 2
-NOWAYOS: display: showing 0xa1d7ff36f18a8b5e
-NOWAYOS: display: showing 0xa1a6c1e2b51a9df2
-NOWAYOS: display: showing 0x1f109f765165f4fd
-NOWAYOS: display: showing 0x80b7a1054e522dd6
+NOWAYOS: ui: the display is 1920x1080 Rgb565 at scale 2
+NOWAYOS: display: showing 0x77e5a94401f98b5e
+NOWAYOS: display: showing 0x829684697d7a9df2
+NOWAYOS: display: showing 0x4f5509e052fb94fd
+NOWAYOS: display: showing 0x2016b36888f2add6
 NOWAYOS: ui: action Help
-NOWAYOS: display: showing 0x6da482d0089f7e92
+NOWAYOS: display: showing 0x7fd4af972b977e92
 NOWAYOS: ui: action Continue
-NOWAYOS: display: showing 0x040c3097a0720af6
+NOWAYOS: display: showing 0x658e3526cd412af6
 NOWAYOS: ui: action Start again
-NOWAYOS: display: showing 0xa1d7ff36f18a8b5e
+NOWAYOS: display: showing 0x77e5a94401f98b5e
 
 # Output that fails the test at once if it appears anywhere (substring match):
 # a fault reported by the Microkit monitor, a kernel error message, a panic, a

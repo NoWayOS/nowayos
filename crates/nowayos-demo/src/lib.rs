@@ -13,9 +13,9 @@
 //! outside every control, keys with nothing focused, and typing into a full
 //! text input.
 //!
-//! The screen is the Raspberry Pi 5's HDMI window - 1920 × 1064 pixels from
-//! the monitor's row 16 - drawn at its own pixels at device scale 2:
-//! a 960 × 532 screen in layout units, its text from the atlases twice the
+//! The screen is the Raspberry Pi 5's HDMI monitor - all 1920 × 1080 of its
+//! pixels - drawn at its own pixels at device scale 2:
+//! a 960 × 540 screen in layout units, its text from the atlases twice the
 //! size: 36 px for the light theme's 18 px body text, in which the
 //! session's frames are drawn, and 48 px for the large-text theme's 24.
 //! QEMU's runs show the same screen. Every tap and click lands on the same
@@ -32,10 +32,10 @@ use nowayos_ui::{ActionId, Align, FieldId, Style, TextMetrics, Tree, UiError, Ui
 
 /// Screen width, in pixels: the Pi 5's HDMI window.
 pub const WIDTH: u32 = 1920;
-/// Screen height, in pixels: the Pi 5's window, from the monitor's row 16.
-pub const HEIGHT: u32 = 1064;
+/// Screen height, in pixels: the Pi 5's window, every row of the monitor.
+pub const HEIGHT: u32 = 1080;
 /// The device scale the demo is drawn at: 2 pixels each way for each
-/// layout unit, so the screen is 960 x 532 units.
+/// layout unit, so the screen is 960 x 540 units.
 pub const SCALE: u32 = 2;
 /// The screen, in pixels: what the session's taps and clicks are placed on.
 pub const SCREEN: Rect = Rect::new(0, 0, WIDTH, HEIGHT);
@@ -240,9 +240,9 @@ const fn click(x: i32, y: i32) -> [InputEvent; 3] {
 // Where the session taps and clicks, in the screen's pixels at scale 2. In
 // the light theme (18 px body text, 36 px at 2x, lines 47 high) the
 // form's name input spans y 206-272; its buttons, 56 units high,
-// y 904-1015, Help x 48-222 and Continue x 1625-1871; Start again, x
+// y 920-1031, Help x 48-222 and Continue x 1625-1871; Start again, x
 // 48-330. In the large-text theme (24 px, 48 px at 2x, lines 63 high) the
-// input spans y 238-320 and the buttons y 904-1015, Help x 48-248 and
+// input spans y 238-320 and the buttons y 920-1031, Help x 48-248 and
 // Continue x 1575-1871; Start again, x 48-392. Each point below lies
 // inside its control in both.
 
@@ -353,16 +353,16 @@ mod tests {
             (
                 Theme::<Rgb888>::light(),
                 Rect::new(48, 206, 1824, 67),
-                Rect::new(48, 904, 175, 112),
-                Rect::new(1625, 904, 247, 112),
-                Rect::new(48, 904, 283, 112),
+                Rect::new(48, 920, 175, 112),
+                Rect::new(1625, 920, 247, 112),
+                Rect::new(48, 920, 283, 112),
             ),
             (
                 Theme::<Rgb888>::high_contrast(),
                 Rect::new(48, 238, 1824, 83),
-                Rect::new(48, 904, 201, 112),
-                Rect::new(1575, 904, 297, 112),
-                Rect::new(48, 904, 345, 112),
+                Rect::new(48, 920, 201, 112),
+                Rect::new(1575, 920, 297, 112),
+                Rect::new(48, 920, 345, 112),
             ),
         ] {
             let mut demo = Demo::new(theme.metrics_at(SCALE), SCREEN).unwrap();
