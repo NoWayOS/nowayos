@@ -75,6 +75,7 @@ fn fixed_text_that_cannot_be_shown_is_refused_when_its_node_is_added() {
             NodeKind::Slot {
                 slot: SlotId(1),
                 text: value.clone(),
+                template: None,
             },
         ] {
             assert_eq!(t.add(kind, Style::new()), refused, "{text:?}");

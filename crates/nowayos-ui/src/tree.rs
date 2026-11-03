@@ -285,6 +285,40 @@ impl<const N: usize> Tree<N> {
             NodeKind::Slot {
                 slot,
                 text: BoundedStr::new(),
+                template: None,
+            },
+            Style::new().width(Length::Fill),
+        )
+    }
+
+    /// Creates a slot ([`slot`](Self::slot)) shown between `template`'s
+    /// literals (contract v14), which show from the first frame: the
+    /// application sets only its part, and the whole is measured, wrapped
+    /// and aligned as one text.
+    ///
+    /// # Errors
+    ///
+    /// [`UiError::TextTooLong`] for literals of more than
+    /// [`TEMPLATE_CAPACITY`](crate::node::TEMPLATE_CAPACITY) bytes
+    /// together; as [`check_text`](NodeKind::check_text) for a literal it
+    /// cannot show; [`UiError::TreeFull`].
+    pub fn slot_template(
+        &mut self,
+        slot: crate::SlotId,
+        template: &'static crate::Template,
+    ) -> Result<NodeId, UiError> {
+        let literals = template.before.len().saturating_add(template.after.len());
+        if literals > crate::node::TEMPLATE_CAPACITY {
+            return Err(UiError::TextTooLong(nowayos_bounded::CapacityError {
+                capacity: crate::node::TEMPLATE_CAPACITY,
+                required: literals,
+            }));
+        }
+        self.add(
+            NodeKind::Slot {
+                slot,
+                text: BoundedStr::new(),
+                template: Some(template),
             },
             Style::new().width(Length::Fill),
         )
@@ -909,7 +943,7 @@ impl<const N: usize> Tree<N> {
     #[must_use]
     pub fn slot_text(&self, slot: crate::SlotId) -> Option<&str> {
         self.nodes.iter().find_map(|node| match &node.kind {
-            NodeKind::Slot { slot: s, text } if *s == slot => Some(text.as_str()),
+            NodeKind::Slot { slot: s, text, .. } if *s == slot => Some(text.as_str()),
             _ => None,
         })
     }
@@ -950,7 +984,12 @@ impl<const N: usize> Tree<N> {
             crate::text::check_display(text)?;
         }
         let (rect, content, style) = (node.rect, node.content(), node.style.text);
-        let NodeKind::Slot { text: shown, .. } = &mut node.kind else {
+        let NodeKind::Slot {
+            text: shown,
+            template,
+            ..
+        } = &mut node.kind
+        else {
             return Err(UiError::WrongKind(id));
         };
         if text.len() > shown.capacity() {
@@ -959,12 +998,20 @@ impl<const N: usize> Tree<N> {
                 required: text.len(),
             }));
         }
-        let area = match metrics {
-            Some(metrics) if !style.wraps() => crate::text::changed_area(
+        let area = match (metrics, template) {
+            (Some(metrics), None) if !style.wraps() => crate::text::changed_area(
                 rect,
                 content,
                 shown.as_str(),
                 text,
+                &metrics.for_style(style),
+            ),
+            // The whole text, literals and all, as it shows.
+            (Some(metrics), Some(template)) if !style.wraps() => crate::text::changed_area(
+                rect,
+                content,
+                &template.around(shown),
+                &template.around(text),
                 &metrics.for_style(style),
             ),
             // Not laid out yet, or wrapped: every line may move.
@@ -1981,7 +2028,8 @@ mod tests {
             t.add(
                 NodeKind::Slot {
                     slot: REF,
-                    text: bad
+                    text: bad,
+                    template: None,
                 },
                 Style::new()
             ),

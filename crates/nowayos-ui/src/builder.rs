@@ -109,6 +109,11 @@
 //! sets is on one case (`step === "review" && <X/>`), every switch of one
 //! number moving together.
 //!
+//! Contract v14 adds [`UiBuilder::slot_template`] and
+//! [`UiBuilder::slot_template_styled`]: a slot shown between literal text
+//! compiled in (React's `<Text>Hello, {props.name}!</Text>`), the
+//! application setting only its part.
+//!
 //! Provisional: tracks Screen Compiler's contract; both sides change together.
 
 use crate::{ContainerKind, Length, NodeId, NodeKind, Style, Tree, UiError};
@@ -117,7 +122,8 @@ use crate::{ContainerKind, Length, NodeId, NodeKind, Style, Tree, UiError};
 pub use crate::icons;
 pub use crate::{
     ActionId, Align, ButtonVariant, Colour, FieldId, GroupId, Input, InputMode, Justify, Look,
-    MAX_LINES, SlotId, Space, Surface, SwitchId, TextAlign, TextRole, TextStyle, Tone, Weight,
+    MAX_LINES, SLOT_CAPACITY, SlotId, Space, Surface, SwitchId, TEMPLATE_CAPACITY, Template,
+    TextAlign, TextRole, TextStyle, Tone, Weight,
 };
 
 /// How a list picker shows (contract v10): the placeholder its
@@ -536,6 +542,36 @@ pub trait UiBuilder {
     /// As [`slot`](Self::slot).
     fn slot_styled(&mut self, slot: SlotId, style: TextStyle) -> Result<Self::Node, Self::Error>;
 
+    /// A slot ([`slot`](Self::slot)) shown between `template`'s literals
+    /// (contract v14): React's `<Text>Hello, {props.name}!</Text>`. The
+    /// literals show from the first frame; the application sets only its
+    /// part, at most [`SLOT_CAPACITY`] bytes, and the whole is measured,
+    /// wrapped and aligned as one text.
+    ///
+    /// # Errors
+    ///
+    /// As [`slot`](Self::slot); literals of more than
+    /// [`TEMPLATE_CAPACITY`] bytes together, or that cannot be shown.
+    fn slot_template(
+        &mut self,
+        slot: SlotId,
+        template: &'static Template,
+    ) -> Result<Self::Node, Self::Error>;
+
+    /// A templated slot ([`slot_template`](Self::slot_template)) set in
+    /// `style`'s role and weight (contract v14).
+    ///
+    /// # Errors
+    ///
+    /// As [`slot_template`](Self::slot_template), or literals the role's
+    /// atlases do not draw.
+    fn slot_template_styled(
+        &mut self,
+        slot: SlotId,
+        template: &'static Template,
+        style: TextStyle,
+    ) -> Result<Self::Node, Self::Error>;
+
     /// A button in `variant` (contract v3), as [`button`](Self::button)
     /// makes a primary one.
     ///
@@ -775,6 +811,36 @@ impl<const N: usize> UiBuilder for Tree<N> {
 
     fn slot_styled(&mut self, slot: SlotId, style: TextStyle) -> Result<NodeId, UiError> {
         let id = UiBuilder::slot(self, slot)?;
+        let node = self.node_mut(id)?;
+        node.style = node.style.text(style);
+        Ok(id)
+    }
+
+    fn slot_template(
+        &mut self,
+        slot: SlotId,
+        template: &'static Template,
+    ) -> Result<NodeId, UiError> {
+        if self.find_slot(slot).is_some() || self.find_progress(slot).is_some() {
+            return Err(UiError::DuplicateSlot(slot));
+        }
+        Tree::slot_template(self, slot, template)
+    }
+
+    fn slot_template_styled(
+        &mut self,
+        slot: SlotId,
+        template: &'static Template,
+        style: TextStyle,
+    ) -> Result<NodeId, UiError> {
+        // The literals in the role's atlases, before the node is made.
+        NodeKind::Slot {
+            slot,
+            text: nowayos_bounded::BoundedStr::new(),
+            template: Some(template),
+        }
+        .check_text_in(&style)?;
+        let id = UiBuilder::slot_template(self, slot, template)?;
         let node = self.node_mut(id)?;
         node.style = node.style.text(style);
         Ok(id)

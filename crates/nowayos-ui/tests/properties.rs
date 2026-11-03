@@ -99,6 +99,7 @@ fn kind(k: u8, n: usize) -> NodeKind {
         6 => NodeKind::Slot {
             slot: SlotId(n as u16),
             text: Default::default(),
+            template: None,
         },
         7 => NodeKind::FieldError {
             field: FieldId(n as u16),

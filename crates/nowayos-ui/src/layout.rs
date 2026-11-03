@@ -599,6 +599,11 @@ impl<const N: usize> Tree<N> {
             .saturating_sub(style.padding.left.saturating_add(style.padding.right));
         let content = match &node.kind {
             NodeKind::Text(text) => text_size(text, style.text, inner, metrics),
+            NodeKind::Slot {
+                text,
+                template: Some(template),
+                ..
+            } => text_size(&template.around(text), style.text, inner, metrics),
             NodeKind::Slot { text, .. } => text_size(text, style.text, inner, metrics),
             NodeKind::FieldError { message, .. } => Size::new(
                 message.map_or(0, |message| metrics.marked_width(message)),

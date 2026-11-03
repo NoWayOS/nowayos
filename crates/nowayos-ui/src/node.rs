@@ -16,6 +16,45 @@ pub const INPUT_CAPACITY: usize = 64;
 /// Provisional: a per-slot capacity may replace this constant.
 pub const SLOT_CAPACITY: usize = 64;
 
+/// The most bytes a slot's [`Template`] takes, its literals together.
+pub const TEMPLATE_CAPACITY: usize = 64;
+
+/// The most bytes a slot shows: its text between its template's literals.
+pub const SHOWN_CAPACITY: usize = SLOT_CAPACITY + TEMPLATE_CAPACITY;
+
+/// Literal text compiled in around a slot's (builder contract v14):
+/// React's `<Text>Hello, {props.name}!</Text>` is the slot `name` between
+/// `"Hello, "` and `"!"`. The literals show from the first frame, the
+/// application sets only its part, and the whole is measured, wrapped and
+/// aligned as one text. Together the literals take at most
+/// [`TEMPLATE_CAPACITY`] bytes, and they are checked as any other text.
+///
+/// Provisional: one slot per text; tracks Screen Compiler's contract.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Template {
+    /// The text before the slot's.
+    pub before: &'static str,
+    /// The text after the slot's.
+    pub after: &'static str,
+}
+
+impl Template {
+    /// What a slot with this template shows when the application sets it
+    /// to `text`: `text` between the literals.
+    #[must_use]
+    pub fn around(&self, text: &str) -> BoundedStr<SHOWN_CAPACITY> {
+        let mut shown = BoundedStr::new();
+        for part in [self.before, text, self.after] {
+            // Never full: the builder refuses a longer template, and a
+            // slot's text is at most SLOT_CAPACITY bytes.
+            if shown.push_str(part).is_err() {
+                break;
+            }
+        }
+        shown
+    }
+}
+
 /// The most options a [`NodeKind::RadioGroup`] may offer.
 pub const MAX_OPTIONS: usize = 8;
 
@@ -1100,6 +1139,9 @@ pub enum NodeKind {
         slot: SlotId,
         /// The text. One line, at most [`SLOT_CAPACITY`] bytes.
         text: BoundedStr<SLOT_CAPACITY>,
+        /// The literal text it shows around `text`, if any (contract v14):
+        /// see [`NodeKind::slot_shown`].
+        template: Option<&'static Template>,
     },
     /// A box the person ticks or unticks, its label beside it, bound to
     /// `field`. Tapping or clicking anywhere on it - the box or the label -
@@ -1365,6 +1407,22 @@ impl NodeKind {
         self.check_text()
     }
 
+    /// What a slot shows: its text between its template's literals, if it
+    /// has a template (contract v14), else its text. `None` for any other
+    /// kind.
+    #[must_use]
+    pub fn slot_shown(&self) -> Option<BoundedStr<SHOWN_CAPACITY>> {
+        match self {
+            Self::Slot {
+                text,
+                template: Some(template),
+                ..
+            } => Some(template.around(text)),
+            Self::Slot { text, .. } => BoundedStr::try_from_str(text).ok(),
+            _ => None,
+        }
+    }
+
     /// [`check_text`](Self::check_text), and, in the display role, every
     /// character one the display role's atlases draw
     /// ([`text::check_display`](crate::text::check_display)). Only a
@@ -1385,7 +1443,11 @@ impl NodeKind {
         use crate::text::check_display;
         match self {
             Self::Text(text) | Self::Button { label: text, .. } => check_display(text),
-            Self::Slot { text, .. } => check_display(text),
+            Self::Slot { text, template, .. } => check_display(text).and_then(|()| {
+                template.map_or(Ok(()), |template| {
+                    check_display(template.before).and_then(|()| check_display(template.after))
+                })
+            }),
             Self::TextInput { .. }
             | Self::Checkbox { .. }
             | Self::RadioGroup { .. }
@@ -1424,7 +1486,11 @@ impl NodeKind {
             Self::TextInput {
                 placeholder, value, ..
             } => check_printable(placeholder).and_then(|()| check_printable(value)),
-            Self::Slot { text, .. } => check_printable(text),
+            Self::Slot { text, template, .. } => check_printable(text).and_then(|()| {
+                template.map_or(Ok(()), |template| {
+                    check_printable(template.before).and_then(|()| check_printable(template.after))
+                })
+            }),
             Self::Checkbox { label, .. } => check_printable(label),
             Self::RadioGroup { options, .. } => options
                 .iter()
@@ -1697,6 +1763,15 @@ impl Node {
         let too_wide = |text: &str, room: u32| metrics.text_width(text) > room;
         match &self.kind {
             NodeKind::Text(text) => self.cut_wrapped(text, &metrics),
+            // A templated slot's whole text is measured; the application's
+            // part names it.
+            NodeKind::Slot {
+                text,
+                template: Some(template),
+                ..
+            } => self
+                .cut_wrapped(template.around(text).as_str(), &metrics)
+                .map(|_| text.as_str()),
             NodeKind::Slot { text, .. } => self.cut_wrapped(text.as_str(), &metrics),
             NodeKind::Button { label: text, .. }
             | NodeKind::TextInput {
