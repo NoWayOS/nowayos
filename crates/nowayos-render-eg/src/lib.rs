@@ -1039,6 +1039,11 @@ where
             NodeKind::Progress { permille, .. } => self.progress(content, *permille),
             NodeKind::Icon(icon) => self.icon(content, icon),
             NodeKind::Text(text) => self.text_lines(text, node, content),
+            NodeKind::Slot {
+                text,
+                template: Some(template),
+                ..
+            } => self.text_lines(&template.around(text), node, content),
             NodeKind::Slot { text, .. } => self.text_lines(text, node, content),
             NodeKind::FieldError { message, .. } => match message {
                 Some(message) => self.field_error(message, content),
