@@ -8,7 +8,7 @@ use crate::node::{BUTTON_PADDING, INPUT_PADDING};
 use crate::text::check_printable;
 use crate::{
     ContainerKind, FieldId, GroupId, INPUT_CAPACITY, Input, Length, Node, NodeId, NodeKind, Style,
-    TextMetrics, UiError,
+    SwitchId, TextMetrics, UiError,
 };
 
 /// The deepest nodes may be nested: a root plus up to 16 levels below it.
@@ -538,9 +538,82 @@ impl<const N: usize> Tree<N> {
             NodeKind::Group {
                 group,
                 visible: false,
+                when: true,
             },
             Style::DEFAULT,
             &[child],
+        )
+    }
+
+    /// Creates a group bound to `group` that shows `child` only while the
+    /// application does not make it visible - React's `!cond && <X/>`
+    /// (contract v13). It starts hidden, so `child` shows at first; made
+    /// visible, it shows nothing and takes no space. `child` must exist and
+    /// be detached.
+    ///
+    /// # Errors
+    ///
+    /// As [`add_with_children`](Self::add_with_children). Nothing is created
+    /// on error.
+    pub fn unless(&mut self, group: GroupId, child: NodeId) -> Result<NodeId, UiError> {
+        self.add_parent(
+            NodeKind::Group {
+                group,
+                visible: false,
+                when: false,
+            },
+            Style::DEFAULT,
+            &[child],
+        )
+    }
+
+    /// Creates a switch bound to `switch` that shows `child` only while
+    /// the application sets its case to `when` - React's
+    /// `step === "review" && <X/>` (contract v13). It starts on no case,
+    /// showing nothing and taking no space. `child` must exist and be
+    /// detached.
+    ///
+    /// # Errors
+    ///
+    /// As [`add_with_children`](Self::add_with_children). Nothing is created
+    /// on error.
+    pub fn case(&mut self, switch: SwitchId, when: u8, child: NodeId) -> Result<NodeId, UiError> {
+        self.add_parent(
+            NodeKind::Switch {
+                switch,
+                case: None,
+                when,
+            },
+            Style::DEFAULT,
+            &[child],
+        )
+    }
+
+    /// Creates a switch bound to `switch` that shows `when_matched` while
+    /// the application sets its case to `when`, and `otherwise` on any
+    /// other case or none, as at first - React's
+    /// `step === "review" ? <X/> : <Y/>` (contract v13). Both must exist and
+    /// be detached.
+    ///
+    /// # Errors
+    ///
+    /// As [`add_with_children`](Self::add_with_children). Nothing is created
+    /// on error.
+    pub fn case_or(
+        &mut self,
+        switch: SwitchId,
+        when: u8,
+        when_matched: NodeId,
+        otherwise: NodeId,
+    ) -> Result<NodeId, UiError> {
+        self.add_parent(
+            NodeKind::Switch {
+                switch,
+                case: None,
+                when,
+            },
+            Style::DEFAULT,
+            &[when_matched, otherwise],
         )
     }
 
@@ -566,6 +639,7 @@ impl<const N: usize> Tree<N> {
             NodeKind::Group {
                 group,
                 visible: false,
+                when: true,
             },
             Style::DEFAULT,
             &[when_visible, otherwise],
@@ -1015,6 +1089,7 @@ impl<const N: usize> Tree<N> {
             if let NodeKind::Group {
                 group: g,
                 visible: shown,
+                ..
             } = &mut node.kind
                 && *g == group
             {
@@ -1033,6 +1108,58 @@ impl<const N: usize> Tree<N> {
             self.dirty.mark_all();
         }
         Ok(())
+    }
+
+    /// Sets the case of every switch bound to `switch` ([`case`](Self::case),
+    /// [`case_or`](Self::case_or)): each shows its first child while the case
+    /// is its own, else its second if it has one, else nothing; `None` is no
+    /// case, as at first. A control that stops showing loses focus, and a
+    /// press on it is cancelled; it keeps its value. Lay the tree out again
+    /// before the next frame ([`layout`](Self::layout)). The whole viewport
+    /// is marked for repainting if anything changed.
+    ///
+    /// # Errors
+    ///
+    /// [`UiError::UnknownSwitch`] if no switch is bound to `switch`. Nothing
+    /// changes on error.
+    pub fn set_case(&mut self, switch: SwitchId, case: Option<u8>) -> Result<(), UiError> {
+        let mut found = false;
+        let mut changed = false;
+        for node in self.nodes.iter_mut() {
+            if let NodeKind::Switch {
+                switch: s,
+                case: current,
+                ..
+            } = &mut node.kind
+                && *s == switch
+            {
+                found = true;
+                if *current != case {
+                    *current = case;
+                    changed = true;
+                }
+            }
+        }
+        if !found {
+            return Err(UiError::UnknownSwitch(switch));
+        }
+        if changed {
+            self.drop_hidden_focus();
+            self.dirty.mark_all();
+        }
+        Ok(())
+    }
+
+    /// The case of the switch bound to `switch` - `Some(None)` for none -
+    /// or `None` if no switch is bound to it.
+    #[must_use]
+    pub fn case_of(&self, switch: SwitchId) -> Option<Option<u8>> {
+        self.nodes.iter().find_map(|node| match node.kind {
+            NodeKind::Switch {
+                switch: s, case, ..
+            } if s == switch => Some(case),
+            _ => None,
+        })
     }
 
     /// Whether the group bound to `group` is visible; `None` if no group is
@@ -1069,7 +1196,7 @@ impl<const N: usize> Tree<N> {
             };
             let in_group = self
                 .get(parent)
-                .is_some_and(|node| matches!(node.kind, NodeKind::Group { .. }));
+                .is_some_and(|node| node.kind.is_conditional());
             if in_group && self.group_branch(parent) != Some(current) {
                 return false;
             }
@@ -1078,15 +1205,21 @@ impl<const N: usize> Tree<N> {
         false
     }
 
-    /// For a group, the child it shows: its first while visible, its second
-    /// (if any) while hidden. `None` for a group showing nothing, or any
-    /// other kind.
+    /// For a group or a switch, the child it shows: its first while its
+    /// group is as it shows it for (visible, or for [`unless`](Self::unless)
+    /// hidden) or its switch is on its case, else its second (if any).
+    /// `None` for one showing nothing, or any other kind.
     pub(crate) fn group_branch(&self, id: NodeId) -> Option<NodeId> {
         let node = self.get(id)?;
-        match node.kind {
-            NodeKind::Group { visible: true, .. } => node.first_child,
-            NodeKind::Group { visible: false, .. } => self.get(node.first_child?)?.next_sibling,
-            _ => None,
+        let first = match node.kind {
+            NodeKind::Group { visible, when, .. } => visible == when,
+            NodeKind::Switch { case, when, .. } => case == Some(when),
+            _ => return None,
+        };
+        if first {
+            node.first_child
+        } else {
+            self.get(node.first_child?)?.next_sibling
         }
     }
 
@@ -1094,9 +1227,10 @@ impl<const N: usize> Tree<N> {
     /// alone, or every child of any other node.
     pub(crate) fn first_shown_child(&self, id: NodeId) -> Option<NodeId> {
         let node = self.get(id)?;
-        match node.kind {
-            NodeKind::Group { .. } => self.group_branch(id),
-            _ => node.first_child,
+        if node.kind.is_conditional() {
+            self.group_branch(id)
+        } else {
+            node.first_child
         }
     }
 
@@ -1246,6 +1380,7 @@ impl<const N: usize> Tree<N> {
             } => selected.is_none() && *top == 0 && *cursor == 0,
             NodeKind::Keyboard { shift, .. } => !shift,
             NodeKind::Group { visible, .. } => !visible,
+            NodeKind::Switch { case, .. } => case.is_none(),
             _ => true,
         })
     }
@@ -1547,7 +1682,7 @@ impl<const N: usize> PaintOrder<'_, N> {
             let in_group = self
                 .tree
                 .get(parent)
-                .is_some_and(|parent| matches!(parent.kind, NodeKind::Group { .. }));
+                .is_some_and(|parent| parent.kind.is_conditional());
             if !in_group && let Some(sibling) = node.next_sibling {
                 return Some(sibling);
             }

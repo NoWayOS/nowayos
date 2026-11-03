@@ -584,7 +584,7 @@ impl<const N: usize> Tree<N> {
         // Its text measured in its own role and weight.
         let metrics = &metrics.for_style(style.text);
         let least = metrics.least_size(&node.kind);
-        if let NodeKind::Group { .. } = node.kind {
+        if node.kind.is_conditional() {
             // The child it shows, measured as if it stood in its place.
             let natural = match self.group_branch(id) {
                 Some(shown) => self.measure(shown, metrics, level.saturating_add(1), room)?,
@@ -667,6 +667,7 @@ impl<const N: usize> Tree<N> {
             ),
             NodeKind::Spacer
             | NodeKind::Group { .. }
+            | NodeKind::Switch { .. }
             | NodeKind::Progress { .. }
             | NodeKind::Icon(_) => Size::ZERO,
             // A scroll view is measured as a stack of its one child.
@@ -820,7 +821,7 @@ impl<const N: usize> Tree<N> {
         if let NodeKind::Scroll { offset } = node.kind {
             return self.arrange_scroll(id, rect, offset, units, level);
         }
-        if let NodeKind::Group { .. } = node.kind {
+        if node.kind.is_conditional() {
             // The child it shows takes the group's place; the other, none.
             let shown = self.group_branch(id);
             let mut next = self.node(id)?.first_child;
@@ -1016,7 +1017,7 @@ impl<const N: usize> Tree<N> {
     fn present(&self, id: NodeId) -> Result<Option<NodeId>, UiError> {
         let mut current = id;
         for _ in 0..=MAX_DEPTH {
-            if !matches!(self.node(current)?.kind, NodeKind::Group { .. }) {
+            if !self.node(current)?.kind.is_conditional() {
                 return Ok(Some(current));
             }
             match self.group_branch(current) {
