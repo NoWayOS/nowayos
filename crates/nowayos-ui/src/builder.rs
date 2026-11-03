@@ -102,6 +102,13 @@
 //! Contract v12 adds [`UiBuilder::field_error`]: the line where the
 //! errors the application sets for a field show, one per field.
 //!
+//! Contract v13 adds conditions beyond one prop's truth:
+//! [`UiBuilder::unless`], a child shown while a group is hidden (React's
+//! `!cond && <X/>`), and switches - [`UiBuilder::case`] and
+//! [`UiBuilder::case_or`] - a child shown while a switch the application
+//! sets is on one case (`step === "review" && <X/>`), every switch of one
+//! number moving together.
+//!
 //! Provisional: tracks Screen Compiler's contract; both sides change together.
 
 use crate::{ContainerKind, Length, NodeId, NodeKind, Style, Tree, UiError};
@@ -110,7 +117,7 @@ use crate::{ContainerKind, Length, NodeId, NodeKind, Style, Tree, UiError};
 pub use crate::icons;
 pub use crate::{
     ActionId, Align, ButtonVariant, Colour, FieldId, GroupId, Input, InputMode, Justify, Look,
-    MAX_LINES, SlotId, Space, Surface, TextAlign, TextRole, TextStyle, Tone, Weight,
+    MAX_LINES, SlotId, Space, Surface, SwitchId, TextAlign, TextRole, TextStyle, Tone, Weight,
 };
 
 /// How a list picker shows (contract v10): the placeholder its
@@ -590,6 +597,44 @@ pub trait UiBuilder {
         otherwise: Self::Node,
     ) -> Result<Self::Node, Self::Error>;
 
+    /// `child`, shown only while the application does not make `group`
+    /// visible: shown at first (contract v13) - React's `!cond && <X/>`.
+    ///
+    /// # Errors
+    ///
+    /// The builder's error, for example when it is full.
+    fn unless(&mut self, group: GroupId, child: Self::Node) -> Result<Self::Node, Self::Error>;
+
+    /// `child`, shown only while the application sets `switch` to the case
+    /// `when`: on no case at first, and then taking no space (contract
+    /// v13) - React's `step === "review" && <X/>`. Several switches may
+    /// share a number: they move together, each showing its own case.
+    ///
+    /// # Errors
+    ///
+    /// The builder's error, for example when it is full.
+    fn case(
+        &mut self,
+        switch: SwitchId,
+        when: u8,
+        child: Self::Node,
+    ) -> Result<Self::Node, Self::Error>;
+
+    /// `when_matched` while the application sets `switch` to the case
+    /// `when`, and `otherwise` on any other case or none, as at first
+    /// (contract v13) - React's `step === "review" ? <X/> : <Y/>`.
+    ///
+    /// # Errors
+    ///
+    /// The builder's error, for example when it is full.
+    fn case_or(
+        &mut self,
+        switch: SwitchId,
+        when: u8,
+        when_matched: Self::Node,
+        otherwise: Self::Node,
+    ) -> Result<Self::Node, Self::Error>;
+
     /// A single-line text field bound to `field`, made as `input` says: its
     /// placeholder, the most bytes it takes and which characters (contract
     /// v1).
@@ -775,6 +820,24 @@ impl<const N: usize> UiBuilder for Tree<N> {
         otherwise: NodeId,
     ) -> Result<NodeId, UiError> {
         Tree::either(self, group, when_visible, otherwise)
+    }
+
+    fn unless(&mut self, group: GroupId, child: NodeId) -> Result<NodeId, UiError> {
+        Tree::unless(self, group, child)
+    }
+
+    fn case(&mut self, switch: SwitchId, when: u8, child: NodeId) -> Result<NodeId, UiError> {
+        Tree::case(self, switch, when, child)
+    }
+
+    fn case_or(
+        &mut self,
+        switch: SwitchId,
+        when: u8,
+        when_matched: NodeId,
+        otherwise: NodeId,
+    ) -> Result<NodeId, UiError> {
+        Tree::case_or(self, switch, when, when_matched, otherwise)
     }
 
     fn input(&mut self, field: FieldId, input: Input) -> Result<NodeId, UiError> {

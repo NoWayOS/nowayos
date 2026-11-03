@@ -1035,7 +1035,7 @@ where
                     Ok(())
                 }
             }
-            NodeKind::Group { .. } | NodeKind::Spacer => Ok(()),
+            NodeKind::Group { .. } | NodeKind::Switch { .. } | NodeKind::Spacer => Ok(()),
             NodeKind::Progress { permille, .. } => self.progress(content, *permille),
             NodeKind::Icon(icon) => self.icon(content, icon),
             NodeKind::Text(text) => self.text_lines(text, node, content),

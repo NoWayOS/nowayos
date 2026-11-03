@@ -147,6 +147,26 @@ impl SlotId {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct GroupId(pub u16);
 
+/// Which switch a [`NodeKind::Switch`] is, as a number the application
+/// defines: the handle it sets the switch's case by
+/// ([`Tree::set_case`](crate::Tree::set_case)).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct SwitchId(pub u16);
+
+impl SwitchId {
+    /// The switch numbered `value`.
+    #[must_use]
+    pub const fn new(value: u16) -> Self {
+        Self(value)
+    }
+
+    /// The switch's number.
+    #[must_use]
+    pub const fn get(self) -> u16 {
+        self.0
+    }
+}
+
 impl GroupId {
     /// The group numbered `value`.
     #[must_use]
@@ -1163,9 +1183,11 @@ pub enum NodeKind {
     /// Content the application shows or hides, bound to `group`: one child,
     /// shown only while the group is visible - React's `cond && <X/>` - or
     /// two, the first shown while it is visible and the second while it is
-    /// not - `cond ? <X/> : <Y/>`. Created hidden, with its children, by
-    /// [`Tree::group`](crate::Tree::group) or
-    /// [`Tree::either`](crate::Tree::either); nothing can be appended to
+    /// not - `cond ? <X/> : <Y/>`; or one shown only while the group is
+    /// hidden - `!cond && <X/>` (contract v13). Created hidden, with its
+    /// children, by [`Tree::group`](crate::Tree::group),
+    /// [`Tree::either`](crate::Tree::either) or
+    /// [`Tree::unless`](crate::Tree::unless); nothing can be appended to
     /// it. A group takes no space of its own: in a `Row`, `Column` or
     /// `Stack` the child it shows is laid out as if it stood in the group's
     /// place, with its own style, and a group showing nothing takes no
@@ -1174,8 +1196,29 @@ pub enum NodeKind {
     Group {
         /// Which group it is.
         group: GroupId,
-        /// Whether its first child shows (and its second, if any, does not).
+        /// Whether the group is visible.
         visible: bool,
+        /// While the group is this, its first child shows; otherwise its
+        /// second, if any. `true` but for [`Tree::unless`](crate::Tree::unless).
+        when: bool,
+    },
+    /// Content shown while a switch the application sets is on one case,
+    /// bound to `switch`: one child, shown only while the switch's case is
+    /// `when` - React's `step === "review" && <X/>` - or two, the first
+    /// shown while it is and the second while it is not -
+    /// `step === "review" ? <X/> : <Y/>` (contract v13). Every switch bound
+    /// to one number moves together, each showing its child for its own
+    /// case, so siblings over one prop show one case at a time. Created on
+    /// no case, with its children, by [`Tree::case`](crate::Tree::case) or
+    /// [`Tree::case_or`](crate::Tree::case_or); laid out, drawn and hit as
+    /// a group is.
+    Switch {
+        /// Which switch it is.
+        switch: SwitchId,
+        /// The switch's case, or `None` for none: at first, and after a wipe.
+        case: Option<u8>,
+        /// The case its first child shows for.
+        when: u8,
     },
     /// An icon: one of Lucide's, drawn from its alpha mask at the
     /// device scale and tinted with the colour of text where it stands,
@@ -1200,6 +1243,13 @@ pub enum NodeKind {
 }
 
 impl NodeKind {
+    /// Whether this kind shows at most one of its children, by a value the
+    /// application sets: a group or a switch.
+    #[must_use]
+    pub const fn is_conditional(&self) -> bool {
+        matches!(self, Self::Group { .. } | Self::Switch { .. })
+    }
+
     /// Whether this kind can have children.
     #[must_use]
     pub const fn is_container(&self) -> bool {
@@ -1347,6 +1397,7 @@ impl NodeKind {
             | Self::Stack
             | Self::Scroll { .. }
             | Self::Group { .. }
+            | Self::Switch { .. }
             | Self::Spacer
             | Self::Progress { .. }
             | Self::Icon(_) => Ok(()),
@@ -1394,6 +1445,7 @@ impl NodeKind {
             | Self::Stack
             | Self::Scroll { .. }
             | Self::Group { .. }
+            | Self::Switch { .. }
             | Self::Spacer
             | Self::Progress { .. }
             | Self::Keyboard { .. }
@@ -1729,6 +1781,7 @@ impl Wipe for Node {
                 *cursor = 0;
             }
             NodeKind::Group { visible, .. } => *visible = false,
+            NodeKind::Switch { case, .. } => *case = None,
             // The next person starts at the top.
             NodeKind::Scroll { offset } => *offset = 0,
             // Its layout follows focus; only its Shift is the person's.

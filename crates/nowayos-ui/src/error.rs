@@ -6,7 +6,7 @@ use core::fmt;
 use nowayos_bounded::CapacityError;
 use nowayos_display::Rect;
 
-use crate::{FieldId, GroupId, NodeId, SlotId};
+use crate::{FieldId, GroupId, NodeId, SlotId, SwitchId};
 
 /// Why a tree operation failed. The tree is left unchanged.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -47,6 +47,8 @@ pub enum UiError {
     UnknownSlot(SlotId),
     /// No group has this id.
     UnknownGroup(GroupId),
+    /// No switch is bound to this number.
+    UnknownSwitch(SwitchId),
     /// A text input's `max_len` is 0 or more than it can hold.
     MaxLenOutOfRange {
         /// The most it may be ([`INPUT_CAPACITY`](crate::INPUT_CAPACITY)).
@@ -132,6 +134,7 @@ impl fmt::Display for UiError {
             Self::TextTooLong(err) => write!(f, "text too long for its slot: {err}"),
             Self::UnknownSlot(slot) => write!(f, "no slot {slot:?}"),
             Self::UnknownGroup(group) => write!(f, "no group {group:?}"),
+            Self::UnknownSwitch(switch) => write!(f, "no switch {switch:?}"),
             Self::MaxLenOutOfRange { max } => {
                 write!(f, "a text input takes from 1 to {max} bytes")
             }

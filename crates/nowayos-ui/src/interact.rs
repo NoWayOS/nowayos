@@ -60,8 +60,8 @@ impl<const N: usize> Tree<N> {
         if level > MAX_DEPTH || !node.rect.contains(point) {
             return None;
         }
-        if let NodeKind::Group { .. } = node.kind {
-            // Only the child a group shows can be hit; never the group.
+        if node.kind.is_conditional() {
+            // Only the child a group or switch shows can be hit; never it.
             return self.hit(self.group_branch(id)?, point, level.saturating_add(1));
         }
         let mut found = None;
