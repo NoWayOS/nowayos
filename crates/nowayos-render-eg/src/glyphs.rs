@@ -71,6 +71,11 @@ impl<'a> Glyphs<'a> {
             .ok()
     }
 
+    /// Its rasteriser, which draws shapes' edges too.
+    pub(crate) fn rasteriser(&mut self) -> &mut GlyphRasteriser {
+        &mut self.rasteriser
+    }
+
     /// How many times its cache has been emptied because it was full.
     #[must_use]
     pub const fn clears(&self) -> u32 {

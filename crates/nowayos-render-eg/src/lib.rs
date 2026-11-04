@@ -102,9 +102,7 @@ use embedded_graphics::draw_target::{DrawTarget, DrawTargetExt};
 use embedded_graphics::mono_font::{MonoFont, MonoTextStyle};
 use embedded_graphics::pixelcolor::{PixelColor, RgbColor};
 use embedded_graphics::prelude::{Pixel, Point, Size};
-use embedded_graphics::primitives::{
-    Circle, Polyline, Primitive, PrimitiveStyle, PrimitiveStyleBuilder, Rectangle, StrokeAlignment,
-};
+use embedded_graphics::primitives::Rectangle;
 use embedded_graphics::text::{Baseline, Text};
 use nowayos_display::DeviceScale;
 use nowayos_display::{Insets, Rect};
@@ -116,7 +114,7 @@ use nowayos_ui::{
     TextAlign, TextMetrics, TextRole, TextStyle, Tone, Tree, Weight,
 };
 
-use crate::shape::{Paint, Rounded};
+use crate::shape::{Inside, Paint, Radii, Rounded, fill_polygon};
 
 /// What a theme draws text in.
 #[derive(Clone, Copy)]
@@ -453,6 +451,8 @@ pub struct Shape {
     pub notice_radius: u32,
     /// Every surface's border width.
     pub surface_border: u32,
+    /// A text input's corner radius.
+    pub field_radius: u32,
 }
 
 impl Shape {
@@ -466,6 +466,7 @@ impl Shape {
         card_radius: 16,
         notice_radius: 12,
         surface_border: 1,
+        field_radius: 8,
     };
 
     /// The corner radius of `surface`: a header bar's corners are square.
@@ -1154,7 +1155,7 @@ where
                 let radius = self.px(look.radius.unwrap_or(self.theme.shape.button_radius));
                 let mut body = Rounded {
                     rect,
-                    radius,
+                    radius: Radii::all(radius),
                     border: 0,
                 };
                 if ring {
@@ -1168,7 +1169,7 @@ where
                     let width = self.px(self.theme.focus_width);
                     let ring = Rounded {
                         rect,
-                        radius,
+                        radius: Radii::all(radius),
                         border: width,
                     };
                     let paint = Paint {
@@ -1176,11 +1177,16 @@ where
                         border: self.focus_colour(),
                         ground: self.ground,
                     };
-                    ring.draw(&mut *self.target, self.clip, paint)?;
+                    ring.draw(
+                        &mut *self.target,
+                        self.clip,
+                        paint,
+                        self.glyphs.rasteriser(),
+                    )?;
                     let inset = width.saturating_add(self.px(FOCUS_GAP));
                     body = Rounded {
                         rect: rect.inset(Insets::uniform(inset)),
-                        radius: radius.saturating_sub(inset),
+                        radius: Radii::all(radius.saturating_sub(inset)),
                         border: 0,
                     };
                 }
@@ -1205,7 +1211,12 @@ where
                 if outline.is_some() {
                     body.border = self.px(self.theme.shape.outline_width);
                 }
-                body.draw(&mut *self.target, self.clip, paint)?;
+                body.draw(
+                    &mut *self.target,
+                    self.clip,
+                    paint,
+                    self.glyphs.rasteriser(),
+                )?;
                 let shown = fit_start(label, content.size.width, &self.metrics);
                 self.text(shown, content, TextAlign::Center, label_colour, fill)
             }
@@ -1213,7 +1224,24 @@ where
                 value, placeholder, ..
             } => {
                 let fill = self.theme.input;
-                self.fill(rect, fill)?;
+                // A rounded body, its border drawn after the text.
+                let radius = Radii::all(self.px(self.theme.shape.field_radius));
+                let ground = self.ground;
+                Rounded {
+                    rect,
+                    radius,
+                    border: 0,
+                }
+                .draw(
+                    &mut *self.target,
+                    self.clip,
+                    Paint {
+                        fill,
+                        border: fill,
+                        ground,
+                    },
+                    self.glyphs.rasteriser(),
+                )?;
                 if value.is_empty() {
                     let shown = fit_start(placeholder, content.size.width, &self.metrics);
                     let hint = self.theme.placeholder;
@@ -1226,11 +1254,27 @@ where
                 // The border or focus ring after the text, over any edge of
                 // a glyph that reaches it: text is blended with the fill
                 // and is only right where the fill is.
-                if ring {
-                    self.frame(rect, self.px(self.theme.focus_width), self.theme.focus)?;
+                let (border, colour) = if ring {
+                    (self.px(self.theme.focus_width), self.theme.focus)
                 } else {
-                    self.frame(rect, self.px(INPUT_BORDER), self.theme.input_border)?;
+                    (self.px(INPUT_BORDER), self.theme.input_border)
+                };
+                Rounded {
+                    rect,
+                    radius,
+                    border,
                 }
+                .draw_inside(
+                    &mut *self.target,
+                    self.clip,
+                    Paint {
+                        fill,
+                        border: colour,
+                        ground,
+                    },
+                    Inside::Keep,
+                    self.glyphs.rasteriser(),
+                )?;
                 if !focused {
                     return Ok(());
                 }
@@ -1299,10 +1343,15 @@ where
             };
             Rounded {
                 rect,
-                radius,
+                radius: Radii::all(radius),
                 border,
             }
-            .draw(&mut *self.target, self.clip, paint)?;
+            .draw(
+                &mut *self.target,
+                self.clip,
+                paint,
+                self.glyphs.rasteriser(),
+            )?;
             let shown = fit_start(key.label_for(shift), rect.size.width, &self.metrics);
             self.text(shown, rect, TextAlign::Center, label, fill)?;
         }
@@ -1393,45 +1442,88 @@ where
     /// state is shown by the tick, not by colour.
     fn check_box(&mut self, mark: Rect, checked: bool) -> Result<(), D::Error> {
         let side = mark.size.width;
-        self.frame(mark, line_weight(side), self.ink())?;
-        // Only marks that reach the area being painted are handed to
-        // `embedded-graphics`, so it only computes near the viewport.
-        if !checked || mark.intersection(&self.clip).is_none() {
+        let (ink, ground) = (self.ink(), self.ground);
+        // A box with softly rounded corners, its inside left as it is.
+        Rounded {
+            rect: mark,
+            radius: Radii::all(side / 6),
+            border: line_weight(side),
+        }
+        .draw_inside(
+            &mut *self.target,
+            self.clip,
+            Paint {
+                fill: ground,
+                border: ink,
+                ground,
+            },
+            Inside::Keep,
+            self.glyphs.rasteriser(),
+        )?;
+        if !checked {
             return Ok(());
         }
-        // The tick is worked out from the mark's corner and moved there as
-        // it is drawn: `embedded-graphics` joins thick lines with products
-        // of a point's coordinates and the lines' directions, which at the
-        // viewport's own coordinates - up to 2^24 - overflow `i32` for a
-        // mark as big as the large-text theme's, 36 pixels.
-        let tick = [
-            Point::new(tenths(0, side, 2), tenths(0, side, 5)),
-            Point::new(tenths(0, side, 4), tenths(0, side, 7)),
-            Point::new(tenths(0, side, 8), tenths(0, side, 3)),
+        // The tick: two strokes a fifth of the side wide, from 2/10 across
+        // and 5/10 down to 4/10 and 7/10, then up to 8/10 and 3/10; each
+        // runs on half its width past the corner, so the corner is full.
+        let at = |tenths_x: i64, tenths_y: i64| {
+            let side = i64::from(side).saturating_mul(256);
+            (
+                mark.left()
+                    .saturating_mul(256)
+                    .saturating_add(side.saturating_mul(tenths_x) / 10),
+                mark.top()
+                    .saturating_mul(256)
+                    .saturating_add(side.saturating_mul(tenths_y) / 10),
+            )
+        };
+        let width = i64::from((side / 5).max(1)).saturating_mul(256);
+        let (start, corner, end) = (at(2, 5), at(4, 7), at(8, 3));
+        let [a, b, c, d] = stroke(start, corner, width, false, true);
+        let [e, f, g, h] = stroke(corner, end, width, true, false);
+        let points = [
+            Some(a),
+            Some(b),
+            Some(c),
+            Some(d),
+            None,
+            Some(e),
+            Some(f),
+            Some(g),
+            Some(h),
+            None,
         ];
-        let weight = (side / 5).max(1);
-        let corner = Point::new(mark.origin.x, mark.origin.y);
-        Polyline::new(&tick)
-            .into_styled(PrimitiveStyle::with_stroke(self.ink(), weight))
-            .draw(&mut self.target.translated(corner))
+        fill_polygon(
+            &mut *self.target,
+            self.clip,
+            &points,
+            ink,
+            ground,
+            self.glyphs.rasteriser(),
+        )
     }
 
     /// A radio option's ring in `mark`, with a dot in it if `chosen`: the
     /// choice is shown by the dot, not by colour.
     fn radio(&mut self, mark: Rect, chosen: bool) -> Result<(), D::Error> {
-        if mark.intersection(&self.clip).is_none() {
-            return Ok(());
-        }
         let side = mark.size.width;
-        let corner = Point::new(mark.origin.x, mark.origin.y);
-        let ring = PrimitiveStyleBuilder::new()
-            .stroke_color(self.ink())
-            .stroke_width(line_weight(side))
-            .stroke_alignment(StrokeAlignment::Inside)
-            .build();
-        Circle::new(corner, side)
-            .into_styled(ring)
-            .draw(&mut *self.target)?;
+        let (ink, ground) = (self.ink(), self.ground);
+        Rounded {
+            rect: mark,
+            radius: Radii::all(side / 2),
+            border: line_weight(side),
+        }
+        .draw_inside(
+            &mut *self.target,
+            self.clip,
+            Paint {
+                fill: ground,
+                border: ink,
+                ground,
+            },
+            Inside::Keep,
+            self.glyphs.rasteriser(),
+        )?;
         if chosen {
             // Half the ring's size, with an even margin all round.
             let mut dot = side / 2;
@@ -1439,15 +1531,25 @@ where
                 dot = dot.saturating_sub(1);
             }
             let inset = i32::try_from(side.saturating_sub(dot) / 2).unwrap_or(0);
-            Circle::new(
-                Point::new(
-                    corner.x.saturating_add(inset),
-                    corner.y.saturating_add(inset),
-                ),
-                dot,
-            )
-            .into_styled(PrimitiveStyle::with_fill(self.ink()))
-            .draw(&mut *self.target)?;
+            if let Some(rect) =
+                Rect::new(mark.origin.x, mark.origin.y, dot, dot).checked_translate(inset, inset)
+            {
+                Rounded {
+                    rect,
+                    radius: Radii::all(dot / 2),
+                    border: 0,
+                }
+                .draw(
+                    &mut *self.target,
+                    self.clip,
+                    Paint {
+                        fill: ink,
+                        border: ink,
+                        ground,
+                    },
+                    self.glyphs.rasteriser(),
+                )?;
+            }
         }
         Ok(())
     }
@@ -1521,7 +1623,7 @@ where
         let colours = self.theme.surfaces.of(surface);
         let shape = Rounded {
             rect,
-            radius: self.px(self.theme.shape.radius_of(surface)),
+            radius: Radii::all(self.px(self.theme.shape.radius_of(surface))),
             border: self.px(self.theme.shape.surface_border),
         };
         let paint = Paint {
@@ -1529,7 +1631,12 @@ where
             border: colours.border,
             ground: self.ground,
         };
-        shape.draw(&mut *self.target, self.clip, paint)
+        shape.draw(
+            &mut *self.target,
+            self.clip,
+            paint,
+            self.glyphs.rasteriser(),
+        )
     }
 
     /// Draws a container with a look of its own over `rect`: the
@@ -1562,7 +1669,7 @@ where
         };
         let shape = Rounded {
             rect,
-            radius: self.px(look.radius.unwrap_or(radius)),
+            radius: Radii::all(self.px(look.radius.unwrap_or(radius))),
             border: self.px(width),
         };
         let paint = Paint {
@@ -1570,7 +1677,12 @@ where
             border,
             ground: self.ground,
         };
-        shape.draw(&mut *self.target, self.clip, paint)
+        shape.draw(
+            &mut *self.target,
+            self.clip,
+            paint,
+            self.glyphs.rasteriser(),
+        )
     }
 
     /// An icon in `rect`: its mask at the device scale, centred,
@@ -1608,7 +1720,7 @@ where
         let radius = rect.size.height / 2;
         let bar = Rounded {
             rect,
-            radius,
+            radius: Radii::all(radius),
             border: 0,
         };
         bar.draw(
@@ -1619,6 +1731,7 @@ where
                 border: track,
                 ground: self.ground,
             },
+            self.glyphs.rasteriser(),
         )?;
         let done = u64::from(rect.size.width)
             .saturating_mul(u64::from(permille.min(nowayos_ui::PROGRESS_WHOLE)))
@@ -1634,7 +1747,7 @@ where
                 u32::try_from(done).unwrap_or(rect.size.width),
                 rect.size.height,
             ),
-            radius,
+            radius: Radii::all(radius),
             border: 0,
         };
         // Its start's rounded end lies over the track's, so blends with
@@ -1659,6 +1772,7 @@ where
                         border: fill,
                         ground,
                     },
+                    self.glyphs.rasteriser(),
                 )?;
             }
         }
@@ -1848,15 +1962,57 @@ fn aligned(shown: &str, whole: &str, align: TextAlign) -> TextAlign {
     }
 }
 
+/// The four corners of a stroke `width` wide (1/256 pixel) from `from` to
+/// `to`, in order round it, run on half its width past `from` or `to` where
+/// asked, so two strokes meeting there leave no notch at the corner.
+fn stroke(
+    from: (i64, i64),
+    to: (i64, i64),
+    width: i64,
+    extend_from: bool,
+    extend_to: bool,
+) -> [(i64, i64); 4] {
+    let (dx, dy) = (to.0.saturating_sub(from.0), to.1.saturating_sub(from.1));
+    let length = i64::try_from(
+        u64::try_from(dx.saturating_mul(dx).saturating_add(dy.saturating_mul(dy)))
+            .unwrap_or(0)
+            .isqrt(),
+    )
+    .unwrap_or(0)
+    .max(1);
+    let half = width / 2;
+    // Half the width across the stroke, and along it.
+    let per_length = |value: i64| value.checked_div(length).unwrap_or(0);
+    let (nx, ny) = (
+        per_length(dy.saturating_neg().saturating_mul(half)),
+        per_length(dx.saturating_mul(half)),
+    );
+    let (ax, ay) = (
+        per_length(dx.saturating_mul(half)),
+        per_length(dy.saturating_mul(half)),
+    );
+    let start = if extend_from {
+        (from.0.saturating_sub(ax), from.1.saturating_sub(ay))
+    } else {
+        from
+    };
+    let end = if extend_to {
+        (to.0.saturating_add(ax), to.1.saturating_add(ay))
+    } else {
+        to
+    };
+    [
+        (start.0.saturating_add(nx), start.1.saturating_add(ny)),
+        (end.0.saturating_add(nx), end.1.saturating_add(ny)),
+        (end.0.saturating_sub(nx), end.1.saturating_sub(ny)),
+        (start.0.saturating_sub(nx), start.1.saturating_sub(ny)),
+    ]
+}
+
 /// The width of the lines of a mark `side` pixels across: a tenth of it, at
 /// least one pixel.
 fn line_weight(side: u32) -> u32 {
     (side / 10).max(1)
-}
-
-/// `base` plus `parts` tenths of `side`, saturating.
-fn tenths(base: i32, side: u32, parts: u32) -> i32 {
-    base.saturating_add(i32::try_from(side.saturating_mul(parts) / 10).unwrap_or(0))
 }
 
 /// Offset that centres a line of `line_height` in `rect`.

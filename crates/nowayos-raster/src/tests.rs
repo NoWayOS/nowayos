@@ -317,6 +317,38 @@ proptest! {
     }
 
     #[test]
+    fn any_box_of_an_outline_draws_what_the_whole_draws_there(
+        points in arb_polygon(),
+        left in -20_i32..20, top in -20_i32..20, width in 1_u32..30, height in 1_u32..30,
+    ) {
+        // The outline drawn whole, and a box of it drawn alone - the box
+        // may reach past the outline on any side - agree to within two
+        // levels: the box's sides split lines, which only moves where
+        // their areas are rounded.
+        let path = polygon(&points);
+        let (whole_box, whole) = draw::<8192>(&path, fine());
+        let part_box = Placement::new(left, top, width, height);
+        let mut rasteriser: Box<Rasteriser<4096, 8192>> = Box::default();
+        let mut part = vec![0; part_box.len()];
+        rasteriser.render(path.iter().copied(), fine(), part_box, &mut part).unwrap();
+        let at = |placement: Placement, data: &[u8], x: i32, y: i32| -> u8 {
+            let (column, row) = (x - placement.left(), placement.top() - y);
+            if column < 0 || row < 0 || column >= placement.width() as i32 || row >= placement.height() as i32 {
+                0
+            } else {
+                data[row as usize * placement.width() as usize + column as usize]
+            }
+        };
+        for row in 0..height as i32 {
+            for column in 0..width as i32 {
+                let (x, y) = (left + column, top - row);
+                let (part, whole) = (at(part_box, &part, x, y), at(whole_box, &whole, x, y));
+                prop_assert!(part.abs_diff(whole) <= 2, "({}, {}): {} against {}", x, y, part, whole);
+            }
+        }
+    }
+
+    #[test]
     fn coverage_is_conserved(points in arb_polygon()) {
         // A polygon that does not cross itself covers its area.
         let path = polygon(&points);
