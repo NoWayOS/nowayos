@@ -112,6 +112,8 @@ pub enum UiError {
         /// The store's size, in bytes.
         capacity: usize,
     },
+    /// No virtual list of this number in the tree.
+    UnknownList(crate::ListId),
     /// A long text holds from 1 to
     /// [`MAX_LONG_TEXT`](crate::long_text::MAX_LONG_TEXT) bytes.
     LongTextOutOfRange,
@@ -175,6 +177,7 @@ impl fmt::Display for UiError {
             Self::TextStoreFull { capacity } => {
                 write!(f, "the tree's text store ({capacity} bytes) is full")
             }
+            Self::UnknownList(list) => write!(f, "no list {list:?}"),
             Self::LongTextOutOfRange => write!(
                 f,
                 "a long text holds from 1 to {} bytes",

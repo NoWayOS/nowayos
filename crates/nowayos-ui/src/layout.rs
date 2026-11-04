@@ -620,6 +620,30 @@ impl<const N: usize, const T: usize> Tree<N, T> {
         Ok(())
     }
 
+    /// [`measure`](Self::measure) of `id`'s subtree, `level` deep, in
+    /// `room` pixels: for laying one part of the tree out again.
+    pub(crate) fn measure_at(
+        &mut self,
+        id: NodeId,
+        metrics: &TextMetrics,
+        level: usize,
+        room: u32,
+    ) -> Result<Size, UiError> {
+        self.measure(id, metrics, level, room)
+    }
+
+    /// [`arrange`](Self::arrange) of `id`'s subtree at `rect`, `level`
+    /// deep, at `metrics`' scale: for laying one part out again.
+    pub(crate) fn arrange_at(
+        &mut self,
+        id: NodeId,
+        rect: Rect,
+        metrics: &TextMetrics,
+        level: usize,
+    ) -> Result<(), UiError> {
+        self.arrange(id, rect, Units::of(metrics), level)
+    }
+
     /// Computes and stores the natural size of `id` and its subtree, `room`
     /// pixels being the width it may take.
     fn measure(
@@ -968,7 +992,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
         level: usize,
     ) -> Result<(), UiError> {
         let node = self.node(id)?;
-        let NodeKind::Scroll { x, y, axes } = node.kind else {
+        let NodeKind::Scroll { x, y, axes, rows } = node.kind else {
             return Ok(());
         };
         let content = port(
@@ -981,13 +1005,22 @@ impl<const N: usize, const T: usize> Tree<N, T> {
         };
         let natural = self.node(child)?.intrinsic;
         let (view_width, view_height) = (content.size.width, content.size.height);
+        // A virtual list's child is as tall as all its items.
+        let row_px = rows.map(|rows| units.scale.px(rows.height).max(1));
+        let natural_height = match (rows, row_px) {
+            (Some(rows), Some(row)) => {
+                u32::try_from(u64::from(rows.count).saturating_mul(u64::from(row)))
+                    .unwrap_or(u32::MAX)
+            }
+            _ => natural.height,
+        };
         let width = if axes.horizontal() {
             natural.width.max(view_width)
         } else {
             view_width
         };
         let height = if axes.vertical() {
-            natural.height.max(view_height)
+            natural_height.max(view_height)
         } else {
             view_height
         };
@@ -1009,7 +1042,88 @@ impl<const N: usize, const T: usize> Tree<N, T> {
             left.saturating_add(i64::from(width)),
             top.saturating_add(i64::from(height)),
         );
-        self.arrange(child, placed, units, level.saturating_add(1))
+        match (rows, row_px) {
+            (Some(rows), Some(row)) => {
+                self.arrange_rows(id, child, placed, rows, row, y, view_height, units, level)
+            }
+            _ => self.arrange(child, placed, units, level.saturating_add(1)),
+        }
+    }
+
+    /// Places a virtual list's pool of rows - `child`'s children - in
+    /// `placed`, `row` pixels each: the window of items starts a margin of
+    /// rows above the `y` scrolled to, item `i` shown by pool row `i` mod
+    /// the pool's size at `i` rows down; a row with no item is hidden. A
+    /// window that moved is reported ([`UiEvent::ListMoved`](crate::UiEvent::ListMoved)).
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the scroll view's placement, worked out by its caller, passed whole"
+    )]
+    fn arrange_rows(
+        &mut self,
+        id: NodeId,
+        child: NodeId,
+        placed: Rect,
+        rows: crate::Rows,
+        row: u32,
+        y: u32,
+        view_height: u32,
+        units: Units,
+        level: usize,
+    ) -> Result<(), UiError> {
+        let node = self.node_mut(child)?;
+        node.rect = placed;
+        node.padding = nowayos_display::Insets::ZERO;
+        let pool = u32::try_from(self.children(child).count()).unwrap_or(u32::MAX);
+        let shown = view_height.div_ceil(row).saturating_add(1);
+        let margin = pool.saturating_sub(shown) / 2;
+        let first = y
+            .checked_div(row)
+            .unwrap_or(0)
+            .saturating_sub(margin)
+            .min(rows.count.saturating_sub(pool));
+        let mut moved = false;
+        if let NodeKind::Scroll {
+            rows: Some(kept), ..
+        } = &mut self.node_mut(id)?.kind
+        {
+            moved = kept.first != first;
+            kept.first = first;
+        }
+        if moved {
+            self.list_moved = Some(rows.list);
+        }
+        let mut next = self.node(child)?.first_child;
+        let mut index = 0_u32;
+        let mut budget = N;
+        while let Some(at) = next {
+            budget = budget.checked_sub(1).ok_or(UiError::InvalidNode(at))?;
+            next = self.node(at)?.next_sibling;
+            // The item this row shows: the one in the window that is
+            // `index` mod the pool's size.
+            let offset = index
+                .saturating_add(pool)
+                .saturating_sub(first.checked_rem(pool).unwrap_or(0))
+                .checked_rem(pool)
+                .unwrap_or(0);
+            let item = first.saturating_add(offset);
+            index = index.saturating_add(1);
+            if item >= rows.count {
+                self.hide(at, level.saturating_add(2))?;
+                continue;
+            }
+            let top = placed
+                .top()
+                .saturating_add(i64::from(item).saturating_mul(i64::from(row)));
+            let rect = Rect::from_edges(
+                placed.left(),
+                top,
+                placed.right(),
+                top.saturating_add(i64::from(row)),
+            );
+            self.arrange(at, rect, units, level.saturating_add(2))?;
+        }
+        Ok(())
     }
 
     /// Every scroll view, in paint order: each before any inside it.
@@ -1168,7 +1282,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
                 return;
             };
             next = view.parent;
-            let NodeKind::Scroll { x, y, axes } = view.kind else {
+            let NodeKind::Scroll { x, y, axes, .. } = view.kind else {
                 continue;
             };
             let (Some(seen), Some(rect)) =

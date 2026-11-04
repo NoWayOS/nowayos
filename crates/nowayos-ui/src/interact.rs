@@ -37,6 +37,10 @@ pub enum UiEvent {
         /// The option now chosen.
         option: u8,
     },
+    /// A virtual list's window of items moved (builder contract v18): the
+    /// application binds each row that now shows another item
+    /// ([`Tree::list_row`](crate::Tree::list_row)).
+    ListMoved(crate::ListId),
 }
 
 /// How far, in layout units, a touch on the scroll view must move before it
@@ -216,6 +220,13 @@ impl<const N: usize, const T: usize> Tree<N, T> {
     /// Events are expected to be validated already (`nowayos-input`'s
     /// `InputLimits`); anything unexpected is ignored, never a panic.
     pub fn handle(&mut self, event: InputEvent) -> Option<UiEvent> {
+        let reported = self.respond(event);
+        // A virtual list whose window moved, if nothing else is reported.
+        reported.or_else(|| self.list_moved.take().map(UiEvent::ListMoved))
+    }
+
+    /// What `event` does, as [`handle`](Self::handle) says.
+    fn respond(&mut self, event: InputEvent) -> Option<UiEvent> {
         match event {
             InputEvent::PointerMove { x, y } => {
                 self.pointer = Point::new(x, y);

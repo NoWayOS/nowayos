@@ -17,7 +17,7 @@
 use nowayos_bounded::BoundedVec;
 use nowayos_display::{Point, Rect};
 
-use crate::{MAX_DEPTH, Node, NodeId, NodeKind, Tree};
+use crate::{MAX_DEPTH, Node, NodeId, NodeKind, Tree, UiError};
 
 /// The width of a scrollbar's gutter, in layout units; its thumb is a unit
 /// narrower each side.
@@ -472,4 +472,120 @@ impl<const N: usize, const T: usize> Tree<N, T> {
             });
         }
     }
+
+    /// The scroll view showing virtual list `list`, if any.
+    #[must_use]
+    pub fn find_list(&self, list: crate::ListId) -> Option<NodeId> {
+        self.scroll_views().find(|&id| {
+            matches!(
+                self.get(id).map(|node| &node.kind),
+                Some(NodeKind::Scroll { rows: Some(rows), .. }) if rows.list == list
+            )
+        })
+    }
+
+    /// Virtual list `list`'s window: the first item its pool shows, the
+    /// pool's size and the list's count, as last laid out.
+    #[must_use]
+    pub fn list_window(&self, list: crate::ListId) -> Option<ListWindow> {
+        let id = self.find_list(list)?;
+        let view = self.get(id)?;
+        let NodeKind::Scroll {
+            rows: Some(rows), ..
+        } = view.kind
+        else {
+            return None;
+        };
+        let pool = view.first_child.map_or(0, |child| {
+            u32::try_from(self.children(child).count()).unwrap_or(0)
+        });
+        Some(ListWindow {
+            first: rows.first,
+            pool,
+            count: rows.count,
+        })
+    }
+
+    /// The pool row - from 0, among the rows the list was built with -
+    /// that shows `item` of virtual list `list`, if the item is in its
+    /// window: the row the application binds to the item.
+    #[must_use]
+    pub fn list_row(&self, list: crate::ListId, item: u32) -> Option<u16> {
+        let window = self.list_window(list)?;
+        let shown = item >= window.first
+            && item < window.count
+            && item.saturating_sub(window.first) < window.pool;
+        if !shown {
+            return None;
+        }
+        u16::try_from(item.checked_rem(window.pool)?).ok()
+    }
+
+    /// Sets how many items virtual list `list` holds: its view is laid out
+    /// again - only it - and repainted, and its window, if it moved,
+    /// reported by the next [`handle`](Self::handle) or
+    /// [`take_list_moved`](Self::take_list_moved).
+    ///
+    /// # Errors
+    ///
+    /// [`UiError::UnknownList`] for a list the tree does not hold.
+    pub fn set_list_count(&mut self, list: crate::ListId, count: u32) -> Result<(), UiError> {
+        let id = self.find_list(list).ok_or(UiError::UnknownList(list))?;
+        if let NodeKind::Scroll {
+            rows: Some(rows), ..
+        } = &mut self.node_mut(id)?.kind
+        {
+            if rows.count == count {
+                return Ok(());
+            }
+            rows.count = count;
+        }
+        self.relayout_view(id)
+    }
+
+    /// The virtual list whose window moved since this was last asked, if
+    /// any - for an application that scrolls a list itself.
+    pub fn take_list_moved(&mut self) -> Option<crate::ListId> {
+        self.list_moved.take()
+    }
+
+    /// Lays scroll view `id` out again where it stands - its subtree and
+    /// nothing else - and marks what it shows for repainting. Nothing
+    /// happens before the first layout.
+    ///
+    /// # Errors
+    ///
+    /// [`UiError::TooDeep`] if the tree's links are corrupt.
+    pub fn relayout_view(&mut self, id: NodeId) -> Result<(), UiError> {
+        let Some(metrics) = self.metrics else {
+            return Ok(());
+        };
+        let mut depth = 0usize;
+        let mut next = self.node(id)?.parent;
+        while let Some(parent) = next {
+            depth = depth.saturating_add(1);
+            if depth > MAX_DEPTH {
+                return Err(UiError::TooDeep);
+            }
+            next = self.node(parent)?.parent;
+        }
+        let rect = self.node(id)?.rect;
+        self.measure_at(id, &metrics, depth, rect.size.width)?;
+        self.arrange_at(id, rect, &metrics, depth)?;
+        if let Some(shown) = self.get(id).and_then(|view| self.shown(view)) {
+            self.dirty.add(shown);
+        }
+        Ok(())
+    }
+}
+
+/// A virtual list's window ([`Tree::list_window`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ListWindow {
+    /// The first item its pool of rows shows.
+    pub first: u32,
+    /// How many rows the pool holds.
+    pub pool: u32,
+    /// How many items the list holds.
+    pub count: u32,
 }

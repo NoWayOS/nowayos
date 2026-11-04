@@ -180,6 +180,45 @@ impl SlotId {
     }
 }
 
+/// Which virtual list a scroll view shows, as a number the application
+/// defines (builder contract v18): the handle it sets the list's length by
+/// ([`Tree::set_list_count`](crate::Tree::set_list_count)) and learns which
+/// items show by ([`Tree::list_window`](crate::Tree::list_window)).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ListId(pub u16);
+
+impl ListId {
+    /// The list numbered `value`.
+    #[must_use]
+    pub const fn new(value: u16) -> Self {
+        Self(value)
+    }
+
+    /// The list's number.
+    #[must_use]
+    pub const fn get(self) -> u16 {
+        self.0
+    }
+}
+
+/// A virtual list's rows (builder contract v18): a scroll view holding a
+/// pool of rows, built once, that shows a list of `count` items `height`
+/// layout units high each. Item `i` is shown by pool row `i` mod the pool's
+/// size, at `i` rows down, while it is in the window from `first`; as the
+/// view scrolls the window moves and the application binds each row that
+/// comes to show another item ([`Tree::list_row`](crate::Tree::list_row)).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Rows {
+    /// Which list it is.
+    pub list: ListId,
+    /// How many items the list holds: the application's count.
+    pub count: u32,
+    /// Each row's height, in layout units.
+    pub height: u32,
+    /// The first item the pool shows: kept by layout.
+    pub first: u32,
+}
+
 /// Which group a [`NodeKind::Group`] is, as a number the application
 /// defines: the handle it shows or hides the group by
 /// ([`Tree::set_visible`](crate::Tree::set_visible)).
@@ -1138,6 +1177,9 @@ pub enum NodeKind {
         y: u32,
         /// Which ways it scrolls.
         axes: ScrollAxes,
+        /// For a virtual list (builder contract v18): its rows, which its
+        /// child - a column of the pool's rows - places itself.
+        rows: Option<Rows>,
     },
     /// A single line of fixed text, every character one the glyph atlases
     /// draw and a person can see ([`NodeKind::check_text`]).
@@ -1926,7 +1968,12 @@ impl Wipe for Node {
             NodeKind::Group { visible, .. } => *visible = false,
             NodeKind::Switch { case, .. } => *case = None,
             // The next person starts at the top.
-            NodeKind::Scroll { x, y, .. } => (*x, *y) = (0, 0),
+            NodeKind::Scroll { x, y, rows, .. } => {
+                (*x, *y) = (0, 0);
+                if let Some(rows) = rows {
+                    rows.first = 0;
+                }
+            }
             // Its layout follows focus; only its Shift is the person's.
             NodeKind::Keyboard { shift, .. } => *shift = false,
             _ => {}
