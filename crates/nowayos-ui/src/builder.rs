@@ -119,6 +119,11 @@
 //! box by a [`Fit`] and with words saying what it shows (React's
 //! `<img src alt style={{ objectFit }} />`).
 //!
+//! Contract v16 adds [`UiBuilder::long_text`]: paragraphs the application
+//! sets at run time, up to a capacity the screen gives, kept in the tree's
+//! text store - `T` bytes of a [`Tree<N, T>`](Tree) - so nothing allocates
+//! (React's `<Text maxLength={10240}>{props.article}</Text>`).
+//!
 //! Provisional: tracks Screen Compiler's contract; both sides change together.
 
 use crate::{ContainerKind, Length, NodeId, NodeKind, Style, Tree, UiError};
@@ -567,6 +572,22 @@ pub trait UiBuilder {
     /// As [`slot`](Self::slot).
     fn slot_styled(&mut self, slot: SlotId, style: TextStyle) -> Result<Self::Node, Self::Error>;
 
+    /// Paragraphs the application sets while the screen shows, bound to
+    /// `slot` as a slot is, up to `capacity` bytes kept in the tree's text
+    /// store, set in `style`'s role and weight (contract v16): wrapped onto
+    /// as many lines as they need, a line break starting a new paragraph.
+    ///
+    /// # Errors
+    ///
+    /// As [`slot`](Self::slot); a capacity of 0, or more than the tree's
+    /// text store has left.
+    fn long_text(
+        &mut self,
+        slot: SlotId,
+        capacity: u16,
+        style: TextStyle,
+    ) -> Result<Self::Node, Self::Error>;
+
     /// A slot ([`slot`](Self::slot)) shown between `template`'s literals
     /// (contract v14): React's `<Text>Hello, {props.name}!</Text>`. The
     /// literals show from the first frame; the application sets only its
@@ -734,7 +755,7 @@ pub trait UiBuilder {
 /// document order; one whose number a contract v1 control already holds is
 /// refused ([`UiError::DuplicateField`]), as v1's controls are. Applications can equally read a value through the node
 /// handle with [`Tree::node_value`].
-impl<const N: usize> UiBuilder for Tree<N> {
+impl<const N: usize, const T: usize> UiBuilder for Tree<N, T> {
     type Node = NodeId;
     type Error = UiError;
 
@@ -856,6 +877,21 @@ impl<const N: usize> UiBuilder for Tree<N> {
 
     fn slot_styled(&mut self, slot: SlotId, style: TextStyle) -> Result<NodeId, UiError> {
         let id = UiBuilder::slot(self, slot)?;
+        let node = self.node_mut(id)?;
+        node.style = node.style.text(style);
+        Ok(id)
+    }
+
+    fn long_text(
+        &mut self,
+        slot: SlotId,
+        capacity: u16,
+        style: TextStyle,
+    ) -> Result<NodeId, UiError> {
+        if self.find_slot(slot).is_some() || self.find_progress(slot).is_some() {
+            return Err(UiError::DuplicateSlot(slot));
+        }
+        let id = Tree::long_text(self, slot, u32::from(capacity))?;
         let node = self.node_mut(id)?;
         node.style = node.style.text(style);
         Ok(id)
@@ -996,7 +1032,7 @@ impl<const N: usize> UiBuilder for Tree<N> {
     }
 }
 
-impl<const N: usize> Tree<N> {
+impl<const N: usize, const T: usize> Tree<N, T> {
     /// `Ok` unless a value-holding control is already bound to `field`.
     fn free_field(&self, field: FieldId) -> Result<(), UiError> {
         if self.has_field(field) {
@@ -1018,7 +1054,7 @@ impl<const N: usize> Tree<N> {
     }
 }
 
-impl<const N: usize> Tree<N> {
+impl<const N: usize, const T: usize> Tree<N, T> {
     /// Whether `id`'s subtree holds a scroll view, searched to
     /// [`MAX_DEPTH`](crate::MAX_DEPTH) levels below it at most.
     fn subtree_has_scroll(&self, id: NodeId, level: usize) -> bool {

@@ -46,7 +46,7 @@ pub(crate) const DRAG_SLOP: u32 = 8;
 /// How many lines a notch of a mouse's wheel scrolls the scroll view.
 pub(crate) const WHEEL_LINES: u32 = 3;
 
-impl<const N: usize> Tree<N> {
+impl<const N: usize, const T: usize> Tree<N, T> {
     /// The deepest node whose area contains `point`, preferring later
     /// siblings (drawn on top). Parts of a child outside its parent's area
     /// cannot be hit.

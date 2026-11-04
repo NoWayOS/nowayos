@@ -389,8 +389,8 @@ pub fn failures(theme: &Theme<Rgb888>) -> impl Iterator<Item = Failure> + '_ {
 /// colours is checked by these, in every theme, against [`Need::Text`]
 /// ([`as_shown`] each), since the theme's own pairs ([`pairs`]) cannot
 /// cover what a screen combines.
-pub fn text_colours<'a, const N: usize>(
-    tree: &'a Tree<N>,
+pub fn text_colours<'a, const N: usize, const T: usize>(
+    tree: &'a Tree<N, T>,
     theme: &'a Theme<Rgb888>,
 ) -> impl Iterator<Item = (NodeId, Rgb888, Rgb888)> + 'a {
     tree.paint_order().filter_map(move |(id, node)| {

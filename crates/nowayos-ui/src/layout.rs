@@ -573,7 +573,7 @@ fn place_across(length: Length, natural: u32, available: u32, align: Align) -> (
     (offset, size)
 }
 
-impl<const N: usize> Tree<N> {
+impl<const N: usize, const T: usize> Tree<N, T> {
     /// Lays the tree out in `viewport`, using `metrics` to size text.
     ///
     /// The root is placed at the viewport's corner and, unless its style
@@ -657,6 +657,16 @@ impl<const N: usize> Tree<N> {
                 ..
             } => text_size(&template.around(text), style.text, inner, metrics),
             NodeKind::Slot { text, .. } => text_size(text, style.text, inner, metrics),
+            // Every line it wraps onto at the width it may take.
+            NodeKind::LongText { start, len, .. } => {
+                let text = self.texts.get(*start, *len);
+                let (mut width, mut lines) = (0_u32, 0_u32);
+                for line in crate::long_text::lines(text, inner, metrics) {
+                    width = width.max(metrics.text_width(line));
+                    lines = lines.saturating_add(1);
+                }
+                Size::new(width, metrics.line_height.saturating_mul(lines.max(1)))
+            }
             NodeKind::FieldError { message, .. } => Size::new(
                 message.map_or(0, |message| metrics.marked_width(message)),
                 metrics.line_height,
@@ -849,6 +859,7 @@ impl<const N: usize> Tree<N> {
         }
         let node = self.node(id)?;
         if matches!(node.kind, NodeKind::Text(_) | NodeKind::Slot { .. }) && node.style.text.wraps()
+            || matches!(node.kind, NodeKind::LongText { .. })
         {
             return Ok(true);
         }

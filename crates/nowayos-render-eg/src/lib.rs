@@ -810,8 +810,8 @@ pub fn metrics(font: &MonoFont<'_>) -> TextMetrics {
 /// # Errors
 ///
 /// Whatever the draw target reports.
-pub fn render<D, const N: usize>(
-    tree: &Tree<N>,
+pub fn render<D, const N: usize, const T: usize>(
+    tree: &Tree<N, T>,
     target: &mut D,
     theme: &Theme<D::Color>,
     glyphs: &mut Glyphs<'_>,
@@ -829,8 +829,8 @@ where
 /// # Errors
 ///
 /// Whatever the draw target reports.
-pub fn render_dirty<D, const N: usize>(
-    tree: &Tree<N>,
+pub fn render_dirty<D, const N: usize, const T: usize>(
+    tree: &Tree<N, T>,
     target: &mut D,
     theme: &Theme<D::Color>,
     glyphs: &mut Glyphs<'_>,
@@ -857,8 +857,8 @@ where
 /// # Errors
 ///
 /// Whatever the draw target reports.
-pub fn render_area<D, const N: usize>(
-    tree: &Tree<N>,
+pub fn render_area<D, const N: usize, const T: usize>(
+    tree: &Tree<N, T>,
     target: &mut D,
     theme: &Theme<D::Color>,
     area: Rect,
@@ -923,8 +923,8 @@ where
 /// nearest ancestor drawn on a surface or with a fill of its own - a fill,
 /// if it names one, is the colour beneath, and the surface still sets the
 /// colours of text and controls - or neither, for the background.
-pub(crate) fn under<const N: usize>(
-    tree: &Tree<N>,
+pub(crate) fn under<const N: usize, const T: usize>(
+    tree: &Tree<N, T>,
     node: &Node,
 ) -> (Option<Surface>, Option<Colour>) {
     let mut next = node.parent();
@@ -1000,9 +1000,9 @@ where
     D: DrawTarget,
     D::Color: RgbColor + From<Rgb888>,
 {
-    fn node<const N: usize>(
+    fn node<const N: usize, const T: usize>(
         &mut self,
-        tree: &Tree<N>,
+        tree: &Tree<N, T>,
         id: NodeId,
         node: &Node,
     ) -> Result<(), D::Error> {
@@ -1034,6 +1034,9 @@ where
                 ..
             } => self.text_lines(&template.around(text), node, content),
             NodeKind::Slot { text, .. } => self.text_lines(text, node, content),
+            NodeKind::LongText { .. } => {
+                self.long_text(tree.long_text_of(node).unwrap_or(""), node, content)
+            }
             NodeKind::FieldError { message, .. } => match message {
                 Some(message) => self.field_error(message, content),
                 None => Ok(()),
@@ -1304,9 +1307,9 @@ where
     /// in a pressed button's colours, and Shift, while it is on, in a
     /// button's. While no text input has focus its keys type nothing and
     /// their labels are muted.
-    fn keyboard<const N: usize>(
+    fn keyboard<const N: usize, const T: usize>(
         &mut self,
-        tree: &Tree<N>,
+        tree: &Tree<N, T>,
         id: NodeId,
         node: &Node,
         mode: InputMode,
@@ -1591,6 +1594,32 @@ where
             let rect = Rect::from_edges(content.left(), top, content.right(), bottom);
             let shown = fit_start(line, width, &metrics);
             self.text(shown, rect, aligned(shown, line, style.align), colour, on)?;
+            top = bottom;
+        }
+        Ok(())
+    }
+
+    /// A long text's paragraphs in `content`, wrapped at its width, each
+    /// line a line high from its top and set across it as its style aligns
+    /// it; only the lines that meet the area being drawn are drawn.
+    fn long_text(&mut self, text: &str, node: &Node, content: Rect) -> Result<(), D::Error> {
+        let (on, colour) = (self.ground, self.text_colour(node));
+        let align = node.style().text.align;
+        let metrics = self.metrics;
+        let width = content.size.width;
+        let height = i64::from(metrics.line_height());
+        let (from, to) = (self.clip.top(), self.clip.bottom());
+        let mut top = content.top();
+        for line in nowayos_ui::long_text::lines(text, width, &metrics) {
+            let bottom = top.saturating_add(height);
+            if top >= to {
+                break;
+            }
+            if bottom > from {
+                let rect = Rect::from_edges(content.left(), top, content.right(), bottom);
+                let shown = fit_start(line, width, &metrics);
+                self.text(shown, rect, aligned(shown, line, align), colour, on)?;
+            }
             top = bottom;
         }
         Ok(())
