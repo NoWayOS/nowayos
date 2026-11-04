@@ -1137,7 +1137,12 @@ impl<const N: usize, const T: usize> Tree<N, T> {
         if let NodeKind::LongText { len, .. } = &mut self.node_mut(id)?.kind {
             *len = required;
         }
-        if relayout && let Some(metrics) = self.metrics {
+        // Laid out again only once the screen is whole: a long text set as
+        // its screen is built is laid out with the rest.
+        if relayout
+            && self.root.is_some()
+            && let Some(metrics) = self.metrics
+        {
             let viewport = self.viewport;
             self.layout(viewport, &metrics)?;
         }

@@ -121,3 +121,17 @@ fn clearing_the_slots_wipes_a_long_text_and_clearing_the_tree_empties_the_store(
     // The whole store is free again.
     assert!(tree.long_text(BODY, 256).is_ok());
 }
+
+/// A long text set as its screen is built - the tree cleared, its root not
+/// yet set, the last screen's metrics kept - is laid out with the rest.
+#[test]
+fn a_long_text_set_while_its_screen_is_built_is_laid_out_with_it() {
+    let mut tree = screen();
+    tree.clear();
+    let body = UiBuilder::long_text(&mut tree, BODY, 200, TextStyle::default()).unwrap();
+    tree.set_slot(BODY, "one two three\n\nfour").unwrap();
+    let root = UiBuilder::column(&mut tree, Layout::new(), &[body]).unwrap();
+    tree.set_root(root).unwrap();
+    tree.layout(Rect::new(0, 0, 80, 400), &METRICS).unwrap();
+    assert_eq!(height(&tree), 64);
+}
