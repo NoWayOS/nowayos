@@ -2,10 +2,12 @@
 //! Scrolling: scrollbars, what a scroll moves of what is already drawn, and
 //! a fling that slows to a stop on the runtime's clock.
 //!
-//! A scroll view ([`NodeKind::Scroll`]) shows a scrollbar along each axis
-//! its child is larger than it: a thumb as long, along the view, as the
-//! part showing is of the whole, at where that part is; it can be dragged
-//! ([`Tree::scrollbars`]). When a view scrolls, what was drawn of its
+//! A scroll view ([`NodeKind::Scroll`]) keeps a gutter along each axis it
+//! scrolls - down its right side, along its bottom - beside what it shows
+//! ([`Tree::scroll_port`]), and in it a scrollbar when its child is larger
+//! than that: a thumb as long, along the gutter, as the part showing is of
+//! the whole, at where that part is; it can be dragged
+//! ([`Tree::scrollbars`]). Nothing a view shows is drawn under it. When a view scrolls, what was drawn of its
 //! child moves with it and only the strip that exposes is drawn again:
 //! [`Tree::moves`] lists the moves for whoever owns the pixels to make,
 //! before drawing what is marked. A touch lifted while it moves its view
@@ -17,13 +19,14 @@ use nowayos_display::{Point, Rect};
 
 use crate::{MAX_DEPTH, Node, NodeId, NodeKind, Tree};
 
-/// A scrollbar's width, in layout units.
-pub const SCROLLBAR_WIDTH: u32 = 6;
+/// The width of a scrollbar's gutter, in layout units; its thumb is a unit
+/// narrower each side.
+pub const SCROLLBAR_WIDTH: u32 = 8;
 /// The least length of a scrollbar's thumb, in layout units.
 pub const SCROLLBAR_LEAST: u32 = 24;
-/// How far beyond a thumb's sides, in layout units, a press or touch still
-/// takes it.
-pub const SCROLLBAR_REACH: u32 = 9;
+/// How far beyond its gutter, into what the view shows, a press or touch
+/// still takes a thumb, in layout units.
+pub const SCROLLBAR_REACH: u32 = 8;
 /// The most moves recorded between two repaints; one more marks its
 /// view for repainting instead.
 pub const MAX_MOVES: usize = 4;
@@ -111,25 +114,17 @@ impl<const N: usize, const T: usize> Tree<N, T> {
     /// that is not one, or along an axis its child fits.
     #[must_use]
     pub fn scrollbars(&self, id: NodeId) -> Scrollbars {
-        let (Some(view), Some((x, y)), Some((most_x, most_y))) = (
+        let (Some(view), Some(port), Some((x, y)), Some((most_x, most_y))) = (
             self.get(id),
+            self.scroll_port(id),
             self.scroll_position(id),
             self.scroll_range(id),
         ) else {
             return Scrollbars::default();
         };
         let content = view.content();
-        let width = self.scale.px(SCROLLBAR_WIDTH);
+        let inset = i64::from(self.scale.px(1));
         let least = self.scale.px(SCROLLBAR_LEAST);
-        let both = most_x > 0 && most_y > 0;
-        // A track's length: the view's side, less the other bar's corner.
-        let side = |length: u32| {
-            if both {
-                length.saturating_sub(width)
-            } else {
-                length
-            }
-        };
         let thumb = |track: u32, shown: u32, offset: u32, most: u32| {
             let whole = u64::from(shown).saturating_add(u64::from(most));
             let length = u64::from(track)
@@ -143,41 +138,29 @@ impl<const N: usize, const T: usize> Tree<N, T> {
                 .unwrap_or(0);
             (u32::try_from(at).unwrap_or(0), length)
         };
+        // Each runs in its gutter, as long as what the view shows.
         let vertical = (most_y > 0).then(|| {
-            let length = side(content.size.height);
-            let left = content.right().saturating_sub(i64::from(width));
-            let track = Rect::from_edges(
-                left,
-                content.top(),
-                content.right(),
-                content.top().saturating_add(i64::from(length)),
-            );
-            let (at, long) = thumb(length, content.size.height, y, most_y);
-            let top = content.top().saturating_add(i64::from(at));
+            let track = Rect::from_edges(port.right(), port.top(), content.right(), port.bottom());
+            let (at, long) = thumb(port.size.height, port.size.height, y, most_y);
+            let top = port.top().saturating_add(i64::from(at));
             let thumb = Rect::from_edges(
-                left,
+                track.left().saturating_add(inset),
                 top,
-                content.right(),
+                track.right().saturating_sub(inset),
                 top.saturating_add(i64::from(long)),
             );
             Scrollbar { track, thumb }
         });
         let horizontal = (most_x > 0).then(|| {
-            let length = side(content.size.width);
-            let top = content.bottom().saturating_sub(i64::from(width));
-            let track = Rect::from_edges(
-                content.left(),
-                top,
-                content.left().saturating_add(i64::from(length)),
-                content.bottom(),
-            );
-            let (at, long) = thumb(length, content.size.width, x, most_x);
-            let left = content.left().saturating_add(i64::from(at));
+            let track =
+                Rect::from_edges(port.left(), port.bottom(), port.right(), content.bottom());
+            let (at, long) = thumb(port.size.width, port.size.width, x, most_x);
+            let left = port.left().saturating_add(i64::from(at));
             let thumb = Rect::from_edges(
                 left,
-                top,
+                track.top().saturating_add(inset),
                 left.saturating_add(i64::from(long)),
-                content.bottom(),
+                track.bottom().saturating_sub(inset),
             );
             Scrollbar { track, thumb }
         });
@@ -194,7 +177,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
         let reach = i64::from(self.scale.px(SCROLLBAR_REACH));
         let mut found = None;
         for id in self.scroll_views() {
-            let seen = self.get(id).map(|view| self.seen(view));
+            let seen = self.get(id).map(|view| self.shown(view));
             let bars = self.scrollbars(id);
             for (bar, vertical) in [(bars.vertical, true), (bars.horizontal, false)] {
                 let Some(bar) = bar else {
@@ -202,17 +185,17 @@ impl<const N: usize, const T: usize> Tree<N, T> {
                 };
                 let grown = if vertical {
                     Rect::from_edges(
-                        bar.thumb.left().saturating_sub(reach),
+                        bar.track.left().saturating_sub(reach),
                         bar.thumb.top(),
-                        bar.thumb.right(),
+                        bar.track.right(),
                         bar.thumb.bottom(),
                     )
                 } else {
                     Rect::from_edges(
                         bar.thumb.left(),
-                        bar.thumb.top().saturating_sub(reach),
+                        bar.track.top().saturating_sub(reach),
                         bar.thumb.right(),
-                        bar.thumb.bottom(),
+                        bar.track.bottom(),
                     )
                 };
                 let visible = seen
@@ -227,9 +210,20 @@ impl<const N: usize, const T: usize> Tree<N, T> {
         found
     }
 
-    /// What view `node` shows of the screen: its content, inside every
-    /// view it is in and the viewport.
-    pub(crate) fn seen(&self, node: &Node) -> Option<Rect> {
+    /// What view `id` shows its child through, of the screen: inside every
+    /// view it is in, and the viewport.
+    pub(crate) fn seen(&self, id: NodeId) -> Option<Rect> {
+        let node = self.get(id)?;
+        let port = self.scroll_port(id)?.intersection(&self.viewport)?;
+        match self.scroll_clip(node) {
+            Some(outer) => port.intersection(&outer),
+            None => Some(port),
+        }
+    }
+
+    /// The part of `node`'s content on screen - gutters and all - inside
+    /// every view it is in and the viewport.
+    pub(crate) fn shown(&self, node: &Node) -> Option<Rect> {
         let content = node.content().intersection(&self.viewport)?;
         match self.scroll_clip(node) {
             Some(outer) => content.intersection(&outer),
@@ -247,59 +241,20 @@ impl<const N: usize, const T: usize> Tree<N, T> {
         let Some(view) = self.get(id) else {
             return;
         };
-        let Some(area) = self.seen(view) else {
-            return;
-        };
-        // Its scrollbars - and those of every view around it, drawn over
-        // what it shows - stay where they are: the strips they run in are
-        // drawn again, and only what lies beside them moves. A view's
-        // strips meet without overlapping, so the dirty region keeps them
-        // apart.
-        let width = i64::from(self.scale.px(SCROLLBAR_WIDTH));
-        let mut right_edge = area.right();
-        let mut bottom_edge = area.bottom();
-        let mut views = [None; MAX_DEPTH.saturating_add(1)];
-        for (slot, around) in views.iter_mut().zip(self.views_around(id)) {
-            *slot = Some(around);
-        }
-        for around in views.into_iter().flatten() {
-            let Some(content) = self.get(around).map(Node::content) else {
-                continue;
-            };
-            let bars = self.scrollbars(around);
-            let right = bars.vertical.map(|_| {
-                Rect::from_edges(
-                    content.right().saturating_sub(width),
-                    content.top(),
-                    content.right(),
-                    content.bottom(),
-                )
-            });
-            let right_side = right.map_or(content.right(), |strip| strip.left());
-            let bottom = bars.horizontal.map(|_| {
-                Rect::from_edges(
-                    content.left(),
-                    content.bottom().saturating_sub(width),
-                    right_side,
-                    content.bottom(),
-                )
-            });
-            for (strip, vertical) in [(right, true), (bottom, false)] {
-                let Some(strip) = strip.and_then(|strip| strip.intersection(&area)) else {
-                    continue;
-                };
-                if vertical {
-                    right_edge = right_edge.min(strip.left());
-                } else {
-                    bottom_edge = bottom_edge.min(strip.top());
+        // Its thumbs moved in their gutters, beside what moves.
+        let bars = self.scrollbars(id);
+        if let Some(shown) = self.shown(view) {
+            for bar in [bars.vertical, bars.horizontal].into_iter().flatten() {
+                if let Some(track) = bar.track.intersection(&shown) {
+                    self.dirty.add(track);
                 }
-                self.dirty.add(strip);
             }
         }
-        let moving = Rect::from_edges(area.left(), area.top(), right_edge, bottom_edge);
-        let small = !moving.is_empty()
-            && dx.unsigned_abs() < u64::from(moving.size.width)
-            && dy.unsigned_abs() < u64::from(moving.size.height);
+        let Some(area) = self.seen(id) else {
+            return;
+        };
+        let small = dx.unsigned_abs() < u64::from(area.size.width)
+            && dy.unsigned_abs() < u64::from(area.size.height);
         if !small || self.moves.is_full() || self.drawn_over(id, area) {
             self.dirty.add(area);
             return;
@@ -308,18 +263,10 @@ impl<const N: usize, const T: usize> Tree<N, T> {
         let mut waiting = [None; 8];
         for (slot, rect) in waiting.iter_mut().zip(self.dirty.rects()) {
             *slot = rect
-                .intersection(&moving)
-                .and_then(|inside| shifted(inside, dx, dy).intersection(&moving));
+                .intersection(&area)
+                .and_then(|inside| shifted(inside, dx, dy).intersection(&area));
         }
-        if self
-            .moves
-            .push(Move {
-                area: moving,
-                dx,
-                dy,
-            })
-            .is_err()
-        {
+        if self.moves.push(Move { area, dx, dy }).is_err() {
             self.dirty.add(area);
             return;
         }
@@ -327,8 +274,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
             self.dirty.add(rect);
         }
         // The strips the move exposes.
-        let (left, top, right, bottom) =
-            (moving.left(), moving.top(), moving.right(), moving.bottom());
+        let (left, top, right, bottom) = (area.left(), area.top(), area.right(), area.bottom());
         if dy > 0 {
             self.dirty
                 .add(Rect::from_edges(left, top, right, top.saturating_add(dy)));

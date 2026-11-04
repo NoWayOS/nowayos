@@ -751,6 +751,10 @@ impl<const N: usize, const T: usize> Tree<N, T> {
                 // it wants.
                 let inner = match node.kind {
                     NodeKind::Scroll { axes, .. } if axes.horizontal() => MAX_VIEWPORT_SIZE,
+                    // Beside the gutter its scrollbar runs in.
+                    NodeKind::Scroll { .. } => {
+                        inner.saturating_sub(metrics.scale.px(crate::scroll::SCROLLBAR_WIDTH))
+                    }
                     _ => inner,
                 };
                 // In a row, children that wrap share what the others leave.
@@ -967,7 +971,11 @@ impl<const N: usize, const T: usize> Tree<N, T> {
         let NodeKind::Scroll { x, y, axes } = node.kind else {
             return Ok(());
         };
-        let content = rect.inset(style_at(&node.style, units).padding);
+        let content = port(
+            rect.inset(style_at(&node.style, units).padding),
+            axes,
+            units.scale.px(crate::scroll::SCROLLBAR_WIDTH),
+        );
         let Some(child) = node.first_child else {
             return Ok(());
         };
@@ -1033,15 +1041,30 @@ impl<const N: usize, const T: usize> Tree<N, T> {
         }
     }
 
+    /// What scroll view `id` shows its child through: its content less a
+    /// gutter for its scrollbar along each axis it scrolls - down its right
+    /// side if it scrolls down, along its bottom if it scrolls across - so
+    /// nothing it shows is ever drawn under a scrollbar.
+    #[must_use]
+    pub fn scroll_port(&self, id: NodeId) -> Option<Rect> {
+        let view = self.get(id)?;
+        let NodeKind::Scroll { axes, .. } = view.kind else {
+            return None;
+        };
+        Some(port(
+            view.content(),
+            axes,
+            self.scale.px(crate::scroll::SCROLLBAR_WIDTH),
+        ))
+    }
+
     /// How far scroll view `id` can scroll: right and down, in pixels, as
-    /// last laid out - how much larger its child is than the view.
+    /// last laid out - how much larger its child is than what it shows it
+    /// through ([`scroll_port`](Self::scroll_port)).
     #[must_use]
     pub fn scroll_range(&self, id: NodeId) -> Option<(u32, u32)> {
         let view = self.get(id)?;
-        if !matches!(view.kind, NodeKind::Scroll { .. }) {
-            return None;
-        }
-        let content = view.content();
+        let content = self.scroll_port(id)?;
         let child = view.first_child.and_then(|child| self.get(child))?.rect;
         Some((
             child.size.width.saturating_sub(content.size.width),
@@ -1049,20 +1072,23 @@ impl<const N: usize, const T: usize> Tree<N, T> {
         ))
     }
 
-    /// What `node` is seen through: the content rectangles of every scroll
-    /// view it is inside, together, outside which nothing of it is drawn or
-    /// hit; `None` for a node outside every scroll view. Inside a view
-    /// scrolled wholly out of an outer one, an empty rectangle.
+    /// What `node` is seen through: what every scroll view it is inside
+    /// shows its child through ([`scroll_port`](Self::scroll_port)),
+    /// together, outside which nothing of it is drawn or hit; `None` for a
+    /// node outside every scroll view. Inside a view scrolled wholly out of
+    /// an outer one, an empty rectangle.
     #[must_use]
     pub fn scroll_clip(&self, node: &Node) -> Option<Rect> {
         let mut seen: Option<Rect> = None;
         let mut next = node.parent;
         for _ in 0..=MAX_DEPTH {
-            let Some(parent) = next.and_then(|id| self.get(id)) else {
+            let Some(id) = next else {
                 break;
             };
-            if let NodeKind::Scroll { .. } = parent.kind {
-                let view = parent.content();
+            let Some(parent) = self.get(id) else {
+                break;
+            };
+            if let Some(view) = self.scroll_port(id) {
                 seen = Some(match seen {
                     Some(inner) => inner.intersection(&view).unwrap_or(Rect::EMPTY),
                     None => view,
@@ -1145,7 +1171,9 @@ impl<const N: usize, const T: usize> Tree<N, T> {
             let NodeKind::Scroll { x, y, axes } = view.kind else {
                 continue;
             };
-            let (seen, Some(rect)) = (view.content(), self.get(id).map(Node::rect)) else {
+            let (Some(seen), Some(rect)) =
+                (self.scroll_port(view_id), self.get(id).map(Node::rect))
+            else {
                 return;
             };
             let shift = |start: i64, end: i64, view_start: i64, view_end: i64| {
@@ -1399,6 +1427,24 @@ fn text_size(text: &str, style: TextStyle, room: u32, metrics: &TextMetrics) -> 
         lines = lines.saturating_add(1);
     }
     Size::new(width, metrics.line_height.saturating_mul(lines.max(1)))
+}
+
+/// `content` less a gutter `bar` pixels wide for each scrollbar of a view
+/// scrolling along `axes`: down its right side if it scrolls down, along
+/// its bottom if it scrolls across.
+pub(crate) fn port(content: Rect, axes: crate::ScrollAxes, bar: u32) -> Rect {
+    let bar = i64::from(bar);
+    let right = if axes.vertical() {
+        content.right().saturating_sub(bar).max(content.left())
+    } else {
+        content.right()
+    };
+    let bottom = if axes.horizontal() {
+        content.bottom().saturating_sub(bar).max(content.top())
+    } else {
+        content.bottom()
+    };
+    Rect::from_edges(content.left(), content.top(), right, bottom)
 }
 
 /// Accepts a viewport only inside the range layout and drawing support.

@@ -6,7 +6,7 @@ use nowayos_input::{InputEvent, KeyCode, TouchPhase, keymap};
 
 use crate::keyboard::KeyAction;
 use crate::tree::MAX_DEPTH;
-use crate::{ActionId, FieldId, InputMode, Node, NodeId, NodeKind, Tree, UiError};
+use crate::{ActionId, FieldId, InputMode, NodeId, NodeKind, Tree, UiError};
 
 /// What the UI reports back to the application after an input event.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -728,7 +728,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
         let (Some(view), Some(metrics)) = (view, self.metrics) else {
             return;
         };
-        let Some(seen) = self.get(view).map(Node::content) else {
+        let Some(seen) = self.scroll_port(view) else {
             return;
         };
         let page = i64::from(

@@ -63,9 +63,13 @@ fn views_stand_one_inside_another_each_clipping_its_child() {
     assert!(clip.intersection(&last.rect()).is_none());
     // Its first, through the inner view.
     let first = tree.get(inner_buttons[0]).unwrap();
+    assert_eq!(tree.scroll_clip(first), tree.scroll_port(inner));
+    // Which is the view's content less its scrollbar's gutter: 8 wide.
+    let content = tree.get(inner).unwrap().content();
+    let port = tree.scroll_port(inner).unwrap();
     assert_eq!(
-        tree.scroll_clip(first),
-        Some(tree.get(inner).unwrap().content())
+        (port.size.width + 8, port.size.height),
+        (content.size.width, content.size.height)
     );
 }
 
@@ -151,9 +155,11 @@ fn across() -> (Tree<64>, NodeId, NodeId) {
 #[test]
 fn a_view_across_keeps_its_child_s_width_and_shift_turns_the_wheel_across() {
     let (mut tree, view, both) = across();
-    assert_eq!(tree.scroll_range(view), Some((380, 0)));
+    // Twelve 40-wide buttons in a view 100 wide, its gutter along its
+    // bottom; one scrolling both ways has its other gutter down its side.
+    assert_eq!(tree.scroll_range(view), Some((480 - 100, 0)));
     let (wide, tall) = tree.scroll_range(both).unwrap();
-    assert_eq!(wide, 300);
+    assert_eq!(wide, 400 - 92);
     assert!(tall > 0, "{tall}");
     let on = Point::new(20, 10);
     tree.handle(InputEvent::PointerMove { x: on.x, y: on.y });
@@ -324,5 +330,10 @@ fn a_view_with_something_drawn_over_it_is_repainted_rather_than_moved() {
     tree.clear_dirty();
     tree.scroll_view_to(view, 0, 10).unwrap();
     assert!(tree.moves().is_empty());
-    assert_eq!(tree.dirty_rects(), &[tree.get(view).unwrap().content()]);
+    let port = tree.scroll_port(view).unwrap();
+    assert!(
+        tree.dirty_rects().contains(&port),
+        "{:?}",
+        tree.dirty_rects()
+    );
 }
