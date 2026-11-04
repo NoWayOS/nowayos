@@ -3,6 +3,7 @@
 /pds/target
 /fuzz/target
 /tools/glyph-atlas/target
+/tools/pictures/target
 *.img
 report.txt
 .DS_Store

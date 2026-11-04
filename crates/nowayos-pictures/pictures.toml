@@ -1,0 +1,24 @@
+# NoWayOS's sample pictures, for tests, the demo and Screen Compiler's
+# contract check: a landscape (JPEG) and a badge with a transparent ground
+# (PNG), both drawn for NoWayOS by a script, MIT OR Apache-2.0 like this crate.
+# tools/pictures (make atlases) converts them into src/samples/; a product's
+# own pictures crate has a pictures.toml of the same form.
+
+# Where the generated module goes, inside the crate.
+module = "src/samples"
+# The device scales each picture is made at, in quarter pixels a layout unit:
+# 1 and 2. At any other the renderer samples the nearest larger.
+scales = [4, 8]
+
+[[picture]]
+name = "landscape"
+file = "pictures/landscape.jpg"
+sha256 = "b2236a5b8f6b862bb84c7c90144d57a6a6bea9391eb49a1ad83dd7f753e6f063"
+# Layout units; its height, 100, from the file's shape.
+width = 160
+
+[[picture]]
+name = "badge"
+file = "pictures/badge.png"
+sha256 = "c4fb6791238b4db8a03ae5135bf7561a00a9b0decb92eaa55662dd811d4a5d6f"
+width = 48

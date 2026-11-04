@@ -1,0 +1,78 @@
+# NoWayOS's picture tool: turns the PNG and JPEG files a crate's
+# pictures.toml pins into premultiplied pixels at each device scale and a
+# generated module of statics (nowayos-pictures' types). `make atlases` runs
+# it, and `make atlases-check`, in make ci, runs it again and fails on any
+# difference.
+#
+# A host tool in a Cargo workspace of its own, like the atlas tool: the
+# image decoders are in this Cargo.lock and in no other, so never in a
+# device crate's dependency graph - which `make atlases-check` shows with
+# cargo tree in every other workspace.
+
+[package]
+name = "nowayos-pictures-tool"
+description = "Build-time picture converter for nowayos-pictures (make atlases)"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+rust-version = "1.93"
+publish = false
+
+[[bin]]
+name = "pictures"
+path = "src/main.rs"
+doc = false
+
+[dependencies]
+# MIT OR Apache-2.0 - the PNG decoder, pinned exactly: a new version could
+# change the pixels. Default features off. What it brings: bitflags,
+# crc32fast with cfg-if, fdeflate and flate2 (each MIT OR Apache-2.0),
+# miniz_oxide (MIT OR Zlib OR Apache-2.0: MIT taken), adler2 (0BSD OR MIT OR
+# Apache-2.0: MIT taken) and simd-adler32 (MIT).
+png = { version = "=0.18.1", default-features = false }
+# MIT OR Apache-2.0 - pictures.toml's typed form.
+serde = { version = "1.0.229", features = ["derive"] }
+# MIT OR Apache-2.0 - every input file checked against its pinned sha256.
+sha2 = "0.10.9"
+# MIT OR Apache-2.0 - reads pictures.toml.
+toml = { version = "1.1.6", default-features = false, features = ["std", "parse", "serde"] }
+# MIT OR Apache-2.0 OR Zlib (MIT taken) - the JPEG decoder, pinned exactly,
+# with its SIMD paths off so that every machine decodes the same bytes. It
+# brings zune-core (MIT OR Apache-2.0 OR Zlib: MIT taken).
+zune-jpeg = { version = "=0.5.13", default-features = false, features = ["std"] }
+
+[lints]
+workspace = true
+
+[workspace]
+members = ["."]
+
+# The NoWayOS baseline (tools/baseline.toml), as in NoWayOS's other
+# workspaces.
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+panic = "deny"
+todo = "deny"
+unimplemented = "deny"
+unreachable = "deny"
+panic_in_result_fn = "deny"
+allow_attributes_without_reason = "deny"
+indexing_slicing = "deny"
+arithmetic_side_effects = "deny"
+undocumented_unsafe_blocks = "deny"
+
+[profile.dev]
+panic = "abort"
+
+# The decoders optimised in every build, the tests' included.
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.release]
+overflow-checks = true
+panic = "abort"

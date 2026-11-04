@@ -210,13 +210,13 @@ class ReleaseEvidenceTest(unittest.TestCase):
         self.assertIn("| digest | 0.10.7 | named in tools/crypto-crates.txt | "
                       "nowayos-glyph-atlas: build tool, never shipped | - |", text)
         self.assertIn("| getrandom | 0.3.4 | named in tools/crypto-crates.txt | nowayos-fuzz: host only | - |", text)
-        self.assertIn("`.`, `pds`, `fuzz` and `tools/glyph-atlas`", text)
+        self.assertIn("`.`, `pds`, `fuzz`, `tools/glyph-atlas` and `tools/pictures`", text)
 
     def test_every_workspace_make_sbom_writes_is_read_for_crypto(self):
         with open(os.path.join(HERE, os.pardir, "Makefile"), encoding="utf-8") as handle:
             makefile = handle.read()
         sbom_names = set(re.findall(r"tools/sbom --workspace \S+ --name (\S+)", makefile))
-        self.assertEqual(len(sbom_names), 4, makefile)
+        self.assertEqual(len(sbom_names), 5, makefile)
         self.assertEqual({name for name, _path, _what in EVIDENCE.WORKSPACES}, sbom_names)
         for name, path, _what in EVIDENCE.WORKSPACES:
             self.assertTrue(os.path.isfile(os.path.join(HERE, os.pardir, path, "Cargo.lock")), name)

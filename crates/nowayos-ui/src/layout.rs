@@ -727,6 +727,11 @@ impl<const N: usize> Tree<N> {
             | NodeKind::Switch { .. }
             | NodeKind::Progress { .. }
             | NodeKind::Icon(_) => Size::ZERO,
+            // A picture's own size, at the scale.
+            NodeKind::Image { picture, .. } => Size::new(
+                metrics.scale.px(picture.width()),
+                metrics.scale.px(picture.height()),
+            ),
             // A scroll view is measured as a stack of its one child.
             NodeKind::Column | NodeKind::Row | NodeKind::Stack | NodeKind::Scroll { .. } => {
                 let axis = Axis::of(&node.kind);

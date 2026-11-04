@@ -1196,6 +1196,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "nowayos-pictures"
+version = "0.1.0"
+
+[[package]]
 name = "nowayos-pl011"
 version = "0.1.0"
 dependencies = [
@@ -1452,6 +1456,7 @@ dependencies = [
  "nowayos-glyphs",
  "nowayos-icons",
  "nowayos-input",
+ "nowayos-pictures",
 ]
 
 [[package]]

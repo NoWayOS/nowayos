@@ -738,6 +738,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "nowayos-pictures"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+]
+
+[[package]]
 name = "nowayos-raster"
 version = "0.1.0"
 dependencies = [
@@ -863,6 +870,7 @@ dependencies = [
  "nowayos-glyphs",
  "nowayos-icons",
  "nowayos-input",
+ "nowayos-pictures",
  "proptest",
 ]
 
