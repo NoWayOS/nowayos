@@ -1,0 +1,18 @@
+[package]
+name = "nowayos-frame-times"
+description = "Frame times at 1080p, 1440p and 4K: a full redraw, a scroll step, a press and a slot change, on the host and in a protection domain"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+embedded-graphics.workspace = true
+nowayos-display.workspace = true
+nowayos-input.workspace = true
+nowayos-render-eg.workspace = true
+nowayos-ui.workspace = true
+
+[lints]
+workspace = true

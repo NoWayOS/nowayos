@@ -1,0 +1,25 @@
+[package]
+name = "nowayos-frame-bench"
+description = "Times the renderer drawing two screens at 1080p, 1440p and 4K in 16 and 32 bits, and a frame's copy"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "nowayos-frame-bench"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+nowayos-display.workspace = true
+nowayos-frame-times.workspace = true
+nowayos-hw.workspace = true
+nowayos-region.workspace = true
+nowayos-render-eg.workspace = true
+sel4-microkit.workspace = true
+
+[lints]
+workspace = true
