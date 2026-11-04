@@ -47,6 +47,8 @@ members = [
     # systems/timer-demo.system, the timer PD and a client
     "timer",
     "timer-client",
+    # systems/glyph-bench.system: times drawing glyphs from outlines
+    "glyph-bench",
     # systems/ui-demo.system, the UI PD and a display stub
     "ui-demo",
     "display-stub",
@@ -169,6 +171,7 @@ nowayos-bounded = { path = "../crates/nowayos-bounded" }
 nowayos-demo = { path = "../crates/nowayos-demo" }
 nowayos-display = { path = "../crates/nowayos-display" }
 nowayos-fault-policy = { path = "../crates/nowayos-fault-policy" }
+nowayos-glyphs = { path = "../crates/nowayos-glyphs" }
 nowayos-heartbeat = { path = "../crates/nowayos-heartbeat" }
 nowayos-input = { path = "../crates/nowayos-input" }
 # The network stack's logic, which brings smoltcp 0.14.0 (0BSD, signed
@@ -180,6 +183,8 @@ nowayos-ipc = { path = "../crates/nowayos-ipc" }
 nowayos-rng-health = { path = "../crates/nowayos-rng-health" }
 nowayos-socket = { path = "../crates/nowayos-socket" }
 nowayos-net = { path = "../crates/nowayos-net" }
+# Anti-aliased coverage of outlines at any size: glyphs drawn on the device.
+nowayos-raster = { path = "../crates/nowayos-raster" }
 nowayos-render-eg = { path = "../crates/nowayos-render-eg" }
 nowayos-seed = { path = "../crates/nowayos-seed" }
 nowayos-serial = { path = "../crates/nowayos-serial" }

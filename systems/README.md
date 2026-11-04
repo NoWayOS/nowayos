@@ -15,6 +15,7 @@ grants.
 | System | Contents |
 | --- | --- |
 | `hello` | one PD, `nowayos-hello`; no channels, memory regions or devices |
+| `glyph-bench` | one PD, `nowayos-glyph-bench`, timing glyphs drawn from outlines at device scales 1 to 4; no channels, memory regions or devices |
 | `ipc-demo` | `input_producer` and `input_consumer` exchange typed `InputEvent` records through a four-slot ring over two 4 KiB regions (messages: producer `rw`, consumer `r`; control: consumer `rw`, producer `r`), one channel; one malformed record must be rejected. The producer (the input side) runs above the consumer and has a CPU budget of half its period |
 | `isolation-test` | `isolation_parent` with two child probes that each attempt one ungranted access (read of an unmapped address; write to a read-only page), and a `bystander` that must keep running; one channel parent–bystander |
 | `dma-demo` | `dma_demo`: QEMU's fw_cfg register page (`fw_cfg`) uncached, and one 4 KiB DMA region with its physical address (`paddr`), bound through `nowayos-hw`; fw_cfg writes into the region by DMA. QEMU only |

@@ -1,0 +1,23 @@
+[package]
+name = "nowayos-glyph-bench"
+description = "Times nowayos-raster drawing the themes' type scale from the glyph outlines at device scales 1 to 4"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "nowayos-glyph-bench"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+nowayos-glyphs.workspace = true
+nowayos-hw.workspace = true
+nowayos-raster.workspace = true
+sel4-microkit.workspace = true
+
+[lints]
+workspace = true

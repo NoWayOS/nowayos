@@ -22,9 +22,11 @@ mod bold_48;
 mod bold_56;
 mod bold_72;
 mod bold_kerning;
+mod bold_outline;
 mod display_192;
 mod display_96;
 mod display_kerning;
+mod display_outline;
 mod regular_14;
 mod regular_16;
 mod regular_18;
@@ -34,6 +36,7 @@ mod regular_32;
 mod regular_36;
 mod regular_48;
 mod regular_kerning;
+mod regular_outline;
 
 pub use regular_14::REGULAR_14;
 pub use regular_16::REGULAR_16;
@@ -57,6 +60,9 @@ pub use bold_56::BOLD_56;
 pub use bold_72::BOLD_72;
 pub use display_96::DISPLAY_96;
 pub use display_192::DISPLAY_192;
+pub use regular_outline::REGULAR;
+pub use bold_outline::BOLD;
+pub use display_outline::DISPLAY;
 
 /// Every atlas: each face in the order glyphs.toml lists them, at each of its sizes, smallest
 /// first.

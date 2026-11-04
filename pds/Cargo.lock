@@ -71,844 +71,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2af50177e190e07a26ab74f8b1efbfe2ef87da2116221318cb1c2e82baf7de06"
 
 [[package]]
-name = "nowayos-audio"
-version = "0.1.0"
-dependencies = [
- "nowayos-ipc",
-]
-
-[[package]]
-name = "nowayos-audio-loop"
-version = "0.1.0"
-dependencies = [
- "nowayos-audio",
- "nowayos-display",
- "nowayos-ipc",
- "nowayos-region",
- "nowayos-usb",
- "sel4-microkit",
-]
-
-[[package]]
-name = "nowayos-bounded"
-version = "0.1.0"
-
-[[package]]
-name = "nowayos-budget-probe"
-version = "0.1.0"
-dependencies = [
- "nowayos-timer-api",
- "sel4-microkit",
-]
-
-[[package]]
-name = "nowayos-camera-test"
-version = "0.1.0"
-dependencies = [
- "nowayos-hw",
- "nowayos-region",
- "nowayos-usb",
- "sel4-microkit",
-]
-
-[[package]]
-name = "nowayos-clock"
-version = "0.1.0"
-dependencies = [
- "nowayos-clock-api",
- "nowayos-region",
- "nowayos-time",
- "nowayos-timer-api",
- "sel4-microkit",
-]
-
-[[package]]
-name = "nowayos-clock-api"
-version = "0.1.0"
-dependencies = [
- "nowayos-ipc",
- "nowayos-time",
- "sel4-microkit",
-]
-
-[[package]]
-name = "nowayos-clock-test"
-version = "0.1.0"
-dependencies = [
- "nowayos-clock-api",
- "nowayos-ipc",
- "nowayos-region",
- "nowayos-time",
- "nowayos-timer-api",
- "sel4-microkit",
-]
-
-[[package]]
-name = "nowayos-console"
-version = "0.1.0"
-dependencies = [
- "nowayos-hw",
- "nowayos-ipc",
- "nowayos-region",
- "sel4-microkit",
-]
-
-[[package]]
-name = "nowayos-demo"
-version = "0.1.0"
-dependencies = [
- "nowayos-display",
- "nowayos-input",
- "nowayos-ui",
-]
-
-[[package]]
-name = "nowayos-display"
-version = "0.1.0"
-dependencies = [
- "nowayos-bounded",
- "nowayos-ipc",
-]
-
-[[package]]
-name = "nowayos-display-ramfb"
-version = "0.1.0"
-dependencies = [
- "nowayos-display",
- "nowayos-hw",
- "nowayos-ipc",
- "nowayos-region",
- "nowayos-ui-loop",
- "sel4-microkit",
-]
-
-[[package]]
-name = "nowayos-display-stub"
-version = "0.1.0"
-dependencies = [
- "nowayos-display",
- "nowayos-fb",
- "nowayos-hw",
- "nowayos-ipc",
- "nowayos-region",
- "nowayos-ui-loop",
- "sel4-microkit",
-]
-
-[[package]]
-name = "nowayos-dma-demo"
-version = "0.1.0"
-dependencies = [
- "nowayos-hw",
- "sel4-microkit",
-]
-
-[[package]]
-name = "nowayos-entropy"
-version = "0.1.0"
-dependencies = [
- "chacha20 0.10.2",
- "getrandom 0.2.17",
- "getrandom 0.3.4",
- "getrandom 0.4.3",
- "zeroize",
-]
-
-[[package]]
-name = "nowayos-entropy-source"
-version = "0.1.0"
-dependencies = [
- "nowayos-bounded",
- "nowayos-hw",
- "nowayos-ipc",
- "nowayos-region",
- "nowayos-rng-health",
- "nowayos-seed",
- "sel4-microkit",
-]
-
-[[package]]
-name = "nowayos-fan"
-version = "0.1.0"
-dependencies = [
- "nowayos-hw",
- "nowayos-timer-api",
- "sel4-microkit",
-]
-
-[[package]]
-name = "nowayos-fault"
-version = "0.1.0"
-
-[[package]]
-name = "nowayos-fault-policy"
-version = "0.1.0"
-
-[[package]]
-name = "nowayos-fb"
-version = "0.1.0"
-dependencies = [
- "nowayos-display",
- "nowayos-hw",
- "nowayos-region",
-]
-
-[[package]]
-name = "nowayos-fb-test"
-version = "0.1.0"
-dependencies = [
- "nowayos-display",
- "nowayos-fb",
- "nowayos-hw",
- "sel4-microkit",
-]
-
-[[package]]
-name = "nowayos-gem"
-version = "0.1.0"
-dependencies = [
- "nowayos-net",
-]
-
-[[package]]
-name = "nowayos-gem-net"
-version = "0.1.0"
-dependencies = [
- "nowayos-gem",
- "nowayos-hw",
- "nowayos-net",
- "nowayos-region",
- "nowayos-timer-api",
- "sel4-microkit",
-]
-
-[[package]]
-name = "nowayos-getrandom-probe"
-version = "0.1.0"
-dependencies = [
- "nowayos-entropy",
- "getrandom 0.2.17",
- "getrandom 0.3.4",
- "getrandom 0.4.3",
- "rand_core 0.9.5",
- "sel4-microkit",
-]
-
-[[package]]
-name = "nowayos-glyphs"
-version = "0.1.0"
-
-[[package]]
-name = "nowayos-heap"
-version = "0.1.0"
-dependencies = [
- "one-shot-mutex",
- "sel4-dlmalloc",
-]
-
-[[package]]
-name = "nowayos-heartbeat"
-version = "0.1.0"
-
-[[package]]
-name = "nowayos-heartbeat-probe"
-version = "0.1.0"
-dependencies = [
- "sel4-microkit",
-]
-
-[[package]]
-name = "nowayos-hello"
-version = "0.1.0"
-dependencies = [
- "sel4-microkit",
-]
-
-[[package]]
-name = "nowayos-hw"
-version = "0.1.0"
-dependencies = [
- "nowayos-gem",
- "nowayos-net",
- "nowayos-usb",
- "safe-mmio",
-]
-
-[[package]]
-name = "nowayos-icons"
-version = "0.1.0"
-
-[[package]]
-name = "nowayos-input"
-version = "0.1.0"
-dependencies = [
- "nowayos-ipc",
-]
-
-[[package]]
-name = "nowayos-input-broker"
-version = "0.1.0"
-dependencies = [
- "nowayos-hw",
- "nowayos-input",
- "nowayos-ipc",
- "nowayos-region",
- "sel4-microkit",
-]
-
-[[package]]
-name = "nowayos-input-flood"
-version = "0.1.0"
-dependencies = [
- "nowayos-input",
- "nowayos-ipc",
- "nowayos-region",
- "sel4-microkit",
-]
-
-[[package]]
-name = "nowayos-input-print"
-version = "0.1.0"
-dependencies = [
- "nowayos-input",
- "nowayos-ipc",
- "nowayos-region",
- "sel4-microkit",
-]
-
-[[package]]
-name = "nowayos-input-script"
-version = "0.1.0"
-dependencies = [
- "nowayos-demo",
- "nowayos-input",
- "nowayos-ipc",
- "nowayos-region",
- "nowayos-ui-loop",
- "sel4-microkit",
-]
-
-[[package]]
-name = "nowayos-ip"
-version = "0.1.0"
-dependencies = [
- "nowayos-net",
- "nowayos-seed",
- "nowayos-socket",
- "nowayos-time",
- "smoltcp",
-]
-
-[[package]]
-name = "nowayos-ipc"
-version = "0.1.0"
-
-[[package]]
-name = "nowayos-ipc-consumer"
-version = "0.1.0"
-dependencies = [
- "nowayos-input",
- "nowayos-ipc",
- "nowayos-ipc-demo",
- "nowayos-region",
- "sel4-microkit",
-]
-
-[[package]]
-name = "nowayos-ipc-demo"
-version = "0.1.0"
-dependencies = [
- "nowayos-input",
- "nowayos-ipc",
-]
-
-[[package]]
-name = "nowayos-ipc-producer"
-version = "0.1.0"
-dependencies = [
- "nowayos-ipc",
- "nowayos-ipc-demo",
- "nowayos-region",
- "sel4-microkit",
-]
-
-[[package]]
-name = "nowayos-isolation-bystander"
-version = "0.1.0"
-dependencies = [
- "nowayos-region",
- "sel4-microkit",
-]
-
-[[package]]
-name = "nowayos-isolation-parent"
-version = "0.1.0"
-dependencies = [
- "nowayos-fault",
- "sel4",
- "sel4-microkit",
-]
-
-[[package]]
-name = "nowayos-isolation-probe"
-version = "0.1.0"
-dependencies = [
- "nowayos-region",
- "sel4-microkit",
-]
-
-[[package]]
-name = "nowayos-net"
-version = "0.1.0"
-
-[[package]]
-name = "nowayos-net-client"
-version = "0.1.0"
-dependencies = [
- "nowayos-display",
- "nowayos-net",
- "nowayos-region",
- "sel4-microkit",
-]
-
-[[package]]
-name = "nowayos-net-stack"
-version = "0.1.0"
-dependencies = [
- "nowayos-bounded",
- "nowayos-display",
- "nowayos-ip",
- "nowayos-ipc",
- "nowayos-net",
- "nowayos-region",
- "nowayos-seed",
- "nowayos-socket",
- "nowayos-timer-api",
- "sel4-microkit",
-]
-
-[[package]]
-name = "nowayos-net-stack-test"
-version = "0.1.0"
-dependencies = [
- "nowayos-display",
- "nowayos-ipc",
- "nowayos-net",
- "nowayos-region",
- "nowayos-seed",
- "sel4-microkit",
-]
-
-[[package]]
-name = "nowayos-pl011"
-version = "0.1.0"
-dependencies = [
- "nowayos-hw",
- "nowayos-region",
- "sel4-microkit",
-]
-
-[[package]]
-name = "nowayos-ramfb"
-version = "0.1.0"
-dependencies = [
- "nowayos-display",
- "nowayos-hw",
- "sel4-microkit",
-]
-
-[[package]]
-name = "nowayos-region"
-version = "0.1.0"
-dependencies = [
- "nowayos-display",
- "nowayos-ipc",
- "nowayos-net",
- "nowayos-time",
-]
-
-[[package]]
-name = "nowayos-render-eg"
-version = "0.1.0"
-dependencies = [
- "nowayos-display",
- "nowayos-glyphs",
- "nowayos-ui",
- "embedded-graphics",
-]
-
-[[package]]
-name = "nowayos-restart"
-version = "0.1.0"
-dependencies = [
- "sel4",
- "sel4-microkit",
- "sel4-phdrs",
-]
-
-[[package]]
-name = "nowayos-restart-probe"
-version = "0.1.0"
-dependencies = [
- "nowayos-ipc",
- "nowayos-region",
- "nowayos-restart",
- "sel4-microkit",
-]
-
-[[package]]
-name = "nowayos-rng-health"
-version = "0.1.0"
-dependencies = [
- "sha2 0.11.0",
-]
-
-[[package]]
-name = "nowayos-seed"
-version = "0.1.0"
-dependencies = [
- "nowayos-bounded",
- "nowayos-ipc",
-]
-
-[[package]]
-name = "nowayos-seed-consumer"
-version = "0.1.0"
-dependencies = [
- "nowayos-bounded",
- "nowayos-entropy",
- "nowayos-hw",
- "nowayos-ipc",
- "nowayos-region",
- "nowayos-seed",
- "nowayos-timer-api",
- "sel4-microkit",
- "sha2 0.11.0",
-]
-
-[[package]]
-name = "nowayos-serial"
-version = "0.1.0"
-dependencies = [
- "nowayos-ipc",
-]
-
-[[package]]
-name = "nowayos-serial-test"
-version = "0.1.0"
-dependencies = [
- "nowayos-ipc",
- "nowayos-region",
- "nowayos-serial",
- "sel4-microkit",
-]
-
-[[package]]
-name = "nowayos-signature"
-version = "0.1.0"
-dependencies = [
- "p256",
- "sha2 0.11.0",
-]
-
-[[package]]
-name = "nowayos-signature-check"
-version = "0.1.0"
-dependencies = [
- "nowayos-hw",
- "nowayos-signature",
- "sel4-microkit",
-]
-
-[[package]]
-name = "nowayos-socket"
-version = "0.1.0"
-dependencies = [
- "nowayos-ipc",
-]
-
-[[package]]
-name = "nowayos-socket-test"
-version = "0.1.0"
-dependencies = [
- "nowayos-ipc",
- "nowayos-region",
- "nowayos-socket",
- "sel4-microkit",
-]
-
-[[package]]
-name = "nowayos-supervisor"
-version = "0.1.0"
-dependencies = [
- "nowayos-fault",
- "nowayos-fault-policy",
- "nowayos-hw",
- "nowayos-ipc",
- "nowayos-region",
- "sel4",
- "sel4-microkit",
-]
-
-[[package]]
-name = "nowayos-time"
-version = "0.1.0"
-dependencies = [
- "nowayos-ipc",
-]
-
-[[package]]
-name = "nowayos-timer"
-version = "0.1.0"
-dependencies = [
- "nowayos-hw",
- "nowayos-timer-api",
- "sel4-microkit",
-]
-
-[[package]]
-name = "nowayos-timer-api"
-version = "0.1.0"
-dependencies = [
- "nowayos-time",
- "sel4-microkit",
-]
-
-[[package]]
-name = "nowayos-timer-client"
-version = "0.1.0"
-dependencies = [
- "nowayos-timer-api",
- "sel4-microkit",
-]
-
-[[package]]
-name = "nowayos-tls-crypto"
-version = "0.1.0"
-dependencies = [
- "aes-gcm",
- "chacha20poly1305",
- "ed25519-dalek",
- "hmac 0.12.1",
- "p256",
- "p384",
- "rsa",
- "rustls",
- "sha2 0.10.9",
- "x25519-dalek",
- "zeroize",
-]
-
-[[package]]
-name = "nowayos-tls-loopback"
-version = "0.1.0"
-dependencies = [
- "nowayos-tls-crypto",
- "ed25519-dalek",
- "rustls",
-]
-
-[[package]]
-name = "nowayos-tls-test"
-version = "0.1.0"
-dependencies = [
- "nowayos-entropy",
- "nowayos-heap",
- "nowayos-tls-loopback",
- "rustls",
- "sel4-microkit",
-]
-
-[[package]]
-name = "nowayos-tls-test-small-arena"
-version = "0.1.0"
-dependencies = [
- "nowayos-entropy",
- "nowayos-heap",
- "nowayos-tls-loopback",
- "rustls",
- "sel4-microkit",
-]
-
-[[package]]
-name = "nowayos-uart-input"
-version = "0.1.0"
-dependencies = [
- "nowayos-hw",
- "nowayos-input",
- "nowayos-ipc",
- "nowayos-region",
- "nowayos-timer-api",
- "sel4-microkit",
-]
-
-[[package]]
-name = "nowayos-ui"
-version = "0.1.0"
-dependencies = [
- "nowayos-bounded",
- "nowayos-display",
- "nowayos-glyphs",
- "nowayos-icons",
- "nowayos-input",
-]
-
-[[package]]
-name = "nowayos-ui-demo"
-version = "0.1.0"
-dependencies = [
- "nowayos-demo",
- "nowayos-display",
- "nowayos-hw",
- "nowayos-ui-loop",
- "sel4-microkit",
-]
-
-[[package]]
-name = "nowayos-ui-loop"
-version = "0.1.0"
-dependencies = [
- "nowayos-bounded",
- "nowayos-display",
- "nowayos-input",
- "nowayos-ipc",
- "nowayos-region",
- "nowayos-render-eg",
- "nowayos-ui",
- "embedded-graphics",
-]
-
-[[package]]
-name = "nowayos-update"
-version = "0.1.0"
-dependencies = [
- "nowayos-ipc",
-]
-
-[[package]]
-name = "nowayos-update-bundles"
-version = "0.1.0"
-dependencies = [
- "nowayos-hw",
- "nowayos-ipc",
- "nowayos-region",
- "nowayos-update",
- "nowayos-update-pd",
- "sel4-microkit",
-]
-
-[[package]]
-name = "nowayos-update-pd"
-version = "0.1.0"
-dependencies = [
- "nowayos-ipc",
- "nowayos-region",
- "nowayos-signature",
- "nowayos-update",
- "sel4-microkit",
-]
-
-[[package]]
-name = "nowayos-update-storage"
-version = "0.1.0"
-dependencies = [
- "nowayos-display",
- "nowayos-region",
- "nowayos-signature",
- "nowayos-update",
- "nowayos-update-pd",
- "sel4-microkit",
-]
-
-[[package]]
-name = "nowayos-usb"
-version = "0.1.0"
-dependencies = [
- "nowayos-input",
-]
-
-[[package]]
-name = "nowayos-usb-camera"
-version = "0.1.0"
-dependencies = [
- "nowayos-usb-host",
- "sel4-microkit",
-]
-
-[[package]]
-name = "nowayos-usb-host"
-version = "0.1.0"
-dependencies = [
- "nowayos-audio",
- "nowayos-display",
- "nowayos-hw",
- "nowayos-input",
- "nowayos-ipc",
- "nowayos-region",
- "nowayos-timer-api",
- "nowayos-usb",
- "sel4-microkit",
-]
-
-[[package]]
-name = "nowayos-usb-tone"
-version = "0.1.0"
-dependencies = [
- "nowayos-usb-host",
- "sel4-microkit",
-]
-
-[[package]]
-name = "nowayos-virtio-console"
-version = "0.1.0"
-dependencies = [
- "nowayos-hw",
- "nowayos-ipc",
- "nowayos-region",
- "nowayos-serial",
- "sel4-microkit",
-]
-
-[[package]]
-name = "nowayos-virtio-input"
-version = "0.1.0"
-dependencies = [
- "nowayos-hw",
- "nowayos-input",
- "nowayos-ipc",
- "nowayos-region",
- "sel4-microkit",
-]
-
-[[package]]
-name = "nowayos-virtio-net"
-version = "0.1.0"
-dependencies = [
- "nowayos-hw",
- "nowayos-net",
- "nowayos-region",
- "sel4-microkit",
-]
-
-[[package]]
-name = "nowayos-watchdog"
-version = "0.1.0"
-dependencies = [
- "nowayos-heartbeat",
- "nowayos-hw",
- "sel4-microkit",
-]
-
-[[package]]
-name = "nowayos-watchdog-stand-in"
-version = "0.1.0"
-dependencies = [
- "nowayos-region",
- "nowayos-timer-api",
- "sel4-microkit",
-]
-
-[[package]]
 name = "bindgen"
 version = "0.72.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1589,6 +751,861 @@ checksum = "d273983c5a657a70a3e8f2a01329822f3b8c8172b73826411a55751e404a0a4a"
 dependencies = [
  "memchr",
  "minimal-lexical",
+]
+
+[[package]]
+name = "nowayos-audio"
+version = "0.1.0"
+dependencies = [
+ "nowayos-ipc",
+]
+
+[[package]]
+name = "nowayos-audio-loop"
+version = "0.1.0"
+dependencies = [
+ "nowayos-audio",
+ "nowayos-display",
+ "nowayos-ipc",
+ "nowayos-region",
+ "nowayos-usb",
+ "sel4-microkit",
+]
+
+[[package]]
+name = "nowayos-bounded"
+version = "0.1.0"
+
+[[package]]
+name = "nowayos-budget-probe"
+version = "0.1.0"
+dependencies = [
+ "nowayos-timer-api",
+ "sel4-microkit",
+]
+
+[[package]]
+name = "nowayos-camera-test"
+version = "0.1.0"
+dependencies = [
+ "nowayos-hw",
+ "nowayos-region",
+ "nowayos-usb",
+ "sel4-microkit",
+]
+
+[[package]]
+name = "nowayos-clock"
+version = "0.1.0"
+dependencies = [
+ "nowayos-clock-api",
+ "nowayos-region",
+ "nowayos-time",
+ "nowayos-timer-api",
+ "sel4-microkit",
+]
+
+[[package]]
+name = "nowayos-clock-api"
+version = "0.1.0"
+dependencies = [
+ "nowayos-ipc",
+ "nowayos-time",
+ "sel4-microkit",
+]
+
+[[package]]
+name = "nowayos-clock-test"
+version = "0.1.0"
+dependencies = [
+ "nowayos-clock-api",
+ "nowayos-ipc",
+ "nowayos-region",
+ "nowayos-time",
+ "nowayos-timer-api",
+ "sel4-microkit",
+]
+
+[[package]]
+name = "nowayos-console"
+version = "0.1.0"
+dependencies = [
+ "nowayos-hw",
+ "nowayos-ipc",
+ "nowayos-region",
+ "sel4-microkit",
+]
+
+[[package]]
+name = "nowayos-demo"
+version = "0.1.0"
+dependencies = [
+ "nowayos-display",
+ "nowayos-input",
+ "nowayos-ui",
+]
+
+[[package]]
+name = "nowayos-display"
+version = "0.1.0"
+dependencies = [
+ "nowayos-bounded",
+ "nowayos-ipc",
+]
+
+[[package]]
+name = "nowayos-display-ramfb"
+version = "0.1.0"
+dependencies = [
+ "nowayos-display",
+ "nowayos-hw",
+ "nowayos-ipc",
+ "nowayos-region",
+ "nowayos-ui-loop",
+ "sel4-microkit",
+]
+
+[[package]]
+name = "nowayos-display-stub"
+version = "0.1.0"
+dependencies = [
+ "nowayos-display",
+ "nowayos-fb",
+ "nowayos-hw",
+ "nowayos-ipc",
+ "nowayos-region",
+ "nowayos-ui-loop",
+ "sel4-microkit",
+]
+
+[[package]]
+name = "nowayos-dma-demo"
+version = "0.1.0"
+dependencies = [
+ "nowayos-hw",
+ "sel4-microkit",
+]
+
+[[package]]
+name = "nowayos-entropy"
+version = "0.1.0"
+dependencies = [
+ "chacha20 0.10.2",
+ "getrandom 0.2.17",
+ "getrandom 0.3.4",
+ "getrandom 0.4.3",
+ "zeroize",
+]
+
+[[package]]
+name = "nowayos-entropy-source"
+version = "0.1.0"
+dependencies = [
+ "nowayos-bounded",
+ "nowayos-hw",
+ "nowayos-ipc",
+ "nowayos-region",
+ "nowayos-rng-health",
+ "nowayos-seed",
+ "sel4-microkit",
+]
+
+[[package]]
+name = "nowayos-fan"
+version = "0.1.0"
+dependencies = [
+ "nowayos-hw",
+ "nowayos-timer-api",
+ "sel4-microkit",
+]
+
+[[package]]
+name = "nowayos-fault"
+version = "0.1.0"
+
+[[package]]
+name = "nowayos-fault-policy"
+version = "0.1.0"
+
+[[package]]
+name = "nowayos-fb"
+version = "0.1.0"
+dependencies = [
+ "nowayos-display",
+ "nowayos-hw",
+ "nowayos-region",
+]
+
+[[package]]
+name = "nowayos-fb-test"
+version = "0.1.0"
+dependencies = [
+ "nowayos-display",
+ "nowayos-fb",
+ "nowayos-hw",
+ "sel4-microkit",
+]
+
+[[package]]
+name = "nowayos-gem"
+version = "0.1.0"
+dependencies = [
+ "nowayos-net",
+]
+
+[[package]]
+name = "nowayos-gem-net"
+version = "0.1.0"
+dependencies = [
+ "nowayos-gem",
+ "nowayos-hw",
+ "nowayos-net",
+ "nowayos-region",
+ "nowayos-timer-api",
+ "sel4-microkit",
+]
+
+[[package]]
+name = "nowayos-getrandom-probe"
+version = "0.1.0"
+dependencies = [
+ "getrandom 0.2.17",
+ "getrandom 0.3.4",
+ "getrandom 0.4.3",
+ "nowayos-entropy",
+ "rand_core 0.9.5",
+ "sel4-microkit",
+]
+
+[[package]]
+name = "nowayos-glyph-bench"
+version = "0.1.0"
+dependencies = [
+ "nowayos-glyphs",
+ "nowayos-hw",
+ "nowayos-raster",
+ "sel4-microkit",
+]
+
+[[package]]
+name = "nowayos-glyphs"
+version = "0.1.0"
+dependencies = [
+ "nowayos-raster",
+]
+
+[[package]]
+name = "nowayos-heap"
+version = "0.1.0"
+dependencies = [
+ "one-shot-mutex",
+ "sel4-dlmalloc",
+]
+
+[[package]]
+name = "nowayos-heartbeat"
+version = "0.1.0"
+
+[[package]]
+name = "nowayos-heartbeat-probe"
+version = "0.1.0"
+dependencies = [
+ "sel4-microkit",
+]
+
+[[package]]
+name = "nowayos-hello"
+version = "0.1.0"
+dependencies = [
+ "sel4-microkit",
+]
+
+[[package]]
+name = "nowayos-hw"
+version = "0.1.0"
+dependencies = [
+ "nowayos-gem",
+ "nowayos-net",
+ "nowayos-usb",
+ "safe-mmio",
+]
+
+[[package]]
+name = "nowayos-icons"
+version = "0.1.0"
+
+[[package]]
+name = "nowayos-input"
+version = "0.1.0"
+dependencies = [
+ "nowayos-ipc",
+]
+
+[[package]]
+name = "nowayos-input-broker"
+version = "0.1.0"
+dependencies = [
+ "nowayos-hw",
+ "nowayos-input",
+ "nowayos-ipc",
+ "nowayos-region",
+ "sel4-microkit",
+]
+
+[[package]]
+name = "nowayos-input-flood"
+version = "0.1.0"
+dependencies = [
+ "nowayos-input",
+ "nowayos-ipc",
+ "nowayos-region",
+ "sel4-microkit",
+]
+
+[[package]]
+name = "nowayos-input-print"
+version = "0.1.0"
+dependencies = [
+ "nowayos-input",
+ "nowayos-ipc",
+ "nowayos-region",
+ "sel4-microkit",
+]
+
+[[package]]
+name = "nowayos-input-script"
+version = "0.1.0"
+dependencies = [
+ "nowayos-demo",
+ "nowayos-input",
+ "nowayos-ipc",
+ "nowayos-region",
+ "nowayos-ui-loop",
+ "sel4-microkit",
+]
+
+[[package]]
+name = "nowayos-ip"
+version = "0.1.0"
+dependencies = [
+ "nowayos-net",
+ "nowayos-seed",
+ "nowayos-socket",
+ "nowayos-time",
+ "smoltcp",
+]
+
+[[package]]
+name = "nowayos-ipc"
+version = "0.1.0"
+
+[[package]]
+name = "nowayos-ipc-consumer"
+version = "0.1.0"
+dependencies = [
+ "nowayos-input",
+ "nowayos-ipc",
+ "nowayos-ipc-demo",
+ "nowayos-region",
+ "sel4-microkit",
+]
+
+[[package]]
+name = "nowayos-ipc-demo"
+version = "0.1.0"
+dependencies = [
+ "nowayos-input",
+ "nowayos-ipc",
+]
+
+[[package]]
+name = "nowayos-ipc-producer"
+version = "0.1.0"
+dependencies = [
+ "nowayos-ipc",
+ "nowayos-ipc-demo",
+ "nowayos-region",
+ "sel4-microkit",
+]
+
+[[package]]
+name = "nowayos-isolation-bystander"
+version = "0.1.0"
+dependencies = [
+ "nowayos-region",
+ "sel4-microkit",
+]
+
+[[package]]
+name = "nowayos-isolation-parent"
+version = "0.1.0"
+dependencies = [
+ "nowayos-fault",
+ "sel4",
+ "sel4-microkit",
+]
+
+[[package]]
+name = "nowayos-isolation-probe"
+version = "0.1.0"
+dependencies = [
+ "nowayos-region",
+ "sel4-microkit",
+]
+
+[[package]]
+name = "nowayos-net"
+version = "0.1.0"
+
+[[package]]
+name = "nowayos-net-client"
+version = "0.1.0"
+dependencies = [
+ "nowayos-display",
+ "nowayos-net",
+ "nowayos-region",
+ "sel4-microkit",
+]
+
+[[package]]
+name = "nowayos-net-stack"
+version = "0.1.0"
+dependencies = [
+ "nowayos-bounded",
+ "nowayos-display",
+ "nowayos-ip",
+ "nowayos-ipc",
+ "nowayos-net",
+ "nowayos-region",
+ "nowayos-seed",
+ "nowayos-socket",
+ "nowayos-timer-api",
+ "sel4-microkit",
+]
+
+[[package]]
+name = "nowayos-net-stack-test"
+version = "0.1.0"
+dependencies = [
+ "nowayos-display",
+ "nowayos-ipc",
+ "nowayos-net",
+ "nowayos-region",
+ "nowayos-seed",
+ "sel4-microkit",
+]
+
+[[package]]
+name = "nowayos-pl011"
+version = "0.1.0"
+dependencies = [
+ "nowayos-hw",
+ "nowayos-region",
+ "sel4-microkit",
+]
+
+[[package]]
+name = "nowayos-ramfb"
+version = "0.1.0"
+dependencies = [
+ "nowayos-display",
+ "nowayos-hw",
+ "sel4-microkit",
+]
+
+[[package]]
+name = "nowayos-raster"
+version = "0.1.0"
+
+[[package]]
+name = "nowayos-region"
+version = "0.1.0"
+dependencies = [
+ "nowayos-display",
+ "nowayos-ipc",
+ "nowayos-net",
+ "nowayos-time",
+]
+
+[[package]]
+name = "nowayos-render-eg"
+version = "0.1.0"
+dependencies = [
+ "embedded-graphics",
+ "nowayos-display",
+ "nowayos-glyphs",
+ "nowayos-ui",
+]
+
+[[package]]
+name = "nowayos-restart"
+version = "0.1.0"
+dependencies = [
+ "sel4",
+ "sel4-microkit",
+ "sel4-phdrs",
+]
+
+[[package]]
+name = "nowayos-restart-probe"
+version = "0.1.0"
+dependencies = [
+ "nowayos-ipc",
+ "nowayos-region",
+ "nowayos-restart",
+ "sel4-microkit",
+]
+
+[[package]]
+name = "nowayos-rng-health"
+version = "0.1.0"
+dependencies = [
+ "sha2 0.11.0",
+]
+
+[[package]]
+name = "nowayos-seed"
+version = "0.1.0"
+dependencies = [
+ "nowayos-bounded",
+ "nowayos-ipc",
+]
+
+[[package]]
+name = "nowayos-seed-consumer"
+version = "0.1.0"
+dependencies = [
+ "nowayos-bounded",
+ "nowayos-entropy",
+ "nowayos-hw",
+ "nowayos-ipc",
+ "nowayos-region",
+ "nowayos-seed",
+ "nowayos-timer-api",
+ "sel4-microkit",
+ "sha2 0.11.0",
+]
+
+[[package]]
+name = "nowayos-serial"
+version = "0.1.0"
+dependencies = [
+ "nowayos-ipc",
+]
+
+[[package]]
+name = "nowayos-serial-test"
+version = "0.1.0"
+dependencies = [
+ "nowayos-ipc",
+ "nowayos-region",
+ "nowayos-serial",
+ "sel4-microkit",
+]
+
+[[package]]
+name = "nowayos-signature"
+version = "0.1.0"
+dependencies = [
+ "p256",
+ "sha2 0.11.0",
+]
+
+[[package]]
+name = "nowayos-signature-check"
+version = "0.1.0"
+dependencies = [
+ "nowayos-hw",
+ "nowayos-signature",
+ "sel4-microkit",
+]
+
+[[package]]
+name = "nowayos-socket"
+version = "0.1.0"
+dependencies = [
+ "nowayos-ipc",
+]
+
+[[package]]
+name = "nowayos-socket-test"
+version = "0.1.0"
+dependencies = [
+ "nowayos-ipc",
+ "nowayos-region",
+ "nowayos-socket",
+ "sel4-microkit",
+]
+
+[[package]]
+name = "nowayos-supervisor"
+version = "0.1.0"
+dependencies = [
+ "nowayos-fault",
+ "nowayos-fault-policy",
+ "nowayos-hw",
+ "nowayos-ipc",
+ "nowayos-region",
+ "sel4",
+ "sel4-microkit",
+]
+
+[[package]]
+name = "nowayos-time"
+version = "0.1.0"
+dependencies = [
+ "nowayos-ipc",
+]
+
+[[package]]
+name = "nowayos-timer"
+version = "0.1.0"
+dependencies = [
+ "nowayos-hw",
+ "nowayos-timer-api",
+ "sel4-microkit",
+]
+
+[[package]]
+name = "nowayos-timer-api"
+version = "0.1.0"
+dependencies = [
+ "nowayos-time",
+ "sel4-microkit",
+]
+
+[[package]]
+name = "nowayos-timer-client"
+version = "0.1.0"
+dependencies = [
+ "nowayos-timer-api",
+ "sel4-microkit",
+]
+
+[[package]]
+name = "nowayos-tls-crypto"
+version = "0.1.0"
+dependencies = [
+ "aes-gcm",
+ "chacha20poly1305",
+ "ed25519-dalek",
+ "hmac 0.12.1",
+ "p256",
+ "p384",
+ "rsa",
+ "rustls",
+ "sha2 0.10.9",
+ "x25519-dalek",
+ "zeroize",
+]
+
+[[package]]
+name = "nowayos-tls-loopback"
+version = "0.1.0"
+dependencies = [
+ "ed25519-dalek",
+ "nowayos-tls-crypto",
+ "rustls",
+]
+
+[[package]]
+name = "nowayos-tls-test"
+version = "0.1.0"
+dependencies = [
+ "nowayos-entropy",
+ "nowayos-heap",
+ "nowayos-tls-loopback",
+ "rustls",
+ "sel4-microkit",
+]
+
+[[package]]
+name = "nowayos-tls-test-small-arena"
+version = "0.1.0"
+dependencies = [
+ "nowayos-entropy",
+ "nowayos-heap",
+ "nowayos-tls-loopback",
+ "rustls",
+ "sel4-microkit",
+]
+
+[[package]]
+name = "nowayos-uart-input"
+version = "0.1.0"
+dependencies = [
+ "nowayos-hw",
+ "nowayos-input",
+ "nowayos-ipc",
+ "nowayos-region",
+ "nowayos-timer-api",
+ "sel4-microkit",
+]
+
+[[package]]
+name = "nowayos-ui"
+version = "0.1.0"
+dependencies = [
+ "nowayos-bounded",
+ "nowayos-display",
+ "nowayos-glyphs",
+ "nowayos-icons",
+ "nowayos-input",
+]
+
+[[package]]
+name = "nowayos-ui-demo"
+version = "0.1.0"
+dependencies = [
+ "nowayos-demo",
+ "nowayos-display",
+ "nowayos-hw",
+ "nowayos-ui-loop",
+ "sel4-microkit",
+]
+
+[[package]]
+name = "nowayos-ui-loop"
+version = "0.1.0"
+dependencies = [
+ "embedded-graphics",
+ "nowayos-bounded",
+ "nowayos-display",
+ "nowayos-input",
+ "nowayos-ipc",
+ "nowayos-region",
+ "nowayos-render-eg",
+ "nowayos-ui",
+]
+
+[[package]]
+name = "nowayos-update"
+version = "0.1.0"
+dependencies = [
+ "nowayos-ipc",
+]
+
+[[package]]
+name = "nowayos-update-bundles"
+version = "0.1.0"
+dependencies = [
+ "nowayos-hw",
+ "nowayos-ipc",
+ "nowayos-region",
+ "nowayos-update",
+ "nowayos-update-pd",
+ "sel4-microkit",
+]
+
+[[package]]
+name = "nowayos-update-pd"
+version = "0.1.0"
+dependencies = [
+ "nowayos-ipc",
+ "nowayos-region",
+ "nowayos-signature",
+ "nowayos-update",
+ "sel4-microkit",
+]
+
+[[package]]
+name = "nowayos-update-storage"
+version = "0.1.0"
+dependencies = [
+ "nowayos-display",
+ "nowayos-region",
+ "nowayos-signature",
+ "nowayos-update",
+ "nowayos-update-pd",
+ "sel4-microkit",
+]
+
+[[package]]
+name = "nowayos-usb"
+version = "0.1.0"
+dependencies = [
+ "nowayos-input",
+]
+
+[[package]]
+name = "nowayos-usb-camera"
+version = "0.1.0"
+dependencies = [
+ "nowayos-usb-host",
+ "sel4-microkit",
+]
+
+[[package]]
+name = "nowayos-usb-host"
+version = "0.1.0"
+dependencies = [
+ "nowayos-audio",
+ "nowayos-display",
+ "nowayos-hw",
+ "nowayos-input",
+ "nowayos-ipc",
+ "nowayos-region",
+ "nowayos-timer-api",
+ "nowayos-usb",
+ "sel4-microkit",
+]
+
+[[package]]
+name = "nowayos-usb-tone"
+version = "0.1.0"
+dependencies = [
+ "nowayos-usb-host",
+ "sel4-microkit",
+]
+
+[[package]]
+name = "nowayos-virtio-console"
+version = "0.1.0"
+dependencies = [
+ "nowayos-hw",
+ "nowayos-ipc",
+ "nowayos-region",
+ "nowayos-serial",
+ "sel4-microkit",
+]
+
+[[package]]
+name = "nowayos-virtio-input"
+version = "0.1.0"
+dependencies = [
+ "nowayos-hw",
+ "nowayos-input",
+ "nowayos-ipc",
+ "nowayos-region",
+ "sel4-microkit",
+]
+
+[[package]]
+name = "nowayos-virtio-net"
+version = "0.1.0"
+dependencies = [
+ "nowayos-hw",
+ "nowayos-net",
+ "nowayos-region",
+ "sel4-microkit",
+]
+
+[[package]]
+name = "nowayos-watchdog"
+version = "0.1.0"
+dependencies = [
+ "nowayos-heartbeat",
+ "nowayos-hw",
+ "sel4-microkit",
+]
+
+[[package]]
+name = "nowayos-watchdog-stand-in"
+version = "0.1.0"
+dependencies = [
+ "nowayos-region",
+ "nowayos-timer-api",
+ "sel4-microkit",
 ]
 
 [[package]]

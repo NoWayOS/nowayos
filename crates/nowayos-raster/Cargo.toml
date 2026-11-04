@@ -1,0 +1,16 @@
+[package]
+name = "nowayos-raster"
+description = "Anti-aliased coverage of filled outlines at any size, and a bounded cache of what it draws, for no_std code that must not allocate"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true

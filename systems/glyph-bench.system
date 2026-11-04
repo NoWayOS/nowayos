@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    The glyph bench: one PD that times nowayos-raster drawing the themes'
+    type scale from the glyph outlines at device scales 1 to 4, and prints
+    each time. No channels, memory regions or devices. Its rasteriser and
+    buffer live in its init frame, so it has a 4 MiB stack. Its one grant,
+    the PD itself, is listed in glyph-bench.grants.
+-->
+<system>
+    <protection_domain name="glyph_bench" priority="1" stack_size="0x400000">
+        <program_image path="nowayos-glyph-bench.elf" />
+    </protection_domain>
+</system>

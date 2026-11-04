@@ -8,10 +8,11 @@
 //! on floating point - `swash`'s rasteriser, which has no code specific to a
 //! CPU.
 
+use swash::scale::outline::Outline;
 use swash::scale::{Render, ScaleContext, Source};
 use swash::shape::ShapeContext;
 use swash::text::Script;
-use swash::zeno::Format;
+use swash::zeno::{Format, Verb};
 use swash::{FontRef, GlyphId, StringId};
 
 use crate::Error;
@@ -63,10 +64,37 @@ pub struct KernRow {
     pub units: i16,
 }
 
+/// One character's outline, y up: its advance in font units, its points in
+/// half font units, as a point TrueType implies between two curves' pulls
+/// lies halfway.
+pub struct OutlineRow {
+    /// The character it draws.
+    pub ch: char,
+    /// Its advance.
+    pub advance: i64,
+    /// The least x and y of its points: the bottom-left of the box they lie
+    /// in, in half font units.
+    pub min: (i64, i64),
+    /// The greatest x and y of its points: the top-right of that box, in
+    /// half font units.
+    pub max: (i64, i64),
+    /// Its steps: `M` moves, `L` draws a line, `Q` a quadratic curve, `C`
+    /// a cubic one and `Z` closes the contour.
+    pub verbs: Vec<u8>,
+    /// The points its steps take, x then y, in half font units: one for `M`
+    /// and `L`, two for `Q`, three for `C`.
+    pub points: Vec<i64>,
+}
+
 /// One face at every size, with its kerning in font units.
 pub struct FaceAtlas {
     /// The font's units per em.
     pub upem: u16,
+    /// Ascent, descent and line gap, in font units.
+    pub line_units: [i64; 3],
+    /// Every character's outline, in the set's order: what the device
+    /// draws the face from at any size.
+    pub outlines: Vec<OutlineRow>,
     /// The kerned pairs, in order of the first character, then the second;
     /// none of them 0.
     pub kerning: Vec<KernRow>,
@@ -112,6 +140,62 @@ fn whole_units(value: f32, file: &str, what: &str) -> Result<i64, Error> {
             message: format!("{what} is {value} font units, not a whole number"),
         })
     }
+}
+
+/// `ch`'s outline in half font units, from `swash`'s unscaled outline:
+/// every point a whole number of half units, refused otherwise, never
+/// rounded.
+fn outline_row(ch: char, advance: i64, outline: &Outline, file: &str) -> Result<OutlineRow, Error> {
+    let mut verbs = Vec::with_capacity(outline.verbs().len());
+    for verb in outline.verbs() {
+        verbs.push(match verb {
+            Verb::MoveTo => b'M',
+            Verb::LineTo => b'L',
+            Verb::QuadTo => b'Q',
+            Verb::CurveTo => b'C',
+            Verb::Close => b'Z',
+        });
+    }
+    let mut points = Vec::with_capacity(outline.points().len().saturating_mul(2));
+    let mut min = (i64::MAX, i64::MAX);
+    let mut max = (i64::MIN, i64::MIN);
+    for point in outline.points() {
+        let x = whole_units(point.x * 2.0, file, "twice an outline's point")?;
+        let y = whole_units(point.y * 2.0, file, "twice an outline's point")?;
+        min = (min.0.min(x), min.1.min(y));
+        max = (max.0.max(x), max.1.max(y));
+        points.push(x);
+        points.push(y);
+    }
+    if points.is_empty() {
+        (min, max) = ((0, 0), (0, 0));
+    }
+    let taken: usize = verbs
+        .iter()
+        .map(|verb| match verb {
+            b'M' | b'L' => 2,
+            b'Q' => 4,
+            b'C' => 6,
+            _ => 0,
+        })
+        .sum();
+    if taken != points.len() {
+        return Err(Error::Format {
+            file: file.into(),
+            message: format!(
+                "{}'s outline has steps that do not match its points",
+                show(ch)
+            ),
+        });
+    }
+    Ok(OutlineRow {
+        ch,
+        advance,
+        min,
+        max,
+        verbs,
+        points,
+    })
 }
 
 /// A character as the messages show it: its code point and the character.
@@ -193,6 +277,7 @@ pub fn rasterise(
     let glyph_metrics = font.glyph_metrics(&[]);
     let mut context = ScaleContext::new();
     let mut units = Vec::with_capacity(ids.len());
+    let mut outlines = Vec::with_capacity(ids.len());
     {
         let mut unscaled = context.builder(font).size(0.0).hint(false).build();
         for (&ch, &id) in chars.iter().zip(&ids) {
@@ -210,6 +295,7 @@ pub fn rasterise(
                 )
             };
             units.push((advance, x_min, y_max));
+            outlines.push(outline_row(ch, advance, &outline, file)?);
         }
     }
     let pairs = kerning(font, file, chars, &sources, &ids, &units)?;
@@ -305,6 +391,8 @@ pub fn rasterise(
     }
     Ok(FaceAtlas {
         upem,
+        line_units: line,
+        outlines,
         kerning: kerning_rows,
         sizes: atlases,
     })

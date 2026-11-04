@@ -68,6 +68,7 @@ fn two_runs_give_the_same_bytes_naming_no_path() {
         ("display", &[96, 192][..]),
     ] {
         expected.push(format!("{face}_kerning.rs"));
+        expected.push(format!("{face}_outline.rs"));
         for size in sizes {
             expected.push(format!("{face}_{size}.coverage"));
             expected.push(format!("{face}_{size}.rs"));
@@ -275,7 +276,7 @@ fn the_output_folder_holds_only_what_the_tool_writes() {
     let summary = run_on(&dir, &out).unwrap();
     assert!(summary.contains("written to"), "{summary}");
     assert!(!out.join("regular_99.rs").exists());
-    assert_eq!(fs::read_dir(&out).unwrap().count(), 49);
+    assert_eq!(fs::read_dir(&out).unwrap().count(), 52);
 }
 
 #[test]
