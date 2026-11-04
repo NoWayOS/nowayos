@@ -784,7 +784,7 @@ impl<const N: usize> Tree<N> {
             return;
         };
         let moved = i64::from(drag.from).saturating_sub(i64::from(y));
-        let slop = DRAG_SLOP.saturating_mul(self.scale);
+        let slop = self.scale.px(DRAG_SLOP);
         if !drag.scrolling && moved.unsigned_abs() <= u64::from(slop) {
             return;
         }

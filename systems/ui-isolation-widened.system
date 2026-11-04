@@ -38,7 +38,7 @@
         </protection_domain>
 
         <!-- The UI's maps (ui-demo.system, "ui"), three times. -->
-        <protection_domain name="ui_writes_display_index" id="1" priority="30" stack_size="0x20000">
+        <protection_domain name="ui_writes_display_index" id="1" priority="30" stack_size="0x600000">
             <program_image path="nowayos-isolation-probe.elf" />
             <map mr="present_messages" vaddr="0x4000_0000" perms="rw"
                  setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
@@ -56,7 +56,7 @@
                  setvar_vaddr="nowayos_ro_region_2_vaddr" setvar_size="nowayos_ro_region_2_size" />
         </protection_domain>
 
-        <protection_domain name="ui_reads_display_private" id="2" priority="20" stack_size="0x20000">
+        <protection_domain name="ui_reads_display_private" id="2" priority="20" stack_size="0x600000">
             <program_image path="nowayos-isolation-probe.elf" />
             <!-- WIDENED ON PURPOSE: display_side's private page. -->
             <map mr="display_private" vaddr="0x6000_0000" perms="r" />
@@ -76,7 +76,7 @@
                  setvar_vaddr="nowayos_ro_region_2_vaddr" setvar_size="nowayos_ro_region_2_size" />
         </protection_domain>
 
-        <protection_domain name="ui_reads_device" id="3" priority="10" stack_size="0x20000">
+        <protection_domain name="ui_reads_device" id="3" priority="10" stack_size="0x600000">
             <program_image path="nowayos-isolation-probe.elf" />
             <map mr="present_messages" vaddr="0x4000_0000" perms="rw"
                  setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />

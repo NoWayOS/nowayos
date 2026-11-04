@@ -8,7 +8,18 @@ pub static CLIPBOARD_LIST: Icon = Icon::new(
     "clipboard-list",
     [
         Mask::new(24, include_bytes!("clipboard_list_24.coverage")),
+        Mask::new(30, include_bytes!("clipboard_list_30.coverage")),
+        Mask::new(36, include_bytes!("clipboard_list_36.coverage")),
+        Mask::new(42, include_bytes!("clipboard_list_42.coverage")),
         Mask::new(48, include_bytes!("clipboard_list_48.coverage")),
+        Mask::new(54, include_bytes!("clipboard_list_54.coverage")),
+        Mask::new(60, include_bytes!("clipboard_list_60.coverage")),
+        Mask::new(66, include_bytes!("clipboard_list_66.coverage")),
+        Mask::new(72, include_bytes!("clipboard_list_72.coverage")),
+        Mask::new(78, include_bytes!("clipboard_list_78.coverage")),
+        Mask::new(84, include_bytes!("clipboard_list_84.coverage")),
+        Mask::new(90, include_bytes!("clipboard_list_90.coverage")),
+        Mask::new(96, include_bytes!("clipboard_list_96.coverage")),
     ],
 );
 
@@ -17,7 +28,18 @@ pub static FUEL: Icon = Icon::new(
     "fuel",
     [
         Mask::new(24, include_bytes!("fuel_24.coverage")),
+        Mask::new(30, include_bytes!("fuel_30.coverage")),
+        Mask::new(36, include_bytes!("fuel_36.coverage")),
+        Mask::new(42, include_bytes!("fuel_42.coverage")),
         Mask::new(48, include_bytes!("fuel_48.coverage")),
+        Mask::new(54, include_bytes!("fuel_54.coverage")),
+        Mask::new(60, include_bytes!("fuel_60.coverage")),
+        Mask::new(66, include_bytes!("fuel_66.coverage")),
+        Mask::new(72, include_bytes!("fuel_72.coverage")),
+        Mask::new(78, include_bytes!("fuel_78.coverage")),
+        Mask::new(84, include_bytes!("fuel_84.coverage")),
+        Mask::new(90, include_bytes!("fuel_90.coverage")),
+        Mask::new(96, include_bytes!("fuel_96.coverage")),
     ],
 );
 
@@ -26,7 +48,18 @@ pub static HOUSE: Icon = Icon::new(
     "house",
     [
         Mask::new(24, include_bytes!("house_24.coverage")),
+        Mask::new(30, include_bytes!("house_30.coverage")),
+        Mask::new(36, include_bytes!("house_36.coverage")),
+        Mask::new(42, include_bytes!("house_42.coverage")),
         Mask::new(48, include_bytes!("house_48.coverage")),
+        Mask::new(54, include_bytes!("house_54.coverage")),
+        Mask::new(60, include_bytes!("house_60.coverage")),
+        Mask::new(66, include_bytes!("house_66.coverage")),
+        Mask::new(72, include_bytes!("house_72.coverage")),
+        Mask::new(78, include_bytes!("house_78.coverage")),
+        Mask::new(84, include_bytes!("house_84.coverage")),
+        Mask::new(90, include_bytes!("house_90.coverage")),
+        Mask::new(96, include_bytes!("house_96.coverage")),
     ],
 );
 
@@ -35,7 +68,18 @@ pub static MESSAGE_SQUARE: Icon = Icon::new(
     "message-square",
     [
         Mask::new(24, include_bytes!("message_square_24.coverage")),
+        Mask::new(30, include_bytes!("message_square_30.coverage")),
+        Mask::new(36, include_bytes!("message_square_36.coverage")),
+        Mask::new(42, include_bytes!("message_square_42.coverage")),
         Mask::new(48, include_bytes!("message_square_48.coverage")),
+        Mask::new(54, include_bytes!("message_square_54.coverage")),
+        Mask::new(60, include_bytes!("message_square_60.coverage")),
+        Mask::new(66, include_bytes!("message_square_66.coverage")),
+        Mask::new(72, include_bytes!("message_square_72.coverage")),
+        Mask::new(78, include_bytes!("message_square_78.coverage")),
+        Mask::new(84, include_bytes!("message_square_84.coverage")),
+        Mask::new(90, include_bytes!("message_square_90.coverage")),
+        Mask::new(96, include_bytes!("message_square_96.coverage")),
     ],
 );
 
@@ -44,7 +88,18 @@ pub static SHIELD_CHECK: Icon = Icon::new(
     "shield-check",
     [
         Mask::new(24, include_bytes!("shield_check_24.coverage")),
+        Mask::new(30, include_bytes!("shield_check_30.coverage")),
+        Mask::new(36, include_bytes!("shield_check_36.coverage")),
+        Mask::new(42, include_bytes!("shield_check_42.coverage")),
         Mask::new(48, include_bytes!("shield_check_48.coverage")),
+        Mask::new(54, include_bytes!("shield_check_54.coverage")),
+        Mask::new(60, include_bytes!("shield_check_60.coverage")),
+        Mask::new(66, include_bytes!("shield_check_66.coverage")),
+        Mask::new(72, include_bytes!("shield_check_72.coverage")),
+        Mask::new(78, include_bytes!("shield_check_78.coverage")),
+        Mask::new(84, include_bytes!("shield_check_84.coverage")),
+        Mask::new(90, include_bytes!("shield_check_90.coverage")),
+        Mask::new(96, include_bytes!("shield_check_96.coverage")),
     ],
 );
 
@@ -53,7 +108,18 @@ pub static USER_CHECK: Icon = Icon::new(
     "user-check",
     [
         Mask::new(24, include_bytes!("user_check_24.coverage")),
+        Mask::new(30, include_bytes!("user_check_30.coverage")),
+        Mask::new(36, include_bytes!("user_check_36.coverage")),
+        Mask::new(42, include_bytes!("user_check_42.coverage")),
         Mask::new(48, include_bytes!("user_check_48.coverage")),
+        Mask::new(54, include_bytes!("user_check_54.coverage")),
+        Mask::new(60, include_bytes!("user_check_60.coverage")),
+        Mask::new(66, include_bytes!("user_check_66.coverage")),
+        Mask::new(72, include_bytes!("user_check_72.coverage")),
+        Mask::new(78, include_bytes!("user_check_78.coverage")),
+        Mask::new(84, include_bytes!("user_check_84.coverage")),
+        Mask::new(90, include_bytes!("user_check_90.coverage")),
+        Mask::new(96, include_bytes!("user_check_96.coverage")),
     ],
 );
 

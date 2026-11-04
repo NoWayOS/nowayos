@@ -138,6 +138,7 @@ impl Iterator for Path {
 /// One face as outlines: every character of its set, its line metrics and
 /// its pair kerning, in font units.
 pub struct Face {
+    id: u16,
     upem: u16,
     line: [i32; 3],
     glyphs: &'static [Outline],
@@ -146,17 +147,26 @@ pub struct Face {
 
 impl Face {
     pub(crate) const fn new(
+        id: u16,
         upem: u16,
         line: [i32; 3],
         glyphs: &'static [Outline],
         kerning: &'static [KernPair],
     ) -> Self {
         Self {
+            id,
             upem,
             line,
             glyphs,
             kerning,
         }
+    }
+
+    /// Its number, from 1, in the order `glyphs.toml` lists the faces: what
+    /// a glyph cache tells faces apart by.
+    #[must_use]
+    pub const fn id(&self) -> u16 {
+        self.id
     }
 
     /// The font's units per em.
@@ -210,6 +220,21 @@ impl Face {
     pub fn glyph(&self, ch: char) -> Result<&'static Outline, NoGlyph> {
         let index = self.index(ch)?;
         self.glyphs.get(index).ok_or(NoGlyph)
+    }
+
+    /// `ch`'s advance in font units, found in a constant context (a linear
+    /// search: [`glyph`](Self::glyph) is faster at run time); `None` for a
+    /// character outside the set.
+    #[must_use]
+    pub const fn advance_of(&self, ch: char) -> Option<i32> {
+        let mut rest = self.glyphs;
+        while let Some((glyph, tail)) = rest.split_first() {
+            if glyph.ch == ch {
+                return Some(glyph.advance);
+            }
+            rest = tail;
+        }
+        None
     }
 
     /// The adjustment to the pen between `left` and `right`, in font

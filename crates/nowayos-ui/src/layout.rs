@@ -13,8 +13,8 @@
 use core::fmt;
 use core::hash::{Hash, Hasher};
 
-use nowayos_display::{Rect, Size};
-use nowayos_glyphs::Atlas;
+use nowayos_display::{DeviceScale, Rect, Size};
+use nowayos_glyphs::{Atlas, Face};
 
 use crate::node::INPUT_WIDTH_CHARS;
 use crate::tree::MAX_DEPTH;
@@ -38,9 +38,11 @@ const UNITS_PER_PIXEL: u32 = 64;
 /// How big text is, and how big a control must be: what layout needs from
 /// a theme.
 ///
-/// Text is measured from a glyph atlas ([`TextMetrics::from_atlas`]): each
-/// character's own advance and the font's pair kerning, in 1/64 pixel, and
-/// the face's line height. Or, the special case, from a built-in monospace
+/// Text is measured from a face's outlines at a size in 1/64 pixel per em
+/// ([`TextMetrics::from_face`], or [`TextMetrics::from_atlas`] for the size
+/// an atlas was drawn at): each character's own advance and the font's pair
+/// kerning, scaled to 1/64 pixel as the atlases were, and the face's line
+/// height. Or, the special case, from a built-in monospace
 /// font ([`TextMetrics::new`]): every character the same advance and no
 /// kerning. The same code measures both - [`text_width`](Self::text_width),
 /// [`text::fit_start`](crate::text::fit_start) and
@@ -70,12 +72,12 @@ pub struct TextMetrics {
     /// The least height of a button, in pixels: a theme's token. 0
     /// leaves buttons at the minimum target size.
     button_height: u32,
-    scale: u32,
-    atlas: Option<AtlasRef>,
-    /// The atlas of each text style, by [`TextStyle::index`]: what text in
-    /// that role and weight is measured with. A style with none is
-    /// measured with `atlas`, the body text's.
-    faces: [Option<AtlasRef>; TextStyle::COUNT],
+    scale: DeviceScale,
+    face: Option<FaceRef>,
+    /// The face and size of each text style, by [`TextStyle::index`]: what
+    /// text in that role and weight is measured with. A style with none is
+    /// measured with `face`, the body text's.
+    faces: [Option<FaceRef>; TextStyle::COUNT],
     /// The line height of each style, in pixels, where the theme sets one;
     /// 0 for its atlas's own.
     lines: [u32; TextStyle::COUNT],
@@ -95,79 +97,102 @@ impl TextMetrics {
             line_height,
             min_target: crate::MIN_TARGET,
             button_height: 0,
-            scale: 1,
-            atlas: None,
+            scale: DeviceScale::ONE,
+            face: None,
             faces: [None; TextStyle::COUNT],
             lines: [0; TextStyle::COUNT],
             spacing: Spacing::STANDARD,
         }
     }
 
-    /// Metrics measured from `atlas`: each character's advance and the
-    /// font's pair kerning, and the face's line height - its ascent,
-    /// descent and line gap together, rounded up
+    /// Metrics measured from `face` at `size64` 1/64 pixel per em: each
+    /// character's advance and the font's pair kerning, and the face's line
+    /// height - its ascent, descent and line gap together, rounded up
     /// ([`nowayos_glyphs::LineMetrics::line_height`]). A character's width
     /// ([`char_width`](Self::char_width)) is the advance of the digit zero,
     /// rounded up. [`MIN_TARGET`](crate::MIN_TARGET) is the minimum target
-    /// size.
+    /// size. A size the face cannot be drawn at measures as nothing.
     #[must_use]
-    pub const fn from_atlas(atlas: &'static Atlas) -> Self {
+    pub const fn from_face(face: &'static Face, size64: u32) -> Self {
+        let face = FaceRef { face, size64 };
         Self {
-            char_width: zero_width(atlas),
-            line_height: atlas.line_metrics().line_height(),
+            char_width: face.zero_width(),
+            line_height: face.line_height(),
             min_target: crate::MIN_TARGET,
             button_height: 0,
-            scale: 1,
-            atlas: Some(AtlasRef(atlas)),
+            scale: DeviceScale::ONE,
+            face: Some(face),
             faces: [None; TextStyle::COUNT],
             lines: [0; TextStyle::COUNT],
             spacing: Spacing::STANDARD,
         }
     }
 
-    /// The same metrics, with text in `style` measured from `atlas`:
-    /// a theme's type scale, one role and weight at a time. Text in a style
-    /// given no atlas is measured as body text.
+    /// Metrics measured as [`from_face`](Self::from_face) measures the face
+    /// `atlas` was drawn from at the size it was drawn at: exactly as the
+    /// atlas measures.
     #[must_use]
-    pub fn with_face(self, style: TextStyle, atlas: &'static Atlas) -> Self {
+    pub const fn from_atlas(atlas: &'static Atlas) -> Self {
+        Self::from_face(atlas.face(), (atlas.size() as u32).saturating_mul(64))
+    }
+
+    /// The same metrics, with text in `style` measured from `face` at
+    /// `size64` 1/64 pixel per em: a theme's type scale, one role and
+    /// weight at a time. Text in a style given no face is measured as body
+    /// text.
+    #[must_use]
+    pub fn with_face(self, style: TextStyle, face: &'static Face, size64: u32) -> Self {
         let mut faces = self.faces;
-        if let Some(face) = faces.get_mut(style.index()) {
-            *face = Some(AtlasRef(atlas));
+        if let Some(slot) = faces.get_mut(style.index()) {
+            *slot = Some(FaceRef { face, size64 });
         }
         Self { faces, ..self }
     }
 
-    /// The same metrics, with text in `style` measured from `atlas` and set
-    /// in lines `line_height` pixels high rather than the atlas's own:
-    /// a theme's line height for a role, such as a display number
-    /// set solid. 0 keeps the atlas's own.
+    /// The same metrics, with text in `style` measured as `atlas` measures:
+    /// its face at the size it was drawn at.
     #[must_use]
-    pub fn with_face_line(self, style: TextStyle, atlas: &'static Atlas, line_height: u32) -> Self {
-        let mut metrics = self.with_face(style, atlas);
+    pub fn with_atlas(self, style: TextStyle, atlas: &'static Atlas) -> Self {
+        self.with_face(
+            style,
+            atlas.face(),
+            u32::from(atlas.size()).saturating_mul(64),
+        )
+    }
+
+    /// The same metrics, with text in `style` measured from `face` at
+    /// `size64` and set `line_height` pixels a line, rather than the face's
+    /// own line height: a type scale whose roles set their line height.
+    #[must_use]
+    pub fn with_face_line(
+        self,
+        style: TextStyle,
+        face: &'static Face,
+        size64: u32,
+        line_height: u32,
+    ) -> Self {
+        let mut metrics = self.with_face(style, face, size64);
         if let Some(line) = metrics.lines.get_mut(style.index()) {
             *line = line_height;
         }
         metrics
     }
 
-    /// The metrics text in `style` is measured with: its atlas's advances,
-    /// kerning, line height and character width - or the line height the
-    /// theme gives the style ([`with_face_line`](Self::with_face_line)) -
-    /// with the same minimum target, scale and type scale; or these metrics
-    /// themselves for a style given no atlas ([`with_face`](Self::with_face)).
+    /// The metrics text in `style` is measured with: its face's advances,
+    /// kerning, line height and character width at its size - or the line
+    /// height the theme gives the style
+    /// ([`with_face_line`](Self::with_face_line)) - with the same minimum
+    /// target, scale and type scale; or these metrics themselves for a style
+    /// given no face ([`with_face`](Self::with_face)).
     #[must_use]
     pub fn for_style(&self, style: TextStyle) -> Self {
         match self.faces.get(style.index()).copied().flatten() {
-            Some(AtlasRef(atlas)) => {
+            Some(face) => {
                 let set = self.lines.get(style.index()).copied().unwrap_or(0);
                 Self {
-                    char_width: zero_width(atlas),
-                    line_height: if set > 0 {
-                        set
-                    } else {
-                        atlas.line_metrics().line_height()
-                    },
-                    atlas: Some(AtlasRef(atlas)),
+                    char_width: face.zero_width(),
+                    line_height: if set > 0 { set } else { face.line_height() },
+                    face: Some(face),
                     ..*self
                 }
             }
@@ -225,17 +250,14 @@ impl TextMetrics {
     /// `Theme::metrics_at`), and so is the minimum target size. A scale of
     /// 0 is taken as 1.
     #[must_use]
-    pub const fn with_scale(self, scale: u32) -> Self {
-        Self {
-            scale: if scale == 0 { 1 } else { scale },
-            ..self
-        }
+    pub const fn with_scale(self, scale: DeviceScale) -> Self {
+        Self { scale, ..self }
     }
 
     /// The device scale: pixels each way for each layout unit a style
     /// names. 1 unless [`with_scale`](Self::with_scale) set another.
     #[must_use]
-    pub const fn scale(&self) -> u32 {
+    pub const fn scale(&self) -> DeviceScale {
         self.scale
     }
 
@@ -266,11 +288,12 @@ impl TextMetrics {
         self.min_target
     }
 
-    /// The atlas text is measured from; `None` for a monospace font.
+    /// The face text is measured from, and its size in 1/64 pixel per
+    /// em; `None` for a monospace font.
     #[must_use]
-    pub const fn atlas(&self) -> Option<&'static Atlas> {
-        match self.atlas {
-            Some(AtlasRef(atlas)) => Some(atlas),
+    pub const fn face(&self) -> Option<(&'static Face, u32)> {
+        match self.face {
+            Some(FaceRef { face, size64 }) => Some((face, size64)),
             None => None,
         }
     }
@@ -283,8 +306,8 @@ impl TextMetrics {
     /// monospace font draws every character, an unknown one as its
     /// replacement glyph.
     pub(crate) fn advance(&self, ch: char) -> Option<i64> {
-        match self.atlas {
-            Some(AtlasRef(atlas)) => atlas.glyph(ch).ok().map(|glyph| i64::from(glyph.advance())),
+        match self.face {
+            Some(face) => face.advance(ch),
             None => Some(i64::from(self.char_width).saturating_mul(i64::from(UNITS_PER_PIXEL))),
         }
     }
@@ -292,8 +315,7 @@ impl TextMetrics {
     /// The adjustment to the pen between `left` and `right`, in 1/64 pixel:
     /// the atlas's pair kerning; 0 for a monospace font.
     pub(crate) fn kerning(&self, left: char, right: char) -> i64 {
-        self.atlas
-            .map_or(0, |AtlasRef(atlas)| i64::from(atlas.kerning(left, right)))
+        self.face.map_or(0, |face| face.kerning(left, right))
     }
 
     /// Width of `text` on one line, in pixels: the sum of its characters'
@@ -339,7 +361,7 @@ impl TextMetrics {
     #[must_use]
     pub fn key_height(&self) -> u32 {
         self.line_height
-            .saturating_add(crate::KEY_SPACE.saturating_mul(self.scale))
+            .saturating_add(self.scale.px(crate::KEY_SPACE))
             .max(self.min_target)
     }
 
@@ -357,13 +379,11 @@ impl TextMetrics {
             NodeKind::TextInput { .. } => Size::new(self.min_target, self.min_target),
             // An icon's size, at the scale.
             NodeKind::Icon(_) => {
-                let side = nowayos_icons::SIZE.saturating_mul(self.scale);
+                let side = self.scale.px(nowayos_icons::SIZE);
                 Size::new(side, side)
             }
             // A progress bar's height, at the scale.
-            NodeKind::Progress { .. } => {
-                Size::new(0, crate::PROGRESS_HEIGHT.saturating_mul(self.scale))
-            }
+            NodeKind::Progress { .. } => Size::new(0, self.scale.px(crate::PROGRESS_HEIGHT)),
             _ => Size::ZERO,
         }
     }
@@ -386,46 +406,78 @@ pub(crate) fn pixels_in_units(width: u32) -> i64 {
     i64::from(width).saturating_mul(i64::from(UNITS_PER_PIXEL))
 }
 
-/// The advance of `atlas`'s digit zero in whole pixels, rounded up; 0 if it
-/// has none (every atlas has one: they all hold the whole set).
-const fn zero_width(atlas: &Atlas) -> u32 {
-    let mut rest = atlas.glyphs();
-    while let Some((glyph, tail)) = rest.split_first() {
-        if glyph.ch() == '0' {
-            let advance = glyph.advance();
-            return if advance <= 0 {
-                0
-            } else {
-                advance.unsigned_abs().div_ceil(UNITS_PER_PIXEL)
-            };
-        }
-        rest = tail;
-    }
-    0
-}
-
-/// An atlas, compared and hashed by identity: every atlas is a `static`, so
-/// two metrics measure alike when they name the same one.
+/// A face at a size in 1/64 pixel per em: what text is measured with,
+/// compared and hashed by the face's identity and the size - every face is
+/// a `static`, so two metrics measure alike when they name the same one at
+/// the same size.
 #[derive(Clone, Copy)]
-struct AtlasRef(&'static Atlas);
+struct FaceRef {
+    face: &'static Face,
+    size64: u32,
+}
 
-impl PartialEq for AtlasRef {
+impl FaceRef {
+    /// `ch`'s advance, in 1/64 pixel; `None` for a character the face
+    /// lacks or a size it cannot be scaled to.
+    fn advance(&self, ch: char) -> Option<i64> {
+        let scale = self.face.scale(self.size64)?;
+        let outline = self.face.glyph(ch).ok()?;
+        Some(i64::from(scale.to_64(outline.advance())))
+    }
+
+    /// The pair's kerning, in 1/64 pixel.
+    fn kerning(&self, left: char, right: char) -> i64 {
+        self.face.scale(self.size64).map_or(0, |scale| {
+            i64::from(scale.to_64(self.face.kerning_units(left, right)))
+        })
+    }
+
+    /// A line's height in whole pixels; 0 at a size it cannot be scaled to.
+    const fn line_height(&self) -> u32 {
+        match self.face.scale(self.size64) {
+            Some(scale) => self.face.line_metrics(scale).line_height(),
+            None => 0,
+        }
+    }
+
+    /// The advance of the digit zero in whole pixels, rounded up; 0 if it
+    /// has none.
+    const fn zero_width(&self) -> u32 {
+        let (Some(scale), Some(units)) = (self.face.scale(self.size64), self.face.advance_of('0'))
+        else {
+            return 0;
+        };
+        let advance = scale.to_64(units);
+        if advance <= 0 {
+            0
+        } else {
+            advance.unsigned_abs().div_ceil(64)
+        }
+    }
+}
+
+impl PartialEq for FaceRef {
     fn eq(&self, other: &Self) -> bool {
-        core::ptr::eq(self.0, other.0)
+        core::ptr::eq(self.face, other.face) && self.size64 == other.size64
     }
 }
 
-impl Eq for AtlasRef {}
+impl Eq for FaceRef {}
 
-impl Hash for AtlasRef {
+impl Hash for FaceRef {
     fn hash<H: Hasher>(&self, state: &mut H) {
-        core::ptr::hash(self.0, state);
+        core::ptr::hash(self.face, state);
+        self.size64.hash(state);
     }
 }
 
-impl fmt::Debug for AtlasRef {
+impl fmt::Debug for FaceRef {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Atlas({} px)", self.0.size())
+        if self.size64.is_multiple_of(64) {
+            write!(f, "Face({}, {} px)", self.face.id(), self.size64 / 64)
+        } else {
+            write!(f, "Face({}, {}/64 px)", self.face.id(), self.size64)
+        }
     }
 }
 
@@ -1245,7 +1297,7 @@ const fn fixed_or(length: Length, natural: u32) -> u32 {
 /// measures in the theme.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Units {
-    scale: u32,
+    scale: DeviceScale,
     spacing: Spacing,
 }
 
@@ -1286,21 +1338,21 @@ pub(crate) const fn style_at(style: &Style, units: Units) -> Style {
         width: length_at(width, scale),
         height: length_at(height, scale),
         padding: nowayos_display::Insets {
-            left: padding.left.saturating_mul(scale),
-            top: padding.top.saturating_mul(scale),
-            right: padding.right.saturating_mul(scale),
-            bottom: padding.bottom.saturating_mul(scale),
+            left: scale.px(padding.left),
+            top: scale.px(padding.top),
+            right: scale.px(padding.right),
+            bottom: scale.px(padding.bottom),
         },
-        gap: gap.saturating_mul(scale),
+        gap: scale.px(gap),
         align: style.align,
         text: style.text,
         variant: style.variant,
         surface: style.surface,
         tokens: SpaceTokens::NONE,
         justify: style.justify,
-        min_width: style.min_width.saturating_mul(scale),
+        min_width: scale.px(style.min_width),
         max_width: match style.max_width {
-            Some(units) => Some(units.saturating_mul(scale)),
+            Some(units) => Some(scale.px(units)),
             None => None,
         },
         // Drawn in layout units: the renderer scales it.
@@ -1343,10 +1395,11 @@ fn place_across_within(
     (offset, size)
 }
 
-/// A length in layout units, in pixels at device scale `scale`.
-const fn length_at(length: Length, scale: u32) -> Length {
+/// A length in layout units, in pixels at device scale `scale`, to the
+/// nearest whole pixel.
+const fn length_at(length: Length, scale: DeviceScale) -> Length {
     match length {
-        Length::Fixed(value) => Length::Fixed(value.saturating_mul(scale)),
+        Length::Fixed(value) => Length::Fixed(scale.px(value)),
         Length::Auto | Length::Fill => length,
     }
 }
@@ -1684,10 +1737,13 @@ mod tests {
             .iter()
             .map(|&id| t.get(id).unwrap().content())
             .collect();
-        assert_eq!(t.scale(), 1);
-        t.layout(Rect::new(0, 0, 400, 240), &METRICS.with_scale(2))
-            .unwrap();
-        assert_eq!(t.scale(), 2);
+        assert_eq!(t.scale(), DeviceScale::ONE);
+        t.layout(
+            Rect::new(0, 0, 400, 240),
+            &METRICS.with_scale(DeviceScale::TWO),
+        )
+        .unwrap();
+        assert_eq!(t.scale(), DeviceScale::TWO);
         for (id, rect) in [root, fixed, row, a, b, fill].iter().zip(one) {
             assert_eq!(rect_of(&t, *id), times(rect, 2), "{id:?}");
         }
@@ -1695,8 +1751,17 @@ mod tests {
             assert_eq!(t.get(*id).unwrap().content(), times(content, 2), "{id:?}");
         }
         assert_eq!(t.get(root).unwrap().content(), Rect::new(6, 10, 380, 208));
-        // Scale 0 is taken as 1.
-        assert_eq!(METRICS.with_scale(0).scale(), 1);
+        // At 1.5 each length is turned into whole pixels once, to the
+        // nearest (a half rounds up): padding 3, 5, 7 and 11 are 5, 8, 11
+        // and 17 pixels, the 30 x 9 spacer 45 x 14.
+        let one_and_a_half = DeviceScale::from_quarters(6).unwrap();
+        t.layout(
+            Rect::new(0, 0, 300, 180),
+            &METRICS.with_scale(one_and_a_half),
+        )
+        .unwrap();
+        assert_eq!(t.get(root).unwrap().content(), Rect::new(5, 8, 284, 155));
+        assert_eq!(rect_of(&t, fixed).size, Size::new(45, 14));
     }
 
     /// Text is measured in the pixels of the metrics' own atlas - the one
@@ -1711,7 +1776,9 @@ mod tests {
         t.append(root, text).unwrap();
         let button = t.button("", ActionId(1)).unwrap();
         t.append(root, button).unwrap();
-        let metrics = TextMetrics::new(12, 20).with_min_target(48).with_scale(2);
+        let metrics = TextMetrics::new(12, 20)
+            .with_min_target(48)
+            .with_scale(DeviceScale::TWO);
         t.layout(Rect::new(0, 0, 400, 200), &metrics).unwrap();
         assert_eq!(rect_of(&t, text), Rect::new(0, 0, 36, 20));
         // The button's padding, 24 by 8 units, is 48 by 16 pixels;

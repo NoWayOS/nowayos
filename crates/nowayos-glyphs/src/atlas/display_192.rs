@@ -10,6 +10,7 @@
 // 192 pixels per em: unhinted, 8-bit coverage, metrics in 1/64 pixel, GPOS pair kerning in font units scaled at each size, no ligatures.
 
 use super::display_kerning::{CHARS, KERNING, UPEM};
+use super::display_outline::DISPLAY;
 use crate::{Atlas, Glyph, LineMetrics, is_whole, lay_out, same_chars};
 
 /// Every glyph's coverage, in the order of `GLYPHS`, each row by row from the top: one byte a
@@ -83,7 +84,7 @@ static GLYPHS: [Glyph; 46] = lay_out(COVERAGE, [
 ]);
 
 /// The Bold face at 192 pixels per em.
-pub static DISPLAY_192: Atlas = Atlas::new(192, LineMetrics::new(12091, 3883, 0), &GLYPHS, &KERNING, UPEM);
+pub static DISPLAY_192: Atlas = Atlas::new(192, LineMetrics::new(12091, 3883, 0), &GLYPHS, &KERNING, UPEM, &DISPLAY);
 
 // Checked when this module compiles: both tables in the order the lookups search them in, no
 // character twice; the glyphs exactly the face's characters, in order; every glyph's pixels

@@ -62,7 +62,7 @@ use core::fmt;
 use nowayos_bounded::BoundedVec;
 use nowayos_ipc::{DecodeError, EncodeError, Message, Reader, Writer, encoded_len};
 
-use crate::{FramebufferLayout, LayoutError, PixelFormat, Rect};
+use crate::{DeviceScale, FramebufferLayout, LayoutError, PixelFormat, Rect};
 
 /// Message kind of [`Configure`] on the display → UI ring.
 pub const CONFIGURE_KIND: u16 = 0x0201;
@@ -78,12 +78,6 @@ pub const MAX_DAMAGE_RECTS: usize = 8;
 
 /// The largest width or height, in pixels, the contract can describe.
 pub const MAX_DIMENSION: u32 = u16::MAX as u32;
-
-/// The largest device scale a [`Configure`] may carry: 2, the Pi 5's. A
-/// theme names an atlas for each size of its type scale at every scale up
-/// to this one, and its tests check it does, so a scale with no atlas to
-/// draw it is refused at the contract rather than drawn smaller.
-pub const MAX_SCALE: u32 = 2;
 
 /// The longest record in the contract (a [`Present`]): ring slots on both
 /// rings must be at least this long.
@@ -115,12 +109,6 @@ pub enum ContractError {
         needed: usize,
         /// Bytes in the region.
         region: usize,
-    },
-    /// A device scale of 0 or above [`MAX_SCALE`], or one that does not
-    /// divide the layout's width and height into whole layout units.
-    BadScale {
-        /// The scale given.
-        scale: u32,
     },
     /// A second [`Configure`] arrived; v0 has one per session.
     AlreadyConfigured,
@@ -180,10 +168,6 @@ impl fmt::Display for ContractError {
             Self::ExceedsRegion { needed, region } => {
                 write!(f, "layout needs {needed} bytes, region holds {region}")
             }
-            Self::BadScale { scale } => write!(
-                f,
-                "device scale {scale} is not 1 to {MAX_SCALE}, or does not divide the layout"
-            ),
             Self::AlreadyConfigured => f.write_str("display already configured"),
             Self::NotConfigured => f.write_str("no display layout accepted"),
             Self::PresentInFlight => f.write_str("a present is already in flight"),
@@ -236,8 +220,8 @@ const fn format_from_wire(code: u8) -> Option<PixelFormat> {
 /// scale. The UI draws in exactly this layout, or not at all, and lays its
 /// screens out in the layout's size divided by the scale.
 ///
-/// Wire layout, 12 bytes, little-endian (version 2; version 1, had
-/// no scale and zero in byte 9):
+/// Wire layout, 12 bytes, little-endian (version 3; version 2 carried a
+/// whole-number scale of 1 or 2 in byte 9, version 1 none):
 ///
 /// | Bytes | Field | Rule |
 /// | --- | --- | --- |
@@ -245,12 +229,12 @@ const fn format_from_wire(code: u8) -> Option<PixelFormat> {
 /// | 2–3 | height (`u16`) | not zero |
 /// | 4–7 | stride in bytes (`u32`) | at least width × bytes per pixel |
 /// | 8 | pixel format | 1 RGB565, 2 RGB888, 3 BGR888, 4 XRGB8888, 5 XBGR8888 |
-/// | 9 | device scale (`u8`) | 1 to [`MAX_SCALE`] (2), dividing width and height |
+/// | 9 | device scale, in quarter pixels a layout unit (`u8`) | 4 to 16: 1 to 4 ([`DeviceScale`]) |
 /// | 10–11 | — | zero |
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Configure {
     layout: FramebufferLayout,
-    scale: u32,
+    scale: DeviceScale,
 }
 
 impl Configure {
@@ -262,7 +246,7 @@ impl Configure {
     /// [`ContractError::LayoutTooLarge`] if a dimension exceeds
     /// [`MAX_DIMENSION`].
     pub const fn new(layout: FramebufferLayout) -> Result<Self, ContractError> {
-        Self::scaled(layout, 1)
+        Self::scaled(layout, DeviceScale::ONE)
     }
 
     /// The message announcing `layout` at device scale `scale`: `scale`
@@ -271,18 +255,16 @@ impl Configure {
     /// # Errors
     ///
     /// [`ContractError::LayoutTooLarge`] if a dimension exceeds
-    /// [`MAX_DIMENSION`]; [`ContractError::BadScale`] for a scale of 0 or
-    /// above [`MAX_SCALE`], or one that does not divide the width and the
-    /// height.
-    pub const fn scaled(layout: FramebufferLayout, scale: u32) -> Result<Self, ContractError> {
+    /// [`MAX_DIMENSION`].
+    pub const fn scaled(
+        layout: FramebufferLayout,
+        scale: DeviceScale,
+    ) -> Result<Self, ContractError> {
         if layout.width() > MAX_DIMENSION || layout.height() > MAX_DIMENSION {
             return Err(ContractError::LayoutTooLarge {
                 width: layout.width(),
                 height: layout.height(),
             });
-        }
-        if !scale_fits(layout.width(), layout.height(), scale) {
-            return Err(ContractError::BadScale { scale });
         }
         Ok(Self { layout, scale })
     }
@@ -293,23 +275,17 @@ impl Configure {
         self.layout
     }
 
-    /// The device scale: pixels each way for each layout unit, 1 to
-    /// [`MAX_SCALE`].
+    /// The device scale: pixels each way for each layout unit, 1 to 4 in
+    /// quarter steps.
     #[must_use]
-    pub const fn scale(&self) -> u32 {
+    pub const fn scale(&self) -> DeviceScale {
         self.scale
     }
 }
 
-/// Whether `scale` is 1 to [`MAX_SCALE`] and divides `width` and `height`
-/// into whole layout units.
-const fn scale_fits(width: u32, height: u32, scale: u32) -> bool {
-    scale >= 1 && scale <= MAX_SCALE && width.is_multiple_of(scale) && height.is_multiple_of(scale)
-}
-
 impl Message for Configure {
     const KIND: u16 = CONFIGURE_KIND;
-    const VERSION: u16 = 2;
+    const VERSION: u16 = 3;
     const PAYLOAD_LEN: usize = 12;
 
     fn encode_payload(&self, out: &mut Writer<'_>) -> Result<(), EncodeError> {
@@ -317,8 +293,8 @@ impl Message for Configure {
             .map_err(|_| EncodeError::InvalidValue { field: "width" })?;
         let height = u16::try_from(self.layout.height())
             .map_err(|_| EncodeError::InvalidValue { field: "height" })?;
-        let scale =
-            u8::try_from(self.scale).map_err(|_| EncodeError::InvalidValue { field: "scale" })?;
+        let scale = u8::try_from(self.scale.quarters())
+            .map_err(|_| EncodeError::InvalidValue { field: "scale" })?;
         out.write_u16(width)?;
         out.write_u16(height)?;
         out.write_u32(self.layout.stride())?;
@@ -333,7 +309,8 @@ impl Message for Configure {
         let stride = input.read_u32()?;
         let format = format_from_wire(input.read_u8()?)
             .ok_or(DecodeError::InvalidValue { field: "format" })?;
-        let scale = u32::from(input.read_u8()?);
+        let scale = DeviceScale::from_quarters(u32::from(input.read_u8()?))
+            .ok_or(DecodeError::InvalidValue { field: "scale" })?;
         input.read_zeros(2)?;
         let layout =
             FramebufferLayout::new(width.into(), height.into(), stride, format).map_err(|err| {
@@ -346,9 +323,6 @@ impl Message for Configure {
                     }
                 }
             })?;
-        if !scale_fits(layout.width(), layout.height(), scale) {
-            return Err(DecodeError::InvalidValue { field: "scale" });
-        }
         Ok(Self { layout, scale })
     }
 }
@@ -557,10 +531,11 @@ mod tests {
         let message =
             Configure::new(layout(0x0102, 0x0304, 0x0506_0708, PixelFormat::Rgb565)).unwrap();
         let buf = record(&message);
-        assert_eq!(buf[..HEADER_LEN], [0x01, 0x02, 2, 0, 12, 0, 0, 0]);
+        // Version 3; scale 1 is four quarters.
+        assert_eq!(buf[..HEADER_LEN], [0x01, 0x02, 3, 0, 12, 0, 0, 0]);
         assert_eq!(
             buf[HEADER_LEN..HEADER_LEN + 12],
-            [0x02, 0x01, 0x04, 0x03, 0x08, 0x07, 0x06, 0x05, 1, 1, 0, 0]
+            [0x02, 0x01, 0x04, 0x03, 0x08, 0x07, 0x06, 0x05, 1, 4, 0, 0]
         );
         let len = encoded_len::<Configure>();
         assert_eq!(decode_exact::<Configure>(&buf[..len]), Ok(message));
@@ -597,36 +572,45 @@ mod tests {
             configure_payload(|p| p[11] = 1),
             Err(DecodeError::NonZeroPadding)
         );
-        // The scale: 1 or 2, dividing 640 x 480.
-        assert_eq!(configure_payload(|p| p[9] = 0), bad("scale"));
-        assert_eq!(configure_payload(|p| p[9] = 3), bad("scale"));
-        assert_eq!(
-            configure_payload(|p| p[9] = 4),
-            bad("scale"),
-            "4 divides 640 x 480, but no theme has atlases for it"
-        );
-        assert_eq!(configure_payload(|p| p[9] = 0xFF), bad("scale"));
-        for scale in [1, 2] {
-            let configure = configure_payload(|p| p[9] = scale).unwrap();
-            assert_eq!(configure.scale(), u32::from(scale));
+        // The scale: 4 to 16 quarters, 1 to 4; any of them, whatever the
+        // layout's size.
+        for quarters in [0, 1, 3, 17, 0xFF] {
+            assert_eq!(configure_payload(|p| p[9] = quarters), bad("scale"));
+        }
+        for quarters in 4..=16 {
+            let configure = configure_payload(|p| p[9] = quarters).unwrap();
+            assert_eq!(configure.scale().quarters(), u32::from(quarters));
         }
     }
 
     #[test]
     fn the_pi_5s_window_at_scale_2_is_a_960_by_540_screen() {
-        let window = layout(1920, 1080, 3840, PixelFormat::Rgb565);
-        let message = Configure::scaled(window, 2).unwrap();
-        assert_eq!((message.layout(), message.scale()), (window, 2));
+        let window = layout(1920, 1080, 7680, PixelFormat::Xrgb8888);
+        let message = Configure::scaled(window, DeviceScale::TWO).unwrap();
+        assert_eq!(
+            (message.layout(), message.scale()),
+            (window, DeviceScale::TWO)
+        );
         assert_eq!(nowayos_ipc::decode(&record(&message)), Ok(message));
         let buf = record(&message);
-        assert_eq!(buf[HEADER_LEN + 9], 2);
-        assert_eq!(Configure::new(window).unwrap().scale(), 1);
-        for scale in [0, 3, 4, u32::MAX] {
-            assert_eq!(
-                Configure::scaled(window, scale),
-                Err(ContractError::BadScale { scale })
-            );
-        }
+        assert_eq!(buf[HEADER_LEN + 9], 8, "two pixels a unit: eight quarters");
+        assert_eq!(Configure::new(window).unwrap().scale(), DeviceScale::ONE);
+        assert_eq!(DeviceScale::TWO.layout_of(window.size()).width, 960);
+    }
+
+    #[test]
+    fn a_2560_by_1440_screen_at_scale_2_5_is_1024_by_576() {
+        let window = layout(2560, 1440, 10_240, PixelFormat::Xrgb8888);
+        let scale = DeviceScale::from_quarters(10).unwrap();
+        let message = Configure::scaled(window, scale).unwrap();
+        assert_eq!(nowayos_ipc::decode(&record(&message)), Ok(message));
+        assert_eq!(
+            (
+                scale.layout_of(window.size()).width,
+                scale.layout_of(window.size()).height
+            ),
+            (1024, 576)
+        );
     }
 
     #[test]

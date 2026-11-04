@@ -79,7 +79,11 @@ fn golden(name: &str) -> PathBuf {
 fn full_frame(tree: &Tree<16>, theme: &Theme<Rgb888>) -> Framebuffer {
     let size = tree.viewport().size;
     let mut fb = Framebuffer::new(size.width, size.height).unwrap();
-    render(tree, &mut fb, theme).unwrap();
+    {
+        nowayos_testkit::glyph_store!(glyphs__);
+        render(tree, &mut fb, theme, &mut glyphs__)
+    }
+    .unwrap();
     fb
 }
 
@@ -105,7 +109,11 @@ fn wrapped_text_draws_on_its_lines_in_each_theme() {
         // pixels of a full one.
         tree.clear_dirty();
         tree.set_slot(NOTE, "Wiped").unwrap();
-        render_dirty(&tree, &mut fb, &theme).unwrap();
+        {
+            nowayos_testkit::glyph_store!(glyphs__);
+            render_dirty(&tree, &mut fb, &theme, &mut glyphs__)
+        }
+        .unwrap();
         assert!(full_frame(&tree, &theme).diff(&fb).is_none(), "{image}");
     }
 }

@@ -130,7 +130,7 @@
     </protection_domain>
 
     <!-- The UI PD: exactly its grants in ui-demo.system. -->
-    <protection_domain name="ui" priority="1" stack_size="0x20000">
+    <protection_domain name="ui" priority="1" stack_size="0x600000">
         <program_image path="nowayos-ui-demo.elf" />
         <map mr="present_messages" vaddr="0x4000_0000" perms="rw"
              setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />

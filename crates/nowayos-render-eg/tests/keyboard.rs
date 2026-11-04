@@ -12,7 +12,7 @@
     reason = "test code: a failed check panics, and tests index and compute on known data"
 )]
 
-use embedded_graphics::pixelcolor::Rgb888;
+use embedded_graphics::pixelcolor::{Rgb888, RgbColor};
 use nowayos_display::{Insets, Point, Rect};
 use nowayos_input::{InputEvent, TouchPhase};
 use nowayos_render_eg::{Theme, render};
@@ -68,7 +68,11 @@ fn screen(theme: &Theme<Rgb888>) -> (Tree<16>, [NodeId; 4], NodeId) {
 
 fn draw(tree: &Tree<16>, theme: &Theme<Rgb888>) -> Framebuffer {
     let mut fb = Framebuffer::new(800, 480).unwrap();
-    render(tree, &mut fb, theme).unwrap();
+    {
+        nowayos_testkit::glyph_store!(glyphs__);
+        render(tree, &mut fb, theme, &mut glyphs__)
+    }
+    .unwrap();
     fb
 }
 
@@ -103,9 +107,16 @@ fn every_layout_is_drawn_whole_in_every_theme() {
             for (index, key) in layout(mode).keys().enumerate() {
                 let ink = colours(&fb, node.key_rect(index).unwrap());
                 assert!(ink.contains(&theme.input), "{name} {mode:?} {index}: fill");
-                // A stroke as thin as a comma's never reaches full ink.
+                // A letter's or digit's stem reaches nearly full ink - within
+                // a few levels, as a stem straddling two pixels may - and a
+                // stroke as thin as a comma's never does.
                 if key.label.chars().all(char::is_alphanumeric) {
-                    assert!(ink.contains(&theme.text), "{name} {mode:?} {index}: label");
+                    let near = |c: &Rgb888| {
+                        c.r().abs_diff(theme.text.r()) <= 24
+                            && c.g().abs_diff(theme.text.g()) <= 24
+                            && c.b().abs_diff(theme.text.b()) <= 24
+                    };
+                    assert!(ink.iter().any(near), "{name} {mode:?} {index}: label");
                 } else {
                     assert!(ink.len() > 3, "{name} {mode:?} {index}: label");
                 }

@@ -54,7 +54,7 @@
 
 mod cache;
 
-pub use cache::{CachedGlyph, GlyphCache, GlyphKey};
+pub use cache::{CachedGlyph, GlyphCache, GlyphKey, Slot};
 
 /// One pixel, in 1/256 pixel.
 const ONE: i64 = 256;

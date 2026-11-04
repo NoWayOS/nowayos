@@ -1149,8 +1149,8 @@ static GLYPHS: [Outline; 190] = lay_out_outlines(VERBS, &POINTS, [
     o('\u{ff}', 521, 20, -324, 1022, 1436, 36, 54),
 ]);
 
-/// The Bold face as outlines, which it is drawn from at any size.
-pub static BOLD: Face = Face::new(UPEM, [984, 316, 0], &GLYPHS, &KERNING);
+/// The Bold face as outlines, which it is drawn from at any size: face 2.
+pub static BOLD: Face = Face::new(2, UPEM, [984, 316, 0], &GLYPHS, &KERNING);
 
 // Checked when this module compiles: the outlines exactly the face's characters, in order;
 // every outline's steps taking exactly its points, the outlines taking all of VERBS and

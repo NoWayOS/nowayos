@@ -257,8 +257,8 @@ static GLYPHS: [Outline; 46] = lay_out_outlines(VERBS, &POINTS, [
     o('\u{a3}', 634, 126, -24, 1202, 1358, 42, 72),
 ]);
 
-/// The Bold face as outlines, which it is drawn from at any size.
-pub static DISPLAY: Face = Face::new(UPEM, [984, 316, 0], &GLYPHS, &KERNING);
+/// The Bold face as outlines, which it is drawn from at any size: face 3.
+pub static DISPLAY: Face = Face::new(3, UPEM, [984, 316, 0], &GLYPHS, &KERNING);
 
 // Checked when this module compiles: the outlines exactly the face's characters, in order;
 // every outline's steps taking exactly its points, the outlines taking all of VERBS and

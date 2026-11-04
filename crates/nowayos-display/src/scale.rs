@@ -12,36 +12,28 @@
 //! pixels: no filtering, so the screen shows exactly the frame the UI drew
 //! and a hash of what was written can be computed on the host.
 
-use crate::{FramebufferLayout, MAX_SCALE, PixelFormat, Size};
+use crate::{DEFAULT_LAYOUT, DeviceScale, FramebufferLayout, PixelFormat, Size, scale_for};
 
 /// The smallest screen, in layout units, NoWayOS's screens are made for:
 /// the kiosk's 800 x 480, the Raspberry Pi Touch Display's.
 pub const LEAST_SCREEN: Size = Size::new(800, 480);
 
-/// The device scale a display announces for a screen `pixels` in size:
-/// the largest whole number up to [`MAX_SCALE`] that divides both
-/// sides and still leaves at least [`LEAST_SCREEN`] layout units each way -
-/// 2 for the Pi 5's 1920 x 1080 window, a 960 x 540 screen; 1 for an
-/// 800 x 480 one, or any screen no larger scale suits.
+/// The device scale a display announces for a screen `pixels` in size
+/// when no product says otherwise: the largest quarter step from 1 to 4
+/// that leaves at least [`DEFAULT_LAYOUT`]'s 960 x 540 layout units
+/// ([`scale_for`]) - 2 for the Pi 5's 1920 x 1080, 4 for 3840 x 2160, 2.5
+/// for 2560 x 1440 (1024 x 576 units), 1 for the kiosk's 800 x 480.
 ///
 /// ```
-/// use nowayos_display::{Size, device_scale};
+/// use nowayos_display::{DeviceScale, Size, device_scale};
 ///
-/// assert_eq!(device_scale(Size::new(1920, 1080)), 2);
-/// assert_eq!(device_scale(Size::new(800, 480)), 1);
-/// assert_eq!(device_scale(Size::new(3840, 2160)), 2, "no larger than MAX_SCALE");
+/// assert_eq!(device_scale(Size::new(1920, 1080)), DeviceScale::TWO);
+/// assert_eq!(device_scale(Size::new(800, 480)), DeviceScale::ONE);
+/// assert_eq!(device_scale(Size::new(3840, 2160)), DeviceScale::MAX);
 /// ```
 #[must_use]
-pub fn device_scale(pixels: Size) -> u32 {
-    (1..=MAX_SCALE)
-        .rev()
-        .find(|&scale| {
-            pixels.width.checked_rem(scale) == Some(0)
-                && pixels.height.checked_rem(scale) == Some(0)
-                && pixels.width.checked_div(scale) >= Some(LEAST_SCREEN.width)
-                && pixels.height.checked_div(scale) >= Some(LEAST_SCREEN.height)
-        })
-        .unwrap_or(1)
+pub fn device_scale(pixels: Size) -> DeviceScale {
+    scale_for(pixels, DEFAULT_LAYOUT)
 }
 
 /// Where and how large a frame is shown on a screen: scaled by
@@ -264,7 +256,7 @@ pub struct FrameChoice {
     /// The frame's layout, packed.
     pub layout: FramebufferLayout,
     /// Its device scale.
-    pub scale: u32,
+    pub scale: DeviceScale,
     /// Whether it is the screen at its own pixels; else the kiosk's frame.
     pub native: bool,
 }
@@ -281,9 +273,9 @@ pub struct FrameChoice {
 ///
 /// let window = Size::new(1920, 1080);
 /// let native = frame_for(window, PixelFormat::Rgb565, 0x40_0000).unwrap();
-/// assert_eq!((native.layout.size(), native.scale, native.native), (window, 2, true));
+/// assert_eq!((native.layout.size(), native.scale.quarters(), native.native), (window, 8, true));
 /// let kiosk = frame_for(window, PixelFormat::Rgb565, 0x17_7000).unwrap();
-/// assert_eq!((kiosk.layout.size(), kiosk.scale, kiosk.native), (Size::new(800, 480), 1, false));
+/// assert_eq!((kiosk.layout.size(), kiosk.scale.quarters(), kiosk.native), (Size::new(800, 480), 4, false));
 /// assert_eq!(frame_for(window, PixelFormat::Rgb565, 4096), None);
 /// ```
 #[must_use]
@@ -301,7 +293,7 @@ pub fn frame_for(pixels: Size, format: PixelFormat, region_len: usize) -> Option
             .ok()?;
     (kiosk.byte_len() <= region_len).then_some(FrameChoice {
         layout: kiosk,
-        scale: 1,
+        scale: DeviceScale::ONE,
         native: false,
     })
 }
@@ -464,21 +456,23 @@ mod tests {
     }
 
     #[test]
-    fn the_device_scale_keeps_the_least_screen_in_whole_units() {
-        for (pixels, scale) in [
-            ((1920, 1064), 2),
-            ((1920, 1080), 2),
-            ((800, 480), 1),
-            ((1600, 960), 2),
-            ((2400, 1440), 2),
-            ((3840, 2160), 2),
-            ((1921, 1064), 1),
-            ((799, 479), 1),
-            ((0, 0), 1),
+    fn the_device_scale_keeps_at_least_960_by_540_units() {
+        for (pixels, quarters) in [
+            ((1920, 1080), 8),
+            ((3840, 2160), 16),
+            ((2560, 1440), 10),
+            ((2400, 1440), 10),
+            ((1600, 960), 6),
+            ((1920, 1064), 7),
+            ((1280, 720), 5),
+            ((800, 480), 4),
+            ((799, 479), 4),
+            ((7680, 4320), 16),
+            ((0, 0), 4),
         ] {
             assert_eq!(
-                device_scale(Size::new(pixels.0, pixels.1)),
-                scale,
+                device_scale(Size::new(pixels.0, pixels.1)).quarters(),
+                quarters,
                 "{pixels:?}"
             );
         }
@@ -503,10 +497,10 @@ mod tests {
                 (
                     choice.layout.size(),
                     choice.layout.format(),
-                    choice.scale,
+                    choice.scale.quarters(),
                     choice.native
                 ),
-                (size, format, scale, native),
+                (size, format, scale * 4, native),
                 "{region} bytes"
             );
             assert!(choice.layout.byte_len() <= region);
@@ -515,7 +509,7 @@ mod tests {
         assert_eq!(frame_for(Size::ZERO, PixelFormat::Rgb565, 0x40_0000), None);
         // An 800 x 480 screen is its own frame at scale 1.
         let small = frame_for(KIOSK_FRAME, PixelFormat::Rgb565, 0x40_0000).unwrap();
-        assert_eq!((small.scale, small.native), (1, true));
+        assert_eq!((small.scale, small.native), (DeviceScale::ONE, true));
     }
 
     #[test]

@@ -333,14 +333,14 @@ mod tests {
         tree.set_value(FieldId(1), "Ada").unwrap();
         let input = tree.find_field(FieldId(1)).unwrap();
         assert_eq!(tree.get(input).unwrap().rect().origin.x, 4);
-        let large = TextMetrics::new(12, 20).with_scale(2);
+        let large = TextMetrics::new(12, 20).with_scale(nowayos_display::DeviceScale::TWO);
         nav.resize(&mut tree, Rect::new(0, 0, 160, 80), large)
             .unwrap();
         assert_eq!(
             (nav.viewport(), nav.metrics()),
             (Rect::new(0, 0, 160, 80), large)
         );
-        assert_eq!(tree.scale(), 2);
+        assert_eq!(tree.scale(), nowayos_display::DeviceScale::TWO);
         assert_eq!(tree.get(input).unwrap().rect().origin.x, 8, "padding at 2x");
         assert_eq!(tree.value(FieldId(1)), Some("Ada"));
         assert_eq!(tree.dirty_rects(), &[Rect::new(0, 0, 160, 80)]);

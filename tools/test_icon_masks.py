@@ -65,7 +65,7 @@ class PathTest(unittest.TestCase):
 class MaskTest(unittest.TestCase):
     def test_a_dot_is_a_round_cap_two_units_across(self):
         segments = icon_masks.svg_segments(svg('<path d="M12 12h.01" />'))
-        mask = icon_masks.mask(segments, 1)
+        mask = icon_masks.mask(segments, 4)
         self.assertEqual(len(mask), 24 * 24)
         # The pixels around (12, 12) are inked; far ones are not.
         self.assertGreater(mask[12 * 24 + 12], 200)
@@ -76,10 +76,19 @@ class MaskTest(unittest.TestCase):
 
     def test_a_circle_and_a_rounded_rect_draw(self):
         for body in ('<circle cx="12" cy="12" r="8" />', '<rect x="4" y="4" width="16" height="16" rx="2" />'):
-            mask = icon_masks.mask(icon_masks.svg_segments(svg(body)), 2)
+            mask = icon_masks.mask(icon_masks.svg_segments(svg(body)), 8)
             self.assertEqual(len(mask), 48 * 48)
             self.assertEqual(mask[24 * 48 + 24], 0, body)
             self.assertGreater(sum(mask), 0, body)
+
+    def test_every_quarter_scale_is_a_whole_number_of_pixels(self):
+        segments = icon_masks.svg_segments(svg('<circle cx="12" cy="12" r="8" />'))
+        for quarters, side in [(5, 30), (6, 36), (10, 60), (16, 96)]:
+            mask = icon_masks.mask(segments, quarters)
+            self.assertEqual(len(mask), side * side, quarters)
+            # The ring's ink grows with the square of the scale.
+            self.assertAlmostEqual(sum(mask) / 255 / side ** 2,
+                                   sum(icon_masks.mask(segments, 4)) / 255 / 24 ** 2, delta=0.02)
 
     def test_what_it_does_not_draw_is_refused(self):
         for body in ('<path d="M0 0L1 1" fill="red" />', '<path d="M0 0L1 1" transform="scale(2)" />',
@@ -101,7 +110,8 @@ class PinTest(unittest.TestCase):
             with open(os.path.join(crate, "icons.toml"), "w", encoding="utf-8") as handle:
                 handle.write(f'[[icon]]\nname = "bar"\nsha256 = "{pin}"\n')
             files = icon_masks.generate(crate)
-            self.assertEqual(sorted(files), ["bar_24.coverage", "bar_48.coverage", "mod.rs"])
+            sides = [6 * quarters for quarters in range(4, 17)]
+            self.assertEqual(sorted(files), sorted([f"bar_{side}.coverage" for side in sides] + ["mod.rs"]))
             self.assertIn(b"pub static BAR: Icon", files["mod.rs"])
             with open(os.path.join(crate, "lucide", "extra.svg"), "wb") as handle:
                 handle.write(body)

@@ -36,7 +36,7 @@ pub const WIDTH: u32 = 1920;
 pub const HEIGHT: u32 = 1080;
 /// The device scale the demo is drawn at: 2 pixels each way for each
 /// layout unit, so the screen is 960 x 540 units.
-pub const SCALE: u32 = 2;
+pub const SCALE: nowayos_display::DeviceScale = nowayos_display::DeviceScale::TWO;
 /// The screen, in pixels: what the session's taps and clicks are placed on.
 pub const SCREEN: Rect = Rect::new(0, 0, WIDTH, HEIGHT);
 

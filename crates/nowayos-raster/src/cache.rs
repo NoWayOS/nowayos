@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! A bounded cache of drawn glyphs: `BYTES` bytes of coverage and `SLOTS`
-//! entries, looked up by [`GlyphKey`] in an open-addressed table. When
-//! either fills, it is emptied and starts again - text on a screen uses a
-//! few sizes of a few faces, so that is rare, and it keeps the cache
-//! simple and every lookup bounded.
+//! A bounded cache of drawn glyphs, in storage its owner gives it: a
+//! buffer of coverage and a table of [`Slot`]s, looked up by [`GlyphKey`]
+//! with open addressing. When either fills, it is emptied and starts
+//! again - text on a screen uses a few sizes of a few faces, so that is
+//! rare, and it keeps the cache simple and every lookup bounded. Its owner
+//! chooses where the storage lives: a PD's own frame, or a test's heap.
 
 use crate::{Placement, RasterError};
 
@@ -41,11 +42,18 @@ impl<'a> CachedGlyph<'a> {
     }
 }
 
+/// One entry of a [`GlyphCache`]'s table: give the cache as many as it
+/// should hold glyphs, each [`Slot::EMPTY`].
 #[derive(Clone, Copy, Debug)]
-struct Slot {
+pub struct Slot {
     key: Option<GlyphKey>,
     start: usize,
     placement: Placement,
+}
+
+impl Slot {
+    /// An empty entry.
+    pub const EMPTY: Self = EMPTY;
 }
 
 const EMPTY: Slot = Slot {
@@ -59,30 +67,26 @@ const EMPTY: Slot = Slot {
     },
 };
 
-/// Drawn glyphs, at most `SLOTS` of them in `BYTES` bytes of coverage.
-/// About `BYTES + SLOTS * 40` bytes; build it once, where it will stay.
-pub struct GlyphCache<const BYTES: usize, const SLOTS: usize> {
-    pixels: [u8; BYTES],
+/// Drawn glyphs, at most as many as its table has slots, three quarters
+/// full at most, in the coverage buffer it is given.
+pub struct GlyphCache<'a> {
+    pixels: &'a mut [u8],
     used: usize,
-    slots: [Slot; SLOTS],
+    slots: &'a mut [Slot],
     filled: usize,
     clears: u32,
 }
 
-impl<const BYTES: usize, const SLOTS: usize> Default for GlyphCache<BYTES, SLOTS> {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<const BYTES: usize, const SLOTS: usize> GlyphCache<BYTES, SLOTS> {
-    /// An empty cache.
+impl<'a> GlyphCache<'a> {
+    /// An empty cache over `pixels` and `slots`; whatever they held is
+    /// forgotten.
     #[must_use]
-    pub const fn new() -> Self {
+    pub fn new(pixels: &'a mut [u8], slots: &'a mut [Slot]) -> Self {
+        slots.fill(EMPTY);
         Self {
-            pixels: [0; BYTES],
+            pixels,
             used: 0,
-            slots: [EMPTY; SLOTS],
+            slots,
             filled: 0,
             clears: 0,
         }
@@ -162,12 +166,13 @@ impl<const BYTES: usize, const SLOTS: usize> GlyphCache<BYTES, SLOTS> {
         F: FnOnce(&mut [u8]) -> Result<(), RasterError>,
     {
         let len = placement.len();
-        if len > BYTES || SLOTS == 0 {
+        if len > self.pixels.len() || self.slots.is_empty() {
             return Err(RasterError::TooLarge);
         }
         // At most three quarters full, so a search always ends soon.
-        let crowded = self.filled.saturating_add(1).saturating_mul(4) > SLOTS.saturating_mul(3);
-        let room = BYTES.saturating_sub(self.used);
+        let crowded =
+            self.filled.saturating_add(1).saturating_mul(4) > self.slots.len().saturating_mul(3);
+        let room = self.pixels.len().saturating_sub(self.used);
         if crowded || len > room {
             self.clear();
         }
@@ -199,10 +204,13 @@ impl<const BYTES: usize, const SLOTS: usize> GlyphCache<BYTES, SLOTS> {
     fn find(&self, key: GlyphKey) -> Result<usize, Option<usize>> {
         let first = usize::try_from(hash(key))
             .unwrap_or(0)
-            .checked_rem(SLOTS)
+            .checked_rem(self.slots.len())
             .ok_or(None)?;
-        for step in 0..SLOTS {
-            let index = first.saturating_add(step).checked_rem(SLOTS).ok_or(None)?;
+        for step in 0..self.slots.len() {
+            let index = first
+                .saturating_add(step)
+                .checked_rem(self.slots.len())
+                .ok_or(None)?;
             match self.slots.get(index).and_then(|slot| slot.key) {
                 Some(held) if held == key => return Ok(index),
                 Some(_) => {}

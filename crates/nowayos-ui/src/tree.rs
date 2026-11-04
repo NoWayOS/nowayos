@@ -35,7 +35,7 @@ pub struct Tree<const N: usize> {
     pub(crate) root: Option<NodeId>,
     pub(crate) viewport: Rect,
     /// The device scale of the last layout.
-    pub(crate) scale: u32,
+    pub(crate) scale: nowayos_display::DeviceScale,
     pub(crate) focus: Option<NodeId>,
     pub(crate) pressed: Option<NodeId>,
     /// The key held down, from 0, while [`pressed`](Self::pressed) is the
@@ -88,7 +88,7 @@ impl<const N: usize> Tree<N> {
             nodes: BoundedVec::new(),
             root: None,
             viewport: Rect::EMPTY,
-            scale: 1,
+            scale: nowayos_display::DeviceScale::ONE,
             focus: None,
             pressed: None,
             pressed_key: None,
@@ -1513,7 +1513,7 @@ impl<const N: usize> Tree<N> {
     /// from the theme's atlas for it - so drawing matches layout.
     /// 1 before the first layout.
     #[must_use]
-    pub const fn scale(&self) -> u32 {
+    pub const fn scale(&self) -> nowayos_display::DeviceScale {
         self.scale
     }
 

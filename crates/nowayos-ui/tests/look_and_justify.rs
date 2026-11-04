@@ -130,7 +130,7 @@ fn widths_are_layout_units_at_the_device_scale() {
     tree.append(root, child).unwrap();
     tree.layout(
         Rect::new(0, 0, 600, 200),
-        &TextMetrics::new(6, 10).with_scale(2),
+        &TextMetrics::new(6, 10).with_scale(nowayos_display::DeviceScale::TWO),
     )
     .unwrap();
     assert_eq!(tree.get(child).unwrap().rect().size.width, 200);

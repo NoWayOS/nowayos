@@ -40,7 +40,7 @@ fn screen(theme: &Theme<Rgb888>, width: u32, height: u32, scale: u32) -> Tree<32
     }
     tree.layout(
         Rect::new(0, 0, width * scale, height * scale),
-        &theme.metrics_at(scale),
+        &theme.metrics_at(nowayos_display::DeviceScale::whole(scale).unwrap()),
     )
     .unwrap();
     tree
@@ -66,7 +66,11 @@ fn every_icon_matches_its_golden_images_in_each_theme() {
         let tree = screen(&theme, 240, 160, scale);
         let size = tree.viewport().size;
         let mut full = Framebuffer::new(size.width, size.height).unwrap();
-        render(&tree, &mut full, &theme).unwrap();
+        {
+            nowayos_testkit::glyph_store!(glyphs__);
+            render(&tree, &mut full, &theme, &mut glyphs__)
+        }
+        .unwrap();
         check_snapshot(&full, &golden(image)).unwrap();
         // Each icon is its mask's size at the scale, inked in the colour of
         // text where it stands, and a repaint of any part gives the same
@@ -75,12 +79,16 @@ fn every_icon_matches_its_golden_images_in_each_theme() {
         part.clear(Rgb888::new(1, 2, 3)).unwrap();
         for y in (0..size.height).step_by(37) {
             for x in (0..size.width).step_by(41) {
-                render_area(
-                    &tree,
-                    &mut part,
-                    &theme,
-                    Rect::new(x as i32, y as i32, 41, 37),
-                )
+                {
+                    nowayos_testkit::glyph_store!(glyphs__);
+                    render_area(
+                        &tree,
+                        &mut part,
+                        &theme,
+                        Rect::new(x as i32, y as i32, 41, 37),
+                        &mut glyphs__,
+                    )
+                }
                 .unwrap();
             }
         }

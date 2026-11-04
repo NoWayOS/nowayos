@@ -35,24 +35,26 @@
 //!
 //! # Text
 //!
-//! Both themes draw text from the glyph atlases of the signed-off font
+//! Both themes draw text from the glyph outlines of the signed-off font
 //! (`nowayos-glyphs`): proportional, kerned and anti-aliased,
 //! each node's text in its own role and weight from the theme's type scale
 //! ([`TypeScale`]) - body text 18 pixels per em in the light theme,
 //! 24 in the large-text theme. A line is
 //! placed exactly as layout measures it ([`Theme::metrics`]: the same
-//! atlas's advances and kerning, in 1/64 pixel), each glyph at the nearest
-//! whole pixel.
+//! face's advances and kerning, in 1/64 pixel), each glyph at the nearest
+//! whole pixel. Glyphs are drawn from the faces' outlines at the size and
+//! scale the text needs, and kept, by a [`Glyphs`] the caller owns.
 //!
 //! # Device scale
 //!
-//! A theme's sizes are in layout units. A tree laid out at device scale 2
-//! ([`Theme::metrics_at`]) is drawn at 2 pixels a unit: its text
-//! from the atlas rasterised at twice the size - 36 px for the light
-//! theme's 18 px body text - and every line, ring and border twice as
-//! wide, so a screen drawn for the Pi 5's 1920 x 1080 window is crisp at
-//! the monitor's own pixels, never a smaller frame doubled. [`render`]
-//! takes the scale from the tree ([`Tree::scale`]). Each pixel's coverage, from 0 to 255, blends the text's
+//! A theme's sizes are in layout units. A tree laid out at a device scale
+//! ([`Theme::metrics_at`]), from 1 to 4 in quarter steps, is drawn at that
+//! many pixels a unit: its text drawn from the outlines at the size times
+//! the scale (36 px for the light theme's 18 px body text at 2, 27 at 1.5)
+//! and every line, ring and border as many pixels wide, each to the
+//! nearest whole pixel, so a screen is crisp at the monitor's own pixels at
+//! any size, never a smaller frame enlarged. [`render`] takes the scale
+//! from the tree ([`Tree::scale`]). Each pixel's coverage, from 0 to 255, blends the text's
 //! colour over the colour the node is known to draw beneath it - the
 //! background, a button's fill, a text input's fill, the error marker -
 //! per channel in the colour type's own depth, in integer arithmetic:
@@ -76,14 +78,21 @@
 #![forbid(unsafe_code)]
 #![deny(clippy::indexing_slicing, clippy::arithmetic_side_effects)]
 
+// So the unit tests can name the crate as its users do, for
+// `nowayos_testkit::glyph_store!`.
+#[cfg(test)]
+extern crate self as nowayos_render_eg;
+
 pub mod contrast;
 mod framebuffer;
+mod glyphs;
 mod pointer;
 mod shape;
 mod text;
 
 pub use embedded_graphics::pixelcolor::Rgb888;
 pub use framebuffer::{RawFramebuffer, RawFramebufferError};
+pub use glyphs::{DEFAULT_BYTES, DEFAULT_SLOTS, GlyphRasteriser, Glyphs, Slot};
 pub use pointer::{POINTER_HEIGHT, POINTER_WIDTH, pointer_area, render_pointer};
 
 use core::fmt;
@@ -97,12 +106,9 @@ use embedded_graphics::primitives::{
     Circle, Polyline, Primitive, PrimitiveStyle, PrimitiveStyleBuilder, Rectangle, StrokeAlignment,
 };
 use embedded_graphics::text::{Baseline, Text};
+use nowayos_display::DeviceScale;
 use nowayos_display::{Insets, Rect};
-use nowayos_glyphs::{
-    Atlas, BOLD_14, BOLD_16, BOLD_18, BOLD_20, BOLD_24, BOLD_28, BOLD_32, BOLD_36, BOLD_40,
-    BOLD_48, BOLD_56, BOLD_72, DISPLAY_96, DISPLAY_192, REGULAR_14, REGULAR_16, REGULAR_18,
-    REGULAR_24, REGULAR_28, REGULAR_32, REGULAR_36, REGULAR_48,
-};
+use nowayos_glyphs::{BOLD, DISPLAY, Face, REGULAR};
 use nowayos_ui::keyboard::KeyAction;
 use nowayos_ui::text::{fit_end, fit_start, wrap};
 use nowayos_ui::{
@@ -115,13 +121,12 @@ use crate::shape::{Paint, Rounded};
 /// What a theme draws text in.
 #[derive(Clone, Copy)]
 pub enum Font {
-    /// One size of the signed-off font's type scale, as glyph atlases
-    /// (`nowayos-glyphs`): proportional, kerned, anti-aliased text,
-    /// as every product theme draws it. One atlas for each device
-    /// scale the size is drawn at, from 1: `[&REGULAR_24,
-    /// &REGULAR_48]` is 24 px text, drawn from the 48 px atlas at scale 2.
-    /// Only the atlases a theme names are linked into a program.
-    Atlas(&'static [&'static Atlas]),
+    /// One face of the signed-off font at one size of the type scale, in
+    /// layout units per em: drawn from the face's outlines
+    /// (`nowayos-glyphs`) at that size times the device scale -
+    /// proportional, kerned, anti-aliased text, as every product theme
+    /// draws it, crisp at every scale.
+    Outline(&'static Face, u16),
     /// One of `embedded-graphics`' built-in monospace bitmap fonts, for
     /// bring-up and debug screens only - signed off as interim for them,
     /// never for a product UI. Each pixel of a glyph is either the
@@ -130,47 +135,37 @@ pub enum Font {
 }
 
 impl Font {
-    /// The atlas drawn at device scale `scale`: the font's for it; `None`
-    /// for a scale it names none for - never a smaller atlas in its place,
-    /// which would shrink the text below its size - for a bitmap font, or
-    /// for scale 0. Every theme names an atlas at every scale the display
-    /// contract allows (`nowayos_display::MAX_SCALE`), as its tests check.
+    /// The font's face and size in 1/64 pixel per em at device scale
+    /// `scale`; `None` for a bitmap font.
     #[must_use]
-    pub fn atlas(&self, scale: u32) -> Option<&'static Atlas> {
-        let Self::Atlas(atlases) = self else {
-            return None;
-        };
-        let index = usize::try_from(scale.checked_sub(1)?).ok()?;
-        atlases.get(index).copied()
-    }
-
-    /// Whether the font can be drawn at device scale `scale`: a bitmap font
-    /// at any, an atlas font where it names an atlas.
-    #[must_use]
-    pub fn draws_at(&self, scale: u32) -> bool {
-        matches!(self, Self::Mono(_)) || self.atlas(scale).is_some()
+    pub const fn face_at(&self, scale: DeviceScale) -> Option<(&'static Face, u32)> {
+        match self {
+            Self::Outline(face, size) => Some((face, scale.size64(*size as u32))),
+            Self::Mono(_) => None,
+        }
     }
 
     /// The metrics layout measures text in this font with, so that layout
-    /// and drawing measure alike: an atlas's advances, kerning and line
-    /// height, or the monospace special case - every character the same
-    /// advance, nothing kerned ([`metrics`]). [`MIN_TARGET`] is the minimum
-    /// target size ([`Theme::metrics`] gives a theme's own). At scale 1;
-    /// [`metrics_at`](Self::metrics_at) for another.
+    /// and drawing measure alike: the face's advances, kerning and line
+    /// height at its size, or the monospace special case - every character
+    /// the same advance, nothing kerned ([`metrics`]). [`MIN_TARGET`] is
+    /// the minimum target size ([`Theme::metrics`] gives a theme's own). At
+    /// scale 1; [`metrics_at`](Self::metrics_at) for another.
     #[must_use]
     pub fn metrics(&self) -> TextMetrics {
-        self.metrics_at(1)
+        self.metrics_at(DeviceScale::ONE)
     }
 
-    /// The metrics at device scale `scale`: [`atlas`](Self::atlas)'s
-    /// for that scale, which layout lays the tree out in pixels at
+    /// The metrics at device scale `scale`: the face's at its size times
+    /// the scale, which layout lays the tree out in pixels at
     /// ([`TextMetrics::with_scale`]).
     #[must_use]
-    pub fn metrics_at(&self, scale: u32) -> TextMetrics {
-        let metrics = match (self, self.atlas(scale)) {
-            (_, Some(atlas)) => TextMetrics::from_atlas(atlas),
-            (Self::Mono(font), None) => metrics(font),
-            (Self::Atlas(_), None) => TextMetrics::new(0, 0),
+    pub fn metrics_at(&self, scale: DeviceScale) -> TextMetrics {
+        let metrics = match self {
+            Self::Outline(face, size) => {
+                TextMetrics::from_face(face, scale.size64(u32::from(*size)))
+            }
+            Self::Mono(font) => metrics(font),
         };
         metrics.with_scale(scale)
     }
@@ -178,13 +173,8 @@ impl Font {
 
 impl fmt::Debug for Font {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.atlas(1) {
-            Some(atlas) => return write!(f, "Atlas({} px)", atlas.size()),
-            None if matches!(self, Self::Atlas(_)) => return f.write_str("Atlas(none)"),
-            None => {}
-        }
         match self {
-            Self::Atlas(_) => Ok(()),
+            Self::Outline(face, size) => write!(f, "Outline(face {}, {size} px)", face.id()),
             Self::Mono(font) => write!(
                 f,
                 "Mono({}x{})",
@@ -196,8 +186,8 @@ impl fmt::Debug for Font {
 
 /// A theme's type scale: the font of each text role, in Regular
 /// and in Bold - display, title and heading only in Bold. Each font names
-/// its atlas at each device scale ([`Font::Atlas`]); sizes are in layout
-/// units.
+/// its face and size ([`Font::Outline`]); sizes are in layout units, drawn
+/// at any device scale.
 #[derive(Clone, Copy, Debug)]
 pub struct TypeScale {
     /// A number or reference to read across a room: digits, capitals and a
@@ -591,80 +581,68 @@ fn rgb<C: From<Rgb888>>(value: u32) -> C {
     Rgb888::new(r, g, b).into()
 }
 
-/// The light theme's type scale: each role's atlas at device scales 1 and
-/// 2.
+/// The light theme's type scale: each role's face and size, drawn at any
+/// device scale.
 const LIGHT_TYPE: TypeScale = TypeScale {
-    display: Font::Atlas(&[&DISPLAY_96, &DISPLAY_192]),
-    title: Font::Atlas(&[&BOLD_28, &BOLD_56]),
-    heading: Font::Atlas(&[&BOLD_20, &BOLD_40]),
-    body: Font::Atlas(&[&REGULAR_18, &REGULAR_36]),
-    body_bold: Font::Atlas(&[&BOLD_18, &BOLD_36]),
-    label: Font::Atlas(&[&REGULAR_16, &REGULAR_32]),
-    label_bold: Font::Atlas(&[&BOLD_16, &BOLD_32]),
-    caption: Font::Atlas(&[&REGULAR_14, &REGULAR_28]),
-    caption_bold: Font::Atlas(&[&BOLD_14, &BOLD_28]),
+    display: Font::Outline(&DISPLAY, 96),
+    title: Font::Outline(&BOLD, 28),
+    heading: Font::Outline(&BOLD, 20),
+    body: Font::Outline(&REGULAR, 18),
+    body_bold: Font::Outline(&BOLD, 18),
+    label: Font::Outline(&REGULAR, 16),
+    label_bold: Font::Outline(&BOLD, 16),
+    caption: Font::Outline(&REGULAR, 14),
+    caption_bold: Font::Outline(&BOLD, 14),
     line_heights: LineHeights::SHOWCASE,
 };
 
-/// The large-text theme's type scale: no text below 24 px.
 const LARGE_TYPE: TypeScale = TypeScale {
-    display: Font::Atlas(&[&DISPLAY_96, &DISPLAY_192]),
-    title: Font::Atlas(&[&BOLD_36, &BOLD_72]),
-    heading: Font::Atlas(&[&BOLD_28, &BOLD_56]),
-    body: Font::Atlas(&[&REGULAR_24, &REGULAR_48]),
-    body_bold: Font::Atlas(&[&BOLD_24, &BOLD_48]),
-    label: Font::Atlas(&[&REGULAR_24, &REGULAR_48]),
-    label_bold: Font::Atlas(&[&BOLD_24, &BOLD_48]),
-    caption: Font::Atlas(&[&REGULAR_24, &REGULAR_48]),
-    caption_bold: Font::Atlas(&[&BOLD_24, &BOLD_48]),
+    display: Font::Outline(&DISPLAY, 96),
+    title: Font::Outline(&BOLD, 36),
+    heading: Font::Outline(&BOLD, 28),
+    body: Font::Outline(&REGULAR, 24),
+    body_bold: Font::Outline(&BOLD, 24),
+    label: Font::Outline(&REGULAR, 24),
+    label_bold: Font::Outline(&BOLD, 24),
+    caption: Font::Outline(&REGULAR, 24),
+    caption_bold: Font::Outline(&BOLD, 24),
     line_heights: LineHeights::SHOWCASE,
 };
 
 impl<C: PixelColor> Theme<C> {
-    /// Whether the theme can be drawn at device scale `scale`: every font of
-    /// its type scale names an atlas for it. A UI refuses a
-    /// display whose scale its theme cannot draw (`nowayos-ui-loop`), rather
-    /// than draw text smaller.
-    #[must_use]
-    pub fn draws_at(&self, scale: u32) -> bool {
-        self.type_scale
-            .styles()
-            .all(|(_, font)| font.draws_at(scale))
-    }
-
     /// The metrics to lay a tree out with, so layout and drawing agree: the
     /// font's ([`Font::metrics`]) with the theme's minimum target size. At
     /// device scale 1; [`metrics_at`](Self::metrics_at) for another.
     #[must_use]
     pub fn metrics(&self) -> TextMetrics {
-        self.metrics_at(1)
+        self.metrics_at(DeviceScale::ONE)
     }
 
-    /// The metrics to lay a tree out with at device scale `scale`:
-    /// the font's atlas for that scale ([`Font::metrics_at`]), the minimum
-    /// target size in pixels at it, and the scale, at which layout gives
-    /// every length a style names. A tree laid out with them is drawn at
-    /// the same scale ([`render`] takes it from the tree).
+    /// The metrics to lay a tree out with at device scale `scale`: each
+    /// role's face at its size times the scale ([`Font::metrics_at`]), the
+    /// minimum target size and button height in pixels at it, and the
+    /// scale, at which layout gives every length a style names. A tree
+    /// laid out with them is drawn at the same scale ([`render`] takes it
+    /// from the tree).
     #[must_use]
-    pub fn metrics_at(&self, scale: u32) -> TextMetrics {
-        let mut metrics = self.type_scale.body.metrics_at(scale);
-        metrics = metrics
-            .with_min_target(self.min_target.saturating_mul(metrics.scale()))
-            .with_button_height(self.shape.button_height.saturating_mul(metrics.scale()))
+    pub fn metrics_at(&self, scale: DeviceScale) -> TextMetrics {
+        let mut metrics = self
+            .type_scale
+            .body
+            .metrics_at(scale)
+            .with_min_target(scale.px(self.min_target))
+            .with_button_height(scale.px(self.shape.button_height))
             .with_spacing(self.spacing);
         for (style, font) in self.type_scale.styles() {
-            if let Some(atlas) = font.atlas(scale) {
+            if let Some((face, size64)) = font.face_at(scale) {
                 metrics = match self.type_scale.line_heights.of(style.role) {
-                    // The role's size in pixels at this scale is its
-                    // atlas's: the line that percentage of it, rounded.
+                    // The role's size in pixels at this scale: the line
+                    // that percentage of it, to the nearest pixel.
                     Some(percent) => {
-                        let line = u32::from(atlas.size())
-                            .saturating_mul(percent)
-                            .saturating_add(50)
-                            / 100;
-                        metrics.with_face_line(style, atlas, line)
+                        let line = size64.saturating_mul(percent).saturating_add(3200) / 6400;
+                        metrics.with_face_line(style, face, size64, line)
                     }
-                    None => metrics.with_face(style, atlas),
+                    None => metrics.with_face(style, face, size64),
                 };
             }
         }
@@ -833,12 +811,13 @@ pub fn render<D, const N: usize>(
     tree: &Tree<N>,
     target: &mut D,
     theme: &Theme<D::Color>,
+    glyphs: &mut Glyphs<'_>,
 ) -> Result<(), D::Error>
 where
     D: DrawTarget,
     D::Color: RgbColor + From<Rgb888>,
 {
-    render_area(tree, target, theme, tree.viewport())
+    render_area(tree, target, theme, tree.viewport(), glyphs)
 }
 
 /// Paints only the areas the tree has marked dirty. Call
@@ -851,13 +830,14 @@ pub fn render_dirty<D, const N: usize>(
     tree: &Tree<N>,
     target: &mut D,
     theme: &Theme<D::Color>,
+    glyphs: &mut Glyphs<'_>,
 ) -> Result<(), D::Error>
 where
     D: DrawTarget,
     D::Color: RgbColor + From<Rgb888>,
 {
     for &area in tree.dirty_rects() {
-        render_area(tree, target, theme, area)?;
+        render_area(tree, target, theme, area, glyphs)?;
     }
     Ok(())
 }
@@ -879,6 +859,7 @@ pub fn render_area<D, const N: usize>(
     target: &mut D,
     theme: &Theme<D::Color>,
     area: Rect,
+    glyphs: &mut Glyphs<'_>,
 ) -> Result<(), D::Error>
 where
     D: DrawTarget,
@@ -892,6 +873,7 @@ where
     Painter {
         target: &mut target.clipped(&to_eg(area)),
         theme,
+        glyphs: &mut *glyphs,
         metrics: base,
         scale,
         font: theme.type_scale.body,
@@ -920,6 +902,7 @@ where
             Painter {
                 target: &mut target.clipped(&to_eg(clip)),
                 theme,
+                glyphs: &mut *glyphs,
                 metrics: base.for_style(style),
                 scale,
                 font: theme.type_scale.font(style),
@@ -985,14 +968,16 @@ pub const fn to_eg(rect: Rect) -> Rectangle {
 
 /// Draws into one clipped rectangle: the area being painted, or the part of
 /// one node inside it.
-struct Painter<'t, 'th, D: DrawTarget> {
+struct Painter<'t, 'th, 'g, 'c, D: DrawTarget> {
     target: &'t mut D,
     theme: &'th Theme<D::Color>,
+    /// Where text's glyphs come from: drawn from the outlines, and kept.
+    glyphs: &'g mut Glyphs<'c>,
     metrics: TextMetrics,
     /// The device scale: pixels each way for each layout unit.
-    scale: u32,
+    scale: DeviceScale,
     /// The font the node's text is drawn in: its style's, from the type
-    /// scale. At an atlas font, `metrics` holds the atlas for the
+    /// scale. At an outline font, `metrics` holds its face and size at the
     /// scale.
     font: Font,
     /// Everything drawn is first intersected with this, using NoWayOS's
@@ -1007,7 +992,7 @@ struct Painter<'t, 'th, D: DrawTarget> {
     surface: Option<Surface>,
 }
 
-impl<D> Painter<'_, '_, D>
+impl<D> Painter<'_, '_, '_, '_, D>
 where
     D: DrawTarget,
     D::Color: RgbColor + From<Rgb888>,
@@ -1339,6 +1324,7 @@ where
                 Painter {
                     target: &mut self.target.clipped(&to_eg(inside)),
                     theme: self.theme,
+                    glyphs: &mut *self.glyphs,
                     metrics: self.metrics,
                     scale: self.scale,
                     font: self.font,
@@ -1364,8 +1350,8 @@ where
     }
 
     /// Where a checkbox's box or a radio option's ring goes in `area`: a
-    /// square as high as the text's em - its atlas's size, 18 pixels in the
-    /// light theme and 24 in the large-text theme - centred in the mark's
+    /// square as high as the text's em - its size, 18 pixels in the light
+    /// theme and 24 in the large-text theme at scale 1 - centred in the mark's
     /// place ([`Self::mark`]), a line high. So the background shows all
     /// round it even where a row is only a line high, as with the atlases:
     /// between one option's ring and the next, and between the mark and a
@@ -1373,10 +1359,14 @@ where
     /// place, as it always has.
     fn choice_mark(&self, area: Rect) -> Option<Rect> {
         let place = self.mark(area)?;
-        let Some(atlas) = self.metrics.atlas() else {
+        let Some((_, size64)) = self.metrics.face() else {
             return Some(place);
         };
-        let side = u32::from(atlas.size()).min(place.size.height);
+        let side = size64
+            .saturating_add(32)
+            .checked_div(64)
+            .unwrap_or(0)
+            .min(place.size.height);
         let inset = i32::try_from(place.size.height.saturating_sub(side) / 2).unwrap_or(0);
         Rect::new(place.origin.x, place.origin.y, side, side).checked_translate(inset, inset)
     }
@@ -1587,7 +1577,7 @@ where
     /// each pixel's coverage blending the colour of text where it stands
     /// over what lies beneath, clipped.
     fn icon(&mut self, rect: Rect, icon: &nowayos_ui::icons::Icon) -> Result<(), D::Error> {
-        let Some(mask) = icon.mask(self.scale) else {
+        let Some(mask) = icon.mask(self.scale.quarters()) else {
             return Ok(());
         };
         let size = u32::from(mask.size());
@@ -1675,9 +1665,10 @@ where
         Ok(())
     }
 
-    /// `units` layout units in pixels at the device scale.
+    /// `units` layout units in pixels at the device scale, to the nearest
+    /// whole pixel.
     const fn px(&self, units: u32) -> u32 {
-        units.saturating_mul(self.scale)
+        self.scale.px(units)
     }
 
     /// Fills `rect`, clipped.
@@ -1702,7 +1693,7 @@ where
     }
 
     /// Draws one line of text in `rect`, vertically centred, clipped, in
-    /// `color` - from a glyph atlas blended over `background`, the colour
+    /// `color` - from the face's outlines blended over `background`, the colour
     /// the node is known to draw beneath it (the `text` module); in a
     /// bitmap font, over whatever is there.
     fn text(
@@ -1726,19 +1717,30 @@ where
         let top = rect
             .top()
             .saturating_add(i64::from(vertical_offset(rect, self.metrics.line_height())));
-        match (self.metrics.atlas(), self.font) {
-            (Some(atlas), _) => {
+        match (self.metrics.face(), self.font) {
+            (Some((face, size64)), _) => {
                 let line = text::Line {
-                    atlas,
+                    face,
+                    size64,
                     text,
                     left,
-                    baseline: top
-                        .saturating_add(text::baseline_in(atlas, self.metrics.line_height())),
+                    baseline: top.saturating_add(text::baseline_in(
+                        face,
+                        size64,
+                        self.metrics.line_height(),
+                    )),
                 };
-                text::draw(&mut *self.target, line, self.clip, color, background)
+                text::draw(
+                    &mut *self.target,
+                    line,
+                    self.clip,
+                    color,
+                    background,
+                    self.glyphs,
+                )
             }
             (None, Font::Mono(font)) => self.mono_text(font, text, left, top, width, color),
-            (None, Font::Atlas(_)) => Ok(()),
+            (None, Font::Outline(..)) => Ok(()),
         }
     }
 

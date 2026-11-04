@@ -47,7 +47,7 @@ use core::fmt;
 use embedded_graphics::pixelcolor::Rgb888;
 use nowayos_bounded::BoundedVec;
 use nowayos_display::{
-    Configure, ContractError, FrameMemory, FramebufferLayout, MAX_DAMAGE_RECTS, MAX_RECORD_LEN,
+    ContractError, DeviceScale, FrameMemory, FramebufferLayout, MAX_DAMAGE_RECTS, MAX_RECORD_LEN,
     Point, Present, Rect, UiEnd, UiEvent,
 };
 use nowayos_input::InputEvent;
@@ -57,7 +57,8 @@ use nowayos_region::{
     ring_producer,
 };
 use nowayos_render_eg::{
-    RawFramebuffer, RawFramebufferError, Theme, pointer_area, render, render_dirty, render_pointer,
+    Glyphs, RawFramebuffer, RawFramebufferError, Theme, pointer_area, render, render_dirty,
+    render_pointer,
 };
 use nowayos_ui::{TextMetrics, Tree};
 
@@ -87,13 +88,6 @@ pub enum LoopError {
     Ring,
     /// A region could not be bound or viewed.
     Region(RegionError),
-    /// The display's device scale is within the contract, but the theme
-    /// names no glyph atlases for it, so its text cannot be drawn at its
-    /// size.
-    NoAtlasAtScale {
-        /// The scale the display announced.
-        scale: u32,
-    },
 }
 
 impl fmt::Display for LoopError {
@@ -103,9 +97,6 @@ impl fmt::Display for LoopError {
             Self::Framebuffer(error) => write!(f, "framebuffer: {error}"),
             Self::Ring => write!(f, "a ring to the display PD failed"),
             Self::Region(error) => write!(f, "region: {error}"),
-            Self::NoAtlasAtScale { scale } => {
-                write!(f, "the theme has no glyph atlases at device scale {scale}")
-            }
         }
     }
 }
@@ -182,20 +173,10 @@ impl UiLoop {
     /// high-contrast version, as the screen showing asks. The screens are
     /// then laid out again with the new [`metrics`](Self::metrics), and the
     /// next frame drawn whole ([`draw_all`](Self::draw_all)), as every
-    /// pixel may change.
-    ///
-    /// # Errors
-    ///
-    /// [`LoopError::NoAtlasAtScale`] if the display has announced a scale
-    /// `theme` cannot draw at; the theme before stays.
-    pub fn set_theme(&mut self, theme: Theme<Rgb888>) -> Result<(), LoopError> {
-        if let Some(scale) = self.end.scale()
-            && !theme.draws_at(scale)
-        {
-            return Err(LoopError::NoAtlasAtScale { scale });
-        }
+    /// pixel may change. Any theme draws at any device scale: its text
+    /// comes from the glyph outlines.
+    pub fn set_theme(&mut self, theme: Theme<Rgb888>) {
         self.theme = theme;
-        Ok(())
     }
 
     /// The layout the display announced, once it has.
@@ -205,9 +186,9 @@ impl UiLoop {
     }
 
     /// The display's device scale, once it has announced its layout: its
-    /// pixels each way for each layout unit.
+    /// pixels each way for each layout unit, 1 to 4 in quarter steps.
     #[must_use]
-    pub const fn scale(&self) -> Option<u32> {
+    pub const fn scale(&self) -> Option<DeviceScale> {
         self.end.scale()
     }
 
@@ -225,7 +206,8 @@ impl UiLoop {
     /// announced its layout. The loop draws at the same scale.
     #[must_use]
     pub fn metrics(&self) -> TextMetrics {
-        self.theme.metrics_at(self.end.scale().unwrap_or(1))
+        self.theme
+            .metrics_at(self.end.scale().unwrap_or(DeviceScale::ONE))
     }
 
     /// Whether the UI may draw: configured, and no `Present` in flight.
@@ -239,24 +221,13 @@ impl UiLoop {
     ///
     /// # Errors
     ///
-    /// As [`UiEnd::receive`]; [`LoopError::NoAtlasAtScale`] for a layout at
-    /// a device scale the contract allows but the theme cannot draw. A
-    /// refused record changes nothing.
+    /// As [`UiEnd::receive`]. A refused record changes nothing.
     pub fn receive(&mut self, record: &[u8]) -> Result<UiEvent, LoopError> {
-        // A layout at a scale the theme has no atlases for is refused, and
-        // nothing is drawn, rather than its text drawn smaller.
-        if let Ok(configure) = nowayos_ipc::decode::<Configure>(record)
-            && !self.theme.draws_at(configure.scale())
-        {
-            return Err(LoopError::NoAtlasAtScale {
-                scale: configure.scale(),
-            });
-        }
         Ok(self.end.receive(record)?)
     }
 
-    /// Draws `tree` whole into `frame`, and returns the `Present` announcing
-    /// the whole screen.
+    /// Draws `tree` whole into `frame`, its text's glyphs from `glyphs`, and
+    /// returns the `Present` announcing the whole screen.
     ///
     /// # Errors
     ///
@@ -267,13 +238,14 @@ impl UiLoop {
         &mut self,
         tree: &Tree<N>,
         frame: M,
+        glyphs: &mut Glyphs<'_>,
     ) -> Result<Present, LoopError> {
         let layout = self.end.layout().ok_or(ContractError::NotConfigured)?;
         if !self.end.can_draw() {
             return Err(ContractError::PresentInFlight.into());
         }
         let mut target = RawFramebuffer::new(layout, frame).map_err(LoopError::Framebuffer)?;
-        match render(tree, &mut target, &self.theme) {
+        match render(tree, &mut target, &self.theme, glyphs) {
             Ok(()) => {}
             Err(never) => match never {},
         }
@@ -289,7 +261,8 @@ impl UiLoop {
         Ok(present)
     }
 
-    /// Draws only the areas `tree` has marked dirty into `frame`, marks
+    /// Draws only the areas `tree` has marked dirty into `frame`, its text's
+    /// glyphs from `glyphs`, marks
     /// them drawn ([`Tree::clear_dirty`]), and returns the `Present`
     /// announcing just those rectangles - none, if nothing changed,
     /// so the display shows the same frame and acknowledges it. The pixels
@@ -304,6 +277,7 @@ impl UiLoop {
         &mut self,
         tree: &mut Tree<N>,
         frame: M,
+        glyphs: &mut Glyphs<'_>,
     ) -> Result<Present, LoopError> {
         let layout = self.end.layout().ok_or(ContractError::NotConfigured)?;
         if !self.end.can_draw() {
@@ -319,7 +293,7 @@ impl UiLoop {
             }
         }
         let mut target = RawFramebuffer::new(layout, frame).map_err(LoopError::Framebuffer)?;
-        match render_dirty(tree, &mut target, &self.theme) {
+        match render_dirty(tree, &mut target, &self.theme, glyphs) {
             Ok(()) => {}
             Err(never) => match never {},
         }
@@ -464,6 +438,15 @@ mod tests {
 
     use super::*;
 
+    /// Runs `draw` with a glyph store over fresh storage on the heap.
+    fn with_glyphs<R>(draw: impl FnOnce(&mut Glyphs<'_>) -> R) -> R {
+        let (mut pixels, mut slots) = (
+            vec![0; nowayos_render_eg::DEFAULT_BYTES],
+            vec![nowayos_render_eg::Slot::EMPTY; nowayos_render_eg::DEFAULT_SLOTS],
+        );
+        draw(&mut Glyphs::new(&mut pixels, &mut slots))
+    }
+
     fn layout() -> FramebufferLayout {
         FramebufferLayout::packed(32, 16, PixelFormat::Xrgb8888).unwrap()
     }
@@ -491,7 +474,7 @@ mod tests {
         let mut ui = UiLoop::new(layout().byte_len());
         let mut memory = vec![0_u8; layout().byte_len()];
         assert_eq!(
-            ui.draw_all(&tree(), &mut memory[..]).unwrap_err(),
+            with_glyphs(|glyphs| ui.draw_all(&tree(), &mut memory[..], glyphs)).unwrap_err(),
             LoopError::Contract(ContractError::NotConfigured)
         );
         let mut display = DisplayEnd::new(layout()).unwrap();
@@ -500,10 +483,10 @@ mod tests {
             ui.receive(&record(&configure)).unwrap(),
             DisplayUiEvent::Configured(layout())
         );
-        let present = ui.draw_all(&tree(), &mut memory[..]).unwrap();
+        let present = with_glyphs(|glyphs| ui.draw_all(&tree(), &mut memory[..], glyphs)).unwrap();
         assert!(!ui.can_draw(), "one Present in flight");
         assert_eq!(
-            ui.draw_all(&tree(), &mut memory[..]).unwrap_err(),
+            with_glyphs(|glyphs| ui.draw_all(&tree(), &mut memory[..], glyphs)).unwrap_err(),
             LoopError::Contract(ContractError::PresentInFlight)
         );
         let shown = display.accept(&present).unwrap();
@@ -528,14 +511,17 @@ mod tests {
         let layout = FramebufferLayout::packed(64, 32, PixelFormat::Rgb565).unwrap();
         let mut ui = UiLoop::new(layout.byte_len());
         assert_eq!((ui.scale(), ui.viewport()), (None, None));
-        assert_eq!(ui.metrics().scale(), 1);
-        let mut display = DisplayEnd::scaled(layout, 2).unwrap();
+        assert_eq!(ui.metrics().scale(), DeviceScale::ONE);
+        let mut display = DisplayEnd::scaled(layout, DeviceScale::TWO).unwrap();
         ui.receive(&record(&display.configure())).unwrap();
-        assert_eq!(ui.scale(), Some(2));
+        assert_eq!(ui.scale(), Some(DeviceScale::TWO));
         assert_eq!(ui.viewport(), Some(Rect::new(0, 0, 64, 32)));
         let metrics = ui.metrics();
-        assert_eq!(metrics.scale(), 2);
-        assert_eq!(metrics, Theme::<Rgb888>::light().metrics_at(2));
+        assert_eq!(metrics.scale(), DeviceScale::TWO);
+        assert_eq!(
+            metrics,
+            Theme::<Rgb888>::light().metrics_at(DeviceScale::TWO)
+        );
 
         let mut tree: Tree<4> = Tree::new();
         let column = tree.column(Style::new().padding(2)).unwrap();
@@ -545,13 +531,15 @@ mod tests {
         tree.layout(ui.viewport().unwrap(), &metrics).unwrap();
         let mut memory = vec![0_u8; layout.byte_len()];
         // The first frame: the whole screen is dirty.
-        let present = ui.draw_dirty(&mut tree, &mut memory[..]).unwrap();
+        let present =
+            with_glyphs(|glyphs| ui.draw_dirty(&mut tree, &mut memory[..], glyphs)).unwrap();
         assert_eq!(present.damage(), &[layout.bounds()]);
         assert!(tree.dirty_rects().is_empty());
         let done = display.accept(&present).unwrap().done();
         ui.receive(&record(&done)).unwrap();
         // Nothing changed: an empty Present, acknowledged as any other.
-        let present = ui.draw_dirty(&mut tree, &mut memory[..]).unwrap();
+        let present =
+            with_glyphs(|glyphs| ui.draw_dirty(&mut tree, &mut memory[..], glyphs)).unwrap();
         assert!(present.damage().is_empty());
         let done = display.accept(&present).unwrap().done();
         ui.receive(&record(&done)).unwrap();
@@ -559,16 +547,21 @@ mod tests {
         // is what a whole frame would be.
         tree.set_slot(nowayos_ui::SlotId::new(1), "Hi").unwrap();
         let changed = tree.dirty_rects().to_vec();
-        let present = ui.draw_dirty(&mut tree, &mut memory[..]).unwrap();
+        let present =
+            with_glyphs(|glyphs| ui.draw_dirty(&mut tree, &mut memory[..], glyphs)).unwrap();
         assert_eq!(present.damage(), &changed[..]);
         let done = display.accept(&present).unwrap().done();
         ui.receive(&record(&done)).unwrap();
         let mut whole = vec![0_u8; layout.byte_len()];
         let mut fresh = UiLoop::new(layout.byte_len());
         fresh
-            .receive(&record(&DisplayEnd::scaled(layout, 2).unwrap().configure()))
+            .receive(&record(
+                &DisplayEnd::scaled(layout, DeviceScale::TWO)
+                    .unwrap()
+                    .configure(),
+            ))
             .unwrap();
-        fresh.draw_all(&tree, &mut whole[..]).unwrap();
+        with_glyphs(|glyphs| fresh.draw_all(&tree, &mut whole[..], glyphs)).unwrap();
         assert_eq!(memory, whole);
     }
 
@@ -579,7 +572,7 @@ mod tests {
         tree: &mut Tree<4>,
         memory: &mut [u8],
     ) -> Vec<Rect> {
-        let present = ui.draw_dirty(tree, memory).unwrap();
+        let present = with_glyphs(|glyphs| ui.draw_dirty(tree, memory, glyphs)).unwrap();
         let damage = present.damage().to_vec();
         let done = display.accept(&present).unwrap().done();
         ui.receive(&record(&done)).unwrap();
@@ -595,7 +588,7 @@ mod tests {
         ui.receive(&record(&DisplayEnd::new(layout).unwrap().configure()))
             .unwrap();
         let mut memory = vec![0_u8; layout.byte_len()];
-        ui.draw_all(tree, &mut memory[..]).unwrap();
+        with_glyphs(|glyphs| ui.draw_all(tree, &mut memory[..], glyphs)).unwrap();
         memory
     }
 
@@ -655,48 +648,22 @@ mod tests {
         assert_eq!(memory, whole(&tree, layout, false));
     }
 
-    /// A display at a scale the theme names no atlas for is refused, and
-    /// nothing is drawn.
+    /// Any theme draws at any device scale the contract allows - its text
+    /// from the glyph outlines - so a display at 2.5 is accepted and its
+    /// frames drawn.
     #[test]
-    fn a_scale_the_theme_cannot_draw_is_refused() {
-        let layout = FramebufferLayout::packed(64, 32, PixelFormat::Rgb565).unwrap();
-        let light = Theme::<Rgb888>::light();
-        // The light theme with its body font at scale 1 only.
-        let one_scale = Box::leak(vec![light.type_scale.body.atlas(1).unwrap()].into_boxed_slice());
-        let theme = Theme {
-            type_scale: nowayos_render_eg::TypeScale {
-                body: nowayos_render_eg::Font::Atlas(one_scale),
-                ..light.type_scale
-            },
-            ..light
-        };
-        let mut ui = UiLoop::with_theme(layout.byte_len(), theme);
-        let display = DisplayEnd::scaled(layout, 2).unwrap();
-        assert_eq!(
-            ui.receive(&record(&display.configure())),
-            Err(LoopError::NoAtlasAtScale { scale: 2 })
-        );
-        assert_eq!(
-            LoopError::NoAtlasAtScale { scale: 2 }.to_string(),
-            "the theme has no glyph atlases at device scale 2"
-        );
-        assert_eq!((ui.layout(), ui.scale()), (None, None));
-        let mut memory = vec![0_u8; layout.byte_len()];
-        assert!(ui.draw_all(&tree(), &mut memory[..]).is_err());
-        // At scale 1 the same theme draws.
-        let mut ui = UiLoop::with_theme(layout.byte_len(), theme);
-        let display = DisplayEnd::new(layout).unwrap();
-        assert!(ui.receive(&record(&display.configure())).is_ok());
-        // Nor can a running loop switch to it at scale 2: the theme
-        // before stays.
-        let mut ui = UiLoop::new(layout.byte_len());
-        let display = DisplayEnd::scaled(layout, 2).unwrap();
-        ui.receive(&record(&display.configure())).unwrap();
-        assert_eq!(
-            ui.set_theme(theme),
-            Err(LoopError::NoAtlasAtScale { scale: 2 })
-        );
-        assert_eq!(ui.metrics(), light.metrics_at(2));
+    fn every_scale_the_contract_allows_draws() {
+        let layout = FramebufferLayout::packed(80, 40, PixelFormat::Xrgb8888).unwrap();
+        for quarters in 4..=16 {
+            let scale = DeviceScale::from_quarters(quarters).unwrap();
+            let mut ui = UiLoop::new(layout.byte_len());
+            let display = DisplayEnd::scaled(layout, scale).unwrap();
+            ui.receive(&record(&display.configure())).unwrap();
+            assert_eq!(ui.scale(), Some(scale));
+            assert_eq!(ui.metrics(), Theme::<Rgb888>::light().metrics_at(scale));
+            let mut memory = vec![0_u8; layout.byte_len()];
+            assert!(with_glyphs(|glyphs| ui.draw_all(&tree(), &mut memory[..], glyphs)).is_ok());
+        }
     }
 
     /// A theme switched at run time gives its metrics at the
@@ -706,23 +673,27 @@ mod tests {
     fn a_theme_switched_at_run_time_lays_out_and_draws_in_its_own() {
         let layout = FramebufferLayout::packed(64, 32, PixelFormat::Rgb565).unwrap();
         let mut ui = UiLoop::new(layout.byte_len());
-        let mut display = DisplayEnd::scaled(layout, 2).unwrap();
+        let mut display = DisplayEnd::scaled(layout, DeviceScale::TWO).unwrap();
         ui.receive(&record(&display.configure())).unwrap();
         let large = Theme::<Rgb888>::high_contrast();
-        ui.set_theme(large).unwrap();
-        assert_eq!(ui.metrics(), large.metrics_at(2));
+        ui.set_theme(large);
+        assert_eq!(ui.metrics(), large.metrics_at(DeviceScale::TWO));
         let mut tree = tree();
         tree.layout(ui.viewport().unwrap(), &ui.metrics()).unwrap();
         let mut memory = vec![0_u8; layout.byte_len()];
-        let present = ui.draw_all(&tree, &mut memory[..]).unwrap();
+        let present = with_glyphs(|glyphs| ui.draw_all(&tree, &mut memory[..], glyphs)).unwrap();
         ui.receive(&record(&display.accept(&present).unwrap().done()))
             .unwrap();
         let mut fresh = UiLoop::with_theme(layout.byte_len(), large);
         fresh
-            .receive(&record(&DisplayEnd::scaled(layout, 2).unwrap().configure()))
+            .receive(&record(
+                &DisplayEnd::scaled(layout, DeviceScale::TWO)
+                    .unwrap()
+                    .configure(),
+            ))
             .unwrap();
         let mut whole = vec![0_u8; layout.byte_len()];
-        fresh.draw_all(&tree, &mut whole[..]).unwrap();
+        with_glyphs(|glyphs| fresh.draw_all(&tree, &mut whole[..], glyphs)).unwrap();
         assert_eq!(memory, whole);
         // Black, the large-text theme's background, where the light
         // theme's is a warm white.
