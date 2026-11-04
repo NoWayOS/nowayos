@@ -1332,7 +1332,7 @@ class CheckSystemDevices(unittest.TestCase):
         mode = "{ width = 1920, height = 1080, stride = 3840, format = \"r5g6b5\", first_row = 16 }"
         for old, new, reason in [
             (mode, mode.replace(", first_row = 16", ""), "framebuffer needs exactly"),
-            (mode, mode.replace("r5g6b5", "x8r8g8b8"), "framebuffer format must be one of"),
+            (mode, mode.replace("r5g6b5", "a8b8g8r8"), "framebuffer format must be one of"),
             (mode, mode.replace("stride = 3840", "stride = 3838"), "cannot hold 1920 pixels"),
             (mode, mode.replace("width = 1920", "width = 0"), "must be positive 32-bit integers"),
             (mode, mode.replace("first_row = 16", "first_row = 1080"), "first_row must be a row of the screen"),
@@ -1348,16 +1348,16 @@ class CheckSystemDevices(unittest.TestCase):
 
     def test_the_pi_5s_framebuffer_is_in_its_board_file(self):
         """Firmware_fb on rpi5b_2gb - the firmware's 1920 x 1080
-        r5g6b5 framebuffer at 0x3f80_0000, its window every row of it, page
+        x8r8g8b8 framebuffer at 0x3f40_0000, its window every row of it, page
         aligned and ending with the framebuffer."""
         fb = self.tool.read_board(os.path.join(HERE, os.pardir, "platforms", "rpi5b_2gb.toml"))["firmware_fb"]
-        self.assertEqual(fb.framebuffer, {"width": 1920, "height": 1080, "stride": 3840, "format": "r5g6b5",
-                                          "first_row": 0, "reserved": 0x80_0000})
-        # The firmware's whole reservation, 0x3f80_0000 to 0x4000_0000, is
-        # rule 14's to keep clear.
+        self.assertEqual(fb.framebuffer, {"width": 1920, "height": 1080, "stride": 7680, "format": "x8r8g8b8",
+                                          "first_row": 0, "reserved": 0xC0_0000})
+        # Everything from the framebuffer to 0x4000_0000 is rule 14's to
+        # keep clear.
         self.assertEqual(fb.address + fb.framebuffer["reserved"], 0x4000_0000)
-        self.assertEqual(fb.address, 0x3F80_0000)
-        self.assertEqual(fb.address + fb.registers, 0x3F80_0000 + 1080 * 3840)
+        self.assertEqual(fb.address, 0x3F40_0000)
+        self.assertEqual(fb.address + fb.registers, 0x3F40_0000 + 1080 * 7680)
         self.assertEqual(fb.size, -(-fb.registers // 0x1000) * 0x1000)
         self.assertLessEqual(fb.address + fb.size, 0x3FC0_0000)
 
@@ -4199,15 +4199,15 @@ class BoardSystem(unittest.TestCase):
     def test_a_framebuffers_facts_carry_its_mode(self):
         """device-firmware_fb.bin: version 2 - version 1's words with
         the compatible string padded to 64 bytes, then width, height, stride,
-        format (1: r5g6b5) and first row - the bytes nowayos_region's tests
+        format (1: r5g6b5, 2: x8r8g8b8) and first row - the bytes nowayos_region's tests
         read as the Pi 5's framebuffer."""
         files, problems = self.tool.prefills('<memory_region name="f" prefill_path="device-firmware_fb.bin" />',
                                              devices=self.devices("rpi5b_2gb"), board="rpi5b_2gb")
         self.assertEqual(problems, [])
         compatible = b"simple-framebuffer"
-        expected = (b"".join(n.to_bytes(4, "little") for n in (2, 0x3F_4800, len(compatible)))
+        expected = (b"".join(n.to_bytes(4, "little") for n in (2, 0x7E_9000, len(compatible)))
                     + compatible.ljust(64, b"\0")
-                    + b"".join(n.to_bytes(4, "little") for n in (1920, 1080, 3840, 1, 0)))
+                    + b"".join(n.to_bytes(4, "little") for n in (1920, 1080, 7680, 2, 0)))
         self.assertEqual(files, {"device-firmware_fb.bin": expected})
         self.assertEqual(len(expected), 96)
 
@@ -4418,7 +4418,7 @@ class BoardSystem(unittest.TestCase):
 
     def test_no_kernel_object_lies_in_the_framebuffer_but_its_windows_frames(self):
         """Rule 14: in the Microkit tool's report, an object inside the
-        Pi 5's framebuffer - from its first row, 0x3f80_0000, through what
+        Pi 5's framebuffer - from its first row, 0x3f40_0000, through what
         the firmware reserves for it, to 0x4000_0000 - is refused unless it
         is a frame of the region that maps its window; objects outside it
         pass."""
@@ -4427,10 +4427,10 @@ class BoardSystem(unittest.TestCase):
         grants = os.path.join(self.SYSTEMS, "rpi5b_2gb", "fb-test.grants")
         report = textwrap.dedent("""\
             # Kernel Objects Details: ID, Type, Name, Physical Address
-            \t0 - Page(4 KiB): 'frame_mr_firmware_fb_000000000' @ 0x00003f80f000
-            \t1 - Page(4 KiB): 'frame_mr_firmware_fb_000000997' @ 0x00003fbf4000
+            \t0 - Page(4 KiB): 'frame_mr_firmware_fb_000000000' @ 0x00003f40f000
+            \t1 - Page(4 KiB): 'frame_mr_firmware_fb_000002024' @ 0x00003fbe8000
             \t2 - CNode: 'cnode_fb_test' @ 0x000000080000
-            \t3 - Page(4 KiB): 'frame_fb_test_stack_000000000' @ 0x00003f7ff000
+            \t3 - Page(4 KiB): 'frame_fb_test_stack_000000000' @ 0x00003f3ff000
             """)
         with tempfile.TemporaryDirectory() as tmp:
             built = write(tmp, "fb-test.system", resolved)
@@ -4439,17 +4439,17 @@ class BoardSystem(unittest.TestCase):
                                                     "--report", write(tmp, "report.txt", text)])
             status, _, err = check(report)
             self.assertEqual(status, 0, err)
-            for line, where in [("\t4 - Tcb: 'tcb_fb_test' @ 0x00003f900000", "0x3f900000"),
-                                ("\t4 - Page(4 KiB): 'frame_fb_test_stack_000000001' @ 0x00003f800000",
-                                 "0x3f800000"),
-                                ("\t4 - Page(4 KiB): 'frame_mr_firmware_fb_facts_000000000' @ 0x00003fbf4000",
-                                 "0x3fbf4000")]:
+            for line, where in [("\t4 - Tcb: 'tcb_fb_test' @ 0x00003f500000", "0x3f500000"),
+                                ("\t4 - Page(4 KiB): 'frame_fb_test_stack_000000001' @ 0x00003f400000",
+                                 "0x3f400000"),
+                                ("\t4 - Page(4 KiB): 'frame_mr_firmware_fb_facts_000000000' @ 0x00003fbe8000",
+                                 "0x3fbe8000")]:
                 with self.subTest(line=line):
                     status, _, err = check(report + line + "\n")
                     self.assertEqual(status, 1, err)
                     self.assertIn(f"rule 14: ", err)
                     self.assertIn(f"lies at {where}, inside board 'rpi5b_2gb''s framebuffer 'firmware_fb' "
-                                  f"(0x3f800000 to 0x40000000)", err)
+                                  f"(0x3f400000 to 0x40000000)", err)
             # Past the framebuffer's last byte but inside what the firmware
             # reserves for it: refused too.
             status, _, err = check(report + "\t4 - Tcb: 'tcb_fb_test' @ 0x00003fbf5000\n")
@@ -4464,7 +4464,7 @@ class BoardSystem(unittest.TestCase):
     def test_the_sdks_ram_covers_no_framebuffer(self):
         """Rule 14: the RAM the Microkit SDK's kernel hands out for
         the board (its platform_gen.json) may end at or below the Pi 5's
-        framebuffer, whose reservation runs from 0x3f80_0000 to 0x4000_0000,
+        framebuffer, whose reservation runs from 0x3f40_0000 to 0x4000_0000,
         but never cover any of it: Microkit 2.3.1's release, whose RAM ran
         to 0x3fc0_0000, is refused; something that is not a memory
         description is an input error."""
@@ -4479,19 +4479,20 @@ class BoardSystem(unittest.TestCase):
             def memory(*ranges):
                 return json.dumps({"devices": [{"start": 0, "end": 0x8_0000}],
                                    "memory": [{"start": low, "end": high} for low, high in ranges]})
-            for ranges in [[(0x8_0000, 0x3f40_0000)], [(0x8_0000, 0x3f80_0000)],
+            for ranges in [[(0x8_0000, 0x3f40_0000)], [(0x8_0000, 0x3f3f_f000)],
                            [(0x8_0000, 0x3f40_0000), (0x4000_0000, 0x1_0000_0000)]]:
                 with self.subTest(ranges=ranges):
                     status, _, err = check(memory(*ranges))
                     self.assertEqual(status, 0, err)
             for ranges, (low, high) in [([(0x8_0000, 0x3fc0_0000)], (0x8_0000, 0x3fc0_0000)),
+                                        ([(0x8_0000, 0x3f80_0000)], (0x8_0000, 0x3f80_0000)),
                                         ([(0x8_0000, 0x3f40_0000), (0x3fff_f000, 0x4000_1000)],
                                          (0x3fff_f000, 0x4000_1000))]:
                 with self.subTest(ranges=ranges):
                     status, _, err = check(memory(*ranges))
                     self.assertEqual(status, 1, err)
                     self.assertIn(f"rule 14: the Microkit SDK gives seL4 RAM from {low:#x} to {high:#x}", err)
-                    self.assertIn("over board 'rpi5b_2gb''s framebuffer 'firmware_fb' (0x3f800000 to 0x40000000)",
+                    self.assertIn("over board 'rpi5b_2gb''s framebuffer 'firmware_fb' (0x3f400000 to 0x40000000)",
                                   err)
             for text in ["{}", memory(), "[1, 2]", "not json"]:
                 with self.subTest(text=text):

@@ -16,7 +16,7 @@
 //! firmware scans out (device 0 and the board's facts about it, read-only
 //! region 5: the Pi 5's `firmware_fb`, `systems/rpi5b_2gb/ui-demo.system`),
 //! it announces the framebuffer's window at the window's own pixels and
-//! format: on the Pi 5, 1920 x 1080 r5g6b5, the whole monitor, at
+//! format: on the Pi 5, 1920 x 1080 x8r8g8b8, the whole monitor, at
 //! device scale 2 (`nowayos_display::device_scale`), so the UI lays out a
 //! 960 x 540 screen and draws it crisp, filling the monitor with no border
 //! and nothing doubled. Granted none (QEMU's `ui-demo`), it announces the
@@ -79,11 +79,11 @@ use crate::scan::Scan;
 const UI: Channel = Channel::new(0);
 
 /// The screen announced when the system grants no framebuffer: the Pi 5's
-/// window, 1920 x 1080 r5g6b5, so QEMU runs the frames the Pi shows.
+/// window, 1920 x 1080 x8r8g8b8, so QEMU runs the frames the Pi shows.
 pub const STAND_IN: Size = Size::new(1920, 1080);
 
 /// The stand-in screen's format: the Pi 5's framebuffer's.
-pub const STAND_IN_FORMAT: PixelFormat = PixelFormat::Rgb565;
+pub const STAND_IN_FORMAT: PixelFormat = PixelFormat::Xrgb8888;
 
 /// The device number the system description binds the board's framebuffer
 /// to, when it grants one.
@@ -249,16 +249,18 @@ fn board_screen(
     let placement = screen.placement();
     if placement.scale() == 1 && placement.size() == window_size(&mode) {
         debug_println!(
-            "NOWAYOS: display-stub: showing each frame on the board's {}x{} r5g6b5 framebuffer at its own pixels, from row {}",
+            "NOWAYOS: display-stub: showing each frame on the board's {}x{} {} framebuffer at its own pixels, from row {}",
             mode.width(),
             mode.height(),
+            mode.format().name(),
             placement.y()
         );
     } else {
         debug_println!(
-            "NOWAYOS: display-stub: showing each frame on the board's {}x{} r5g6b5 framebuffer, at {}x at ({}, {})",
+            "NOWAYOS: display-stub: showing each frame on the board's {}x{} {} framebuffer, at {}x at ({}, {})",
             mode.width(),
             mode.height(),
+            mode.format().name(),
             placement.scale(),
             placement.x(),
             placement.y()

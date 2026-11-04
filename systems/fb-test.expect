@@ -3,12 +3,12 @@
 # display test pattern QEMU's display-test draws, at 2x, centred, in the
 # firmware's 1920x1080 framebuffer, read back. The pattern's hash is of its
 # 800x480 Xrgb8888 rows, as QEMU's ramfb holds them; the second, of every
-# r5g6b5 byte written. crates/nowayos-display/tests/test_pattern.rs computes
+# x8r8g8b8 byte written. crates/nowayos-display/tests/test_pattern.rs computes
 # both from nowayos_display::test_pattern, so the chain is closed.
 NOWAYOS: fb-test: starting
-NOWAYOS: fb-test: the board's framebuffer: 1920x1080 r5g6b5, 3840 bytes a row, its window from row 0
+NOWAYOS: fb-test: the board's framebuffer: 1920x1080 x8r8g8b8, 7680 bytes a row, its window from row 0
 NOWAYOS: fb-test: the 800x480 test pattern, hash 0x26a5f77654fa9525, shown at 2x at (160, 60)
-NOWAYOS: fb-test: wrote 1600x960 r5g6b5 pixels, hash 0x1393522b0fe1ba25; read back the same
+NOWAYOS: fb-test: wrote 1600x960 x8r8g8b8 pixels, hash 0x52965e6e8dfa7f25; read back the same
 
 # Output that fails the test at once if it appears anywhere (substring match):
 # a fault reported by the Microkit monitor, a kernel error message, a panic,

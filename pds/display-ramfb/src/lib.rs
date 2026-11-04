@@ -10,9 +10,9 @@
 //! therefore places contiguously (`nowayos_hw::ramfb`) - and announces the
 //! layout to the UI PD: the screen at its own pixels, at the device scale
 //! `nowayos_display::device_scale` gives it - 1920 x 1080 at 2,
-//! the Pi 5's window - in r5g6b5, the Pi 5's format, so the UI draws
-//! exactly the frames the Pi shows. ramfb shows XRGB8888, so each row is
-//! converted as it is copied. For each `Present` the UI sends, it checks the
+//! the Pi 5's window - in Xrgb8888, the Pi 5's format, so the UI draws
+//! exactly the frames the Pi shows. ramfb shows XRGB8888 too, so each row
+//! is copied as it is. For each `Present` the UI sends, it checks the
 //! record (`nowayos-display`'s `DisplayEnd`: in sequence, inside the
 //! layout), copies the rectangles it names out of the framebuffer it shares
 //! read-only with the UI into the scan-out buffer, prints the whole frame's
@@ -60,7 +60,7 @@ const MAX_WIDTH: u32 = 1920;
 const MAX_ROW: usize = 7680;
 
 /// The format the UI draws in: the Pi 5's framebuffer's.
-const FRAME_FORMAT: PixelFormat = PixelFormat::Rgb565;
+const FRAME_FORMAT: PixelFormat = PixelFormat::Xrgb8888;
 
 /// Starts the display PD: what its program's `#[protection_domain]` entry
 /// returns, for NoWayOS's systems and a product's own program alike. It

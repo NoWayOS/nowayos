@@ -171,6 +171,7 @@ pub fn window_size(mode: &FramebufferMode) -> Size {
 pub const fn format_of(mode: &FramebufferMode) -> PixelFormat {
     match mode.format() {
         FramebufferFormat::R5g6b5 => PixelFormat::Rgb565,
+        FramebufferFormat::X8r8g8b8 => PixelFormat::Xrgb8888,
     }
 }
 

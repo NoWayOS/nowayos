@@ -8,22 +8,22 @@
 tablet 1920 1080
 
 # 00 start: the first frame.
-wait NOWAYOS: display: showing 0x77e5a94401f98b5e
+wait NOWAYOS: display: showing 0xee8b63267d29b198
 screen ../crates/nowayos-demo/session/00-start.png
 
 # 01 tap-outside: nowhere a control is.
 click 960 600
-wait NOWAYOS: display: showing 0x77e5a94401f98b5e
+wait NOWAYOS: display: showing 0xee8b63267d29b198
 screen ../crates/nowayos-demo/session/01-tap-outside.png
 
 # 02 keys-unfocused: keys with nothing focused change nothing.
 key q ret
-wait NOWAYOS: display: showing 0x77e5a94401f98b5e
+wait NOWAYOS: display: showing 0xee8b63267d29b198
 screen ../crates/nowayos-demo/session/02-keys-unfocused.png
 
 # 03 tap-name: focus the name.
 click 400 260
-wait NOWAYOS: display: showing 0x829684697d7a9df2
+wait NOWAYOS: display: showing 0xc128f929ca25372d
 screen ../crates/nowayos-demo/session/03-tap-name.png
 
 # 04 type-name: "Ada", the A with shift held.
@@ -31,30 +31,30 @@ hold shift
 key a
 release shift
 key d a
-wait NOWAYOS: display: showing 0x4f5509e052fb94fd
+wait NOWAYOS: display: showing 0xfa397a9281147401
 screen ../crates/nowayos-demo/session/04-type-name.png
 
 # 05 type-into-full: 62 more letters; the last is refused, the input full.
 key x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x x
-wait NOWAYOS: display: showing 0x2016b36888f2add6
+wait NOWAYOS: display: showing 0x2bd3ccbc10bb4042
 screen ../crates/nowayos-demo/session/05-type-into-full.png
 
 # 06 click-help.
 click 120 970
-wait NOWAYOS: display: showing 0x7fd4af972b977e92
+wait NOWAYOS: display: showing 0x66b5c11742f5fbe2
 screen ../crates/nowayos-demo/session/06-click-help.png
 
 # 07 click-continue.
 click 1750 970
-wait NOWAYOS: display: showing 0x658e3526cd412af6
+wait NOWAYOS: display: showing 0xff0e9cc9a5ed694b
 screen ../crates/nowayos-demo/session/07-click-continue.png
 
 # 08 keys-on-done: change nothing.
 key q ret
-wait NOWAYOS: display: showing 0x658e3526cd412af6
+wait NOWAYOS: display: showing 0xff0e9cc9a5ed694b
 screen ../crates/nowayos-demo/session/08-keys-on-done.png
 
 # 09 tap-start-again: back to the start, the form empty.
 click 180 970
-wait NOWAYOS: display: showing 0x77e5a94401f98b5e
+wait NOWAYOS: display: showing 0xee8b63267d29b198
 screen ../crates/nowayos-demo/session/09-tap-start-again.png
