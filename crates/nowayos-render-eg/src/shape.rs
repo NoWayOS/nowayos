@@ -57,6 +57,25 @@ pub(crate) struct Paint<C> {
     pub ground: C,
 }
 
+/// A gradient filling a shape (#10079): between two colours over an area,
+/// along a line at an angle or out from its centre.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct GradientFill<C> {
+    pub from: C,
+    pub to: C,
+    pub area: Rect,
+    /// The line's angle in degrees; `None` for a radial gradient.
+    pub angle: Option<u16>,
+}
+
+impl<C: RgbColor + From<Rgb888>> GradientFill<C> {
+    /// Its colour at pixel `(x, y)`.
+    pub(crate) fn at(&self, x: i64, y: i64) -> C {
+        let t = crate::compose::gradient_at(self.area, self.angle, x, y);
+        crate::compose::gradient_colour(self.from, self.to, t, x, y)
+    }
+}
+
 /// The radius of each corner, in pixels: top left, top right, bottom
 /// right, bottom left.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -128,6 +147,43 @@ impl Rounded {
         D: DrawTarget,
         D::Color: RgbColor + From<Rgb888>,
     {
+        self.draw_shaded(target, clip, paint, inside, raster, None)
+    }
+
+    /// As [`draw`](Self::draw), its inside filled with `gradient` (#10079)
+    /// rather than the paint's fill.
+    pub(crate) fn draw_gradient<D>(
+        self,
+        target: &mut D,
+        clip: Rect,
+        paint: Paint<D::Color>,
+        raster: &mut GlyphRasteriser,
+        gradient: GradientFill<D::Color>,
+    ) -> Result<(), D::Error>
+    where
+        D: DrawTarget,
+        D::Color: RgbColor + From<Rgb888>,
+    {
+        self.draw_shaded(target, clip, paint, Inside::Fill, raster, Some(gradient))
+    }
+
+    fn draw_shaded<D>(
+        self,
+        target: &mut D,
+        clip: Rect,
+        paint: Paint<D::Color>,
+        inside: Inside,
+        raster: &mut GlyphRasteriser,
+        gradient: Option<GradientFill<D::Color>>,
+    ) -> Result<(), D::Error>
+    where
+        D: DrawTarget,
+        D::Color: RgbColor + From<Rgb888>,
+    {
+        let fill_at = |x: i64, y: i64| match gradient {
+            Some(g) => g.at(x, y),
+            None => paint.fill,
+        };
         let Some(visible) = self.rect.intersection(&clip) else {
             return Ok(());
         };
@@ -143,7 +199,15 @@ impl Rounded {
                 if inside == Inside::Fill
                     && let Some(part) = tile.intersection(shown)
                 {
-                    fill(target, part, paint.fill)?;
+                    if gradient.is_some() {
+                        for y in part.top..part.bottom {
+                            for x in part.left..part.right {
+                                pixel(target, x, y, fill_at(x, y))?;
+                            }
+                        }
+                    } else {
+                        fill(target, part, paint.fill)?;
+                    }
                 }
                 continue;
             }
@@ -178,7 +242,7 @@ impl Rounded {
                         continue;
                     }
                     let colour = mix3(
-                        [paint.fill, paint.border, paint.ground],
+                        [fill_at(x, y), paint.border, paint.ground],
                         [inn, out.saturating_sub(inn), FULL.saturating_sub(out)],
                     );
                     pixel(target, x, y, colour)?;

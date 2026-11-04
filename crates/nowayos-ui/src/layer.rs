@@ -23,7 +23,9 @@ use nowayos_bounded::BoundedVec;
 use nowayos_display::{Point, Rect, Size};
 
 use crate::layout::{Units, style_at};
-use crate::{MAX_DEPTH, NodeId, NodeKind, Style, Surface, TextMetrics, Tree, UiError, UiEvent};
+use crate::{
+    Elevation, MAX_DEPTH, NodeId, NodeKind, Style, Surface, TextMetrics, Tree, UiError, UiEvent,
+};
 
 /// The most layers open at once: a menu in a dialog, say, and one more.
 pub const MAX_OPEN: usize = 4;
@@ -35,6 +37,11 @@ pub const LAYER_MARGIN: u32 = 16;
 /// The room between a menu, popover or tooltip and its control, in layout
 /// units.
 pub const POPUP_GAP: u32 = 4;
+
+/// How far past a node its shadow may reach, in layout units (#10079): a
+/// theme's shadows fall, spread and blur within it, and what changes a
+/// node with a shadow marks this much around it for repainting.
+pub const SHADOW_REACH: u32 = 48;
 
 /// Which layer, as a number the application defines (builder contract
 /// v20): the handle it opens and closes the layer by.
@@ -396,12 +403,20 @@ impl<const N: usize, const T: usize> Tree<N, T> {
     }
 
     /// Marks what layer `id` changes when it opens or closes: the whole
-    /// viewport for a dialog, which veils the screen; else its area.
+    /// viewport for a dialog, which veils the screen; else its area and
+    /// its shadow's reach.
     fn mark_layer(&mut self, id: NodeId) {
         if self.layer_kind(id) == Some(LayerKind::Dialog) {
             self.dirty.mark_all();
-        } else {
-            self.mark_dirty(id);
+        } else if let Some(rect) = self.get(id).map(|node| node.rect) {
+            let reach = i64::from(self.scale.px(SHADOW_REACH));
+            let grown = Rect::from_edges(
+                rect.left().saturating_sub(reach),
+                rect.top().saturating_sub(reach),
+                rect.right().saturating_add(reach),
+                rect.bottom().saturating_add(reach),
+            );
+            self.mark_area_dirty(grown);
         }
     }
 
@@ -431,12 +446,27 @@ impl<const N: usize, const T: usize> Tree<N, T> {
         if let Some(anchor) = anchor {
             self.node(anchor)?;
         }
-        let style = match kind {
-            LayerKind::Dialog => Style::new().padding(24).surface(Surface::Card),
-            LayerKind::Menu => Style::new().padding(4).surface(Surface::Card),
-            LayerKind::Popover => Style::new().padding(12).surface(Surface::Card),
-            LayerKind::Tooltip => Style::new().padding_xy(8, 4).surface(Surface::Header),
+        // Each on a card that casts a shadow (#10079): a dialog's the
+        // deepest.
+        let (style, elevation) = match kind {
+            LayerKind::Dialog => (
+                Style::new().padding(24).surface(Surface::Card),
+                Elevation::High,
+            ),
+            LayerKind::Menu => (
+                Style::new().padding(4).surface(Surface::Card),
+                Elevation::Medium,
+            ),
+            LayerKind::Popover => (
+                Style::new().padding(12).surface(Surface::Card),
+                Elevation::Medium,
+            ),
+            LayerKind::Tooltip => (
+                Style::new().padding_xy(8, 4).surface(Surface::Header),
+                Elevation::Low,
+            ),
         };
+        let style = style.look(crate::Look::NONE.shadow(elevation));
         self.add_parent(
             NodeKind::Layer {
                 layer,

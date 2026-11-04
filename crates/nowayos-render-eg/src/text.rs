@@ -263,6 +263,7 @@ pub(crate) fn draw<D>(
     color: D::Color,
     background: D::Color,
     glyphs: &mut Glyphs<'_>,
+    gradient: Option<crate::shape::GradientFill<D::Color>>,
 ) -> Result<(), D::Error>
 where
     D: DrawTarget,
@@ -296,7 +297,7 @@ where
                     add_coverage(&mut cover, tile, placed, glyph.coverage());
                 }
             }
-            target.draw_iter(pixels(&cover, tile, color, background))?;
+            target.draw_iter(pixels(&cover, tile, color, background, gradient))?;
         }
     }
     Ok(())
@@ -350,10 +351,13 @@ fn pixels<'a, C>(
     tile: Edges,
     color: C,
     background: C,
+    gradient: Option<crate::shape::GradientFill<C>>,
 ) -> impl Iterator<Item = Pixel<C>> + 'a
 where
     C: RgbColor + From<Rgb888> + 'a,
 {
+    // Over a gradient, each pixel's own colour beneath (#10079).
+    let beneath = move |x: i64, y: i64| gradient.map_or(background, |g| g.at(x, y));
     cover
         .iter()
         .zip(tile.top..tile.bottom)
@@ -365,7 +369,7 @@ where
                         return None;
                     }
                     let point = Point::new(i32::try_from(x).ok()?, i32::try_from(y).ok()?);
-                    Some(Pixel(point, blend(color, background, coverage)))
+                    Some(Pixel(point, blend(color, beneath(x, y), coverage)))
                 })
         })
 }

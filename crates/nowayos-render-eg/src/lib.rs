@@ -83,6 +83,7 @@
 #[cfg(test)]
 extern crate self as nowayos_render_eg;
 
+mod compose;
 pub mod contrast;
 mod framebuffer;
 mod glyphs;
@@ -114,8 +115,8 @@ use nowayos_ui::pictures::{Fit, Picture};
 use nowayos_ui::rich::Run;
 use nowayos_ui::text::{fit_start, wrap};
 use nowayos_ui::{
-    ButtonVariant, Colour, InputMode, Look, MIN_TARGET, Node, NodeId, NodeKind, Spacing, Surface,
-    TextAlign, TextMetrics, TextRole, TextStyle, Tone, Tree, Weight,
+    ButtonVariant, Colour, Elevation, GradientKind, InputMode, Look, MIN_TARGET, Node, NodeId,
+    NodeKind, Spacing, Surface, TextAlign, TextMetrics, TextRole, TextStyle, Tone, Tree, Weight,
 };
 
 use crate::shape::{Inside, Paint, Radii, Rounded, fill_polygon};
@@ -392,6 +393,9 @@ pub struct Theme<C: PixelColor> {
     /// Code in a rich text: the tint behind it, which its text is blended
     /// over (#10078).
     pub code: C,
+    /// The shadows a node casts, by its elevation (#10079), drawn toward
+    /// the [`veil`](Self::veil) colour.
+    pub shadows: Shadows,
     /// What an open dialog veils the screen beneath it with: every colour
     /// there is drawn half way to this ([`Theme::veiled`], #10076).
     pub veil: C,
@@ -399,6 +403,67 @@ pub struct Theme<C: PixelColor> {
     /// gaps, padding and spacers a screen names by size. Layout gives them
     /// through [`Theme::metrics`].
     pub spacing: Spacing,
+}
+
+/// A shadow (#10079): moved down `dy` and grown by `spread` layout units,
+/// blurred over `blur` more, at most `alpha` out of 255 of the way to the
+/// theme's veil colour. `dy`, `spread` and `blur` together stay within
+/// [`nowayos_ui::layer::SHADOW_REACH`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Shadow {
+    /// How far down it falls, in layout units.
+    pub dy: u32,
+    /// How wide its edge blurs, in layout units.
+    pub blur: u32,
+    /// How far it grows past the shape, in layout units.
+    pub spread: u32,
+    /// How dark it is where it is darkest, out of 255.
+    pub alpha: u8,
+}
+
+/// A theme's shadows, one for each elevation (#10079).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Shadows {
+    /// A card resting on the screen.
+    pub low: Shadow,
+    /// A menu or popover.
+    pub medium: Shadow,
+    /// A dialog.
+    pub high: Shadow,
+}
+
+impl Shadows {
+    /// Soft shadows, as the website's cards cast.
+    pub const SOFT: Self = Self {
+        low: Shadow {
+            dy: 1,
+            blur: 4,
+            spread: 0,
+            alpha: 46,
+        },
+        medium: Shadow {
+            dy: 4,
+            blur: 14,
+            spread: 0,
+            alpha: 60,
+        },
+        high: Shadow {
+            dy: 12,
+            blur: 32,
+            spread: 0,
+            alpha: 80,
+        },
+    };
+
+    /// The shadow for `elevation`.
+    #[must_use]
+    pub const fn of(&self, elevation: Elevation) -> Shadow {
+        match elevation {
+            Elevation::Low => self.low,
+            Elevation::Medium => self.medium,
+            Elevation::High => self.high,
+        }
+    }
 }
 
 /// The colours of one surface.
@@ -546,6 +611,7 @@ impl<C: PixelColor + From<Rgb888>> Theme<C> {
             selection: Rgb888::new(0xB9, 0xD4, 0xF5).into(),
             link: Rgb888::new(0x1F, 0x5F, 0xBF).into(),
             code: Rgb888::new(0xE9, 0xE5, 0xDC).into(),
+            shadows: Shadows::SOFT,
             veil: Rgb888::new(0x16, 0x19, 0x1D).into(),
             spacing: Spacing::STANDARD,
         }
@@ -590,6 +656,7 @@ impl<C: PixelColor + From<Rgb888>> Theme<C> {
             selection: Rgb888::new(0x1F, 0x4E, 0x8C).into(),
             link: Rgb888::new(0x8A, 0xB4, 0xFF).into(),
             code: Rgb888::new(0x2A, 0x2A, 0x2A).into(),
+            shadows: Shadows::SOFT,
             veil: Rgb888::new(0, 0, 0).into(),
             spacing: Spacing::LARGE,
         }
@@ -962,6 +1029,64 @@ where
     let Some(area) = area.intersection(&tree.viewport()) else {
         return Ok(());
     };
+    // With a shadow or a see-through node in it, composed tile by tile in
+    // a buffer that can be read back (#10079, ADR-0027); else straight.
+    if !has_effects(tree, area) {
+        return paint(tree, &mut compose::Straight(target), theme, area, glyphs);
+    }
+    for part in compose::tiles(area) {
+        let mut tile = compose::Tile::new(part, theme.background);
+        let Ok(()) = paint(tree, &mut tile, theme, part, glyphs);
+        target.fill_contiguous(&to_eg(part), tile.pixels())?;
+    }
+    Ok(())
+}
+
+/// Whether drawing `area` meets a shadow or a see-through node.
+fn has_effects<const N: usize, const T: usize>(tree: &Tree<N, T>, area: Rect) -> bool {
+    let reach = i64::from(tree.scale().px(nowayos_ui::layer::SHADOW_REACH));
+    tree.paint_order().any(|(_, node)| {
+        let look = node.style().look;
+        let rect = node.rect();
+        (look.shadow.is_some()
+            && Rect::from_edges(
+                rect.left().saturating_sub(reach),
+                rect.top().saturating_sub(reach),
+                rect.right().saturating_add(reach),
+                rect.bottom().saturating_add(reach),
+            )
+            .intersects(&area))
+            || (look.is_translucent() && rect.intersects(&area))
+    })
+}
+
+/// Whether `id` is `ancestor` or inside it.
+fn within<const N: usize, const T: usize>(tree: &Tree<N, T>, id: NodeId, ancestor: NodeId) -> bool {
+    let mut current = Some(id);
+    for _ in 0..=nowayos_ui::MAX_DEPTH.saturating_add(1) {
+        match current {
+            Some(node) if node == ancestor => return true,
+            Some(node) => current = tree.get(node).and_then(Node::parent),
+            None => return false,
+        }
+    }
+    false
+}
+
+/// Draws `area` onto `canvas`, as [`render_area`] says: each node, its
+/// shadow beneath it and a see-through node's subtree blended, where the
+/// canvas can.
+fn paint<K, const N: usize, const T: usize>(
+    tree: &Tree<N, T>,
+    target: &mut K,
+    theme: &Theme<K::Color>,
+    area: Rect,
+    glyphs: &mut Glyphs<'_>,
+) -> Result<(), K::Error>
+where
+    K: compose::Canvas,
+    K::Color: RgbColor + From<Rgb888>,
+{
     let scale = tree.scale();
     let base = theme.metrics_at(scale);
     // Beneath an open dialog, every colour veiled (#10076).
@@ -985,6 +1110,7 @@ where
         ground: ground_theme.background,
         surface: None,
         veil,
+        gradient: None,
     }
     .fill(area, ground_theme.background)?;
     // The screen, then each layer shown over it, bottom to top.
@@ -993,7 +1119,41 @@ where
             break;
         };
         let (theme, veil) = theme_of(plane);
+        // The see-through groups open around the node being drawn.
+        let mut groups: [Option<(NodeId, u8)>; compose::GROUPS] = [None; compose::GROUPS];
         for (id, node) in tree.plane_order(plane) {
+            // Each group the node is outside of is finished.
+            for slot in groups.iter_mut().rev() {
+                if let Some((group, opacity)) = *slot
+                    && !within(tree, id, group)
+                {
+                    target.end(area, opacity);
+                    *slot = None;
+                }
+            }
+            let look = node.style().look;
+            if let Some(elevation) = look.shadow {
+                let clip = match tree.scroll_clip(node) {
+                    Some(view) => area.intersection(&view),
+                    None => Some(area),
+                };
+                if let Some(clip) = clip {
+                    shadow(
+                        target,
+                        theme,
+                        node,
+                        theme.shadows.of(elevation),
+                        clip,
+                        tree.scale(),
+                    );
+                }
+            }
+            if let Some(opacity) = look.opacity.filter(|_| look.is_translucent())
+                && let Some(slot) = groups.iter_mut().find(|slot| slot.is_none())
+                && target.begin()
+            {
+                *slot = Some((id, opacity));
+            }
             // The part of the node inside the area - and, inside a scroll
             // view, inside the view: everything it draws is clipped to
             // this, in NoWayOS's overflow-safe geometry first and by
@@ -1025,9 +1185,17 @@ where
                     ground: fill.map_or_else(|| theme.ground(surface), |fill| theme.colour(fill)),
                     surface,
                     veil,
+                    gradient: if id == plane_root && plane > 0 {
+                        None
+                    } else {
+                        gradient_under(tree, node, theme)
+                    },
                 }
                 .node(tree, id, node)?;
             }
+        }
+        for (_, opacity) in groups.iter().rev().flatten() {
+            target.end(area, *opacity);
         }
         // Each scroll view's thumbs in the plane, over what it shows.
         let in_plane = |id: NodeId| match tree.layer_of(id) {
@@ -1063,6 +1231,7 @@ where
                 ground: fill.map_or_else(|| theme.ground(surface), |fill| theme.colour(fill)),
                 surface,
                 veil,
+                gradient: None,
             };
             for bar in [bars.vertical, bars.horizontal].into_iter().flatten() {
                 painter.thumb(bar.thumb)?;
@@ -1070,6 +1239,92 @@ where
         }
     }
     Ok(())
+}
+
+/// The gradient `node` stands on (#10079): its nearest ancestor drawn on a
+/// surface, a fill or a gradient, if that is a gradient.
+pub(crate) fn gradient_under<C, const N: usize, const T: usize>(
+    tree: &Tree<N, T>,
+    node: &Node,
+    theme: &Theme<C>,
+) -> Option<shape::GradientFill<C>>
+where
+    C: RgbColor + From<Rgb888>,
+{
+    let mut next = node.parent();
+    for _ in 0..=nowayos_ui::MAX_DEPTH {
+        let parent = next.and_then(|id| tree.get(id))?;
+        let style = parent.style();
+        if let Some(gradient) = style.look.gradient {
+            return Some(shape::GradientFill {
+                from: theme.colour(gradient.from),
+                to: theme.colour(gradient.to),
+                area: parent.rect(),
+                angle: match gradient.kind {
+                    GradientKind::Linear { angle } => Some(angle),
+                    GradientKind::Radial => None,
+                },
+            });
+        }
+        if style.surface.is_some() || style.look.fill.is_some() {
+            return None;
+        }
+        next = parent.parent();
+    }
+    None
+}
+
+/// Draws `node`'s `shadow` beneath it, inside `clip`, at `scale`: toward
+/// the theme's veil colour, falling smoothly from its rounded edge.
+fn shadow<K>(
+    target: &mut K,
+    theme: &Theme<K::Color>,
+    node: &Node,
+    shadow: Shadow,
+    clip: Rect,
+    scale: DeviceScale,
+) where
+    K: compose::Canvas,
+    K::Color: RgbColor + From<Rgb888>,
+{
+    let rect = node.rect();
+    let (dy, spread, blur) = (
+        i64::from(scale.px(shadow.dy)),
+        i64::from(scale.px(shadow.spread)),
+        scale.px(shadow.blur),
+    );
+    let shape = Rect::from_edges(
+        rect.left().saturating_sub(spread),
+        rect.top().saturating_add(dy).saturating_sub(spread),
+        rect.right().saturating_add(spread),
+        rect.bottom().saturating_add(dy).saturating_add(spread),
+    );
+    let style = node.style();
+    let radius = scale
+        .px(style.look.radius.unwrap_or_else(|| {
+            style
+                .surface
+                .map_or(0, |surface| theme.shape.radius_of(surface))
+        }))
+        .saturating_add(u32::try_from(spread).unwrap_or(0));
+    let reach = i64::from(blur);
+    let extent = Rect::from_edges(
+        shape.left().saturating_sub(reach),
+        shape.top().saturating_sub(reach),
+        shape.right().saturating_add(reach),
+        shape.bottom().saturating_add(reach),
+    );
+    let Some(part) = extent.intersection(&clip) else {
+        return;
+    };
+    let own = radius.saturating_sub(u32::try_from(spread).unwrap_or(0));
+    target.shade(part, theme.veil, |x, y| {
+        // None under the node's own rounded shape, which is drawn over it.
+        if compose::outside(rect, own, x, y) <= 0 {
+            return 0;
+        }
+        compose::falloff(compose::outside(shape, radius, x, y), blur, shadow.alpha)
+    });
 }
 
 /// What `node` stands on: the surface and the fill of its
@@ -1154,6 +1409,9 @@ struct Painter<'t, 'th, 'g, 'c, D: DrawTarget> {
     /// picture's pixels are drawn half way to it, as the theme's colours
     /// are ([`Theme::veiled`]).
     veil: Option<D::Color>,
+    /// The gradient the node stands on, if it does (#10079): its text is
+    /// blended over the gradient's colour at each pixel.
+    gradient: Option<shape::GradientFill<D::Color>>,
 }
 
 impl<D> Painter<'_, '_, '_, '_, D>
@@ -1620,6 +1878,7 @@ where
                     ground: self.ground,
                     surface: self.surface,
                     veil: self.veil,
+                    gradient: self.gradient,
                 }
                 .text("!", marker, TextAlign::Center, cut_out, on)?;
             }
@@ -2092,6 +2351,25 @@ where
             border,
             ground: self.ground,
         };
+        // A gradient in place of the fill (#10079).
+        if let Some(gradient) = look.gradient {
+            let fill = shape::GradientFill {
+                from: self.theme.colour(gradient.from),
+                to: self.theme.colour(gradient.to),
+                area: rect,
+                angle: match gradient.kind {
+                    GradientKind::Linear { angle } => Some(angle),
+                    GradientKind::Radial => None,
+                },
+            };
+            return shape.draw_gradient(
+                &mut *self.target,
+                self.clip,
+                paint,
+                self.glyphs.rasteriser(),
+                fill,
+            );
+        }
         shape.draw(
             &mut *self.target,
             self.clip,
@@ -2427,6 +2705,7 @@ where
                     color,
                     background,
                     self.glyphs,
+                    self.gradient,
                 )
             }
             (None, Font::Mono(font)) => self.mono_text(font, text, left, top, width, color),
