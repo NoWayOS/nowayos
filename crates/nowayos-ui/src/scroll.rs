@@ -176,7 +176,12 @@ impl<const N: usize, const T: usize> Tree<N, T> {
     pub(crate) fn thumb_at(&self, point: Point) -> Option<(NodeId, bool)> {
         let reach = i64::from(self.scale.px(SCROLLBAR_REACH));
         let mut found = None;
-        for id in self.scroll_views() {
+        // Under a dialog, menu or popover, only its own views' thumbs.
+        let top = self.trapping();
+        for id in self
+            .scroll_views()
+            .filter(|&id| top.is_none_or(|top| self.is_within(id, top)))
+        {
             let seen = self.get(id).map(|view| self.shown(view));
             let bars = self.scrollbars(id);
             for (bar, vertical) in [(bars.vertical, true), (bars.horizontal, false)] {
@@ -340,6 +345,11 @@ impl<const N: usize, const T: usize> Tree<N, T> {
                 }
                 let node = self.get(at)?;
                 next = node.parent;
+                // A layer is over the screen, not inside the views where
+                // it is written.
+                if matches!(node.kind, NodeKind::Layer { .. }) {
+                    next = None;
+                }
                 if matches!(node.kind, NodeKind::Scroll { .. }) {
                     return Some(at);
                 }
@@ -354,10 +364,16 @@ impl<const N: usize, const T: usize> Tree<N, T> {
     /// moved.
     pub(crate) fn scroll_under_pointer(&mut self, dx: i64, dy: i64) -> bool {
         let under = self.hit_test(self.pointer);
+        // Under a dialog, menu or popover, nothing beneath it scrolls.
         let fallback = self
             .focus
             .and_then(|id| self.views_around(id).next())
-            .or_else(|| self.scroll_node());
+            .or_else(|| {
+                self.trapping()
+                    .is_none()
+                    .then(|| self.scroll_node())
+                    .flatten()
+            });
         let mut candidates: [Option<NodeId>; 9] = [None; 9];
         if let Some(hit) = under {
             for (slot, view) in candidates.iter_mut().zip(self.views_around(hit)) {

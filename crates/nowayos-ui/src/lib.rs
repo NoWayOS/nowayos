@@ -106,6 +106,7 @@ pub mod edit;
 mod error;
 mod interact;
 pub mod keyboard;
+pub mod layer;
 mod layout;
 pub mod long_text;
 pub mod nav;
@@ -116,6 +117,7 @@ mod tree;
 
 pub use error::UiError;
 pub use interact::UiEvent;
+pub use layer::{LayerId, LayerKind};
 pub use layout::{MAX_VIEWPORT_OFFSET, MAX_VIEWPORT_SIZE, TextMetrics};
 pub use nav::{Navigator, ScreenId};
 pub use node::{

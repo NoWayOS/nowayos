@@ -136,17 +136,22 @@
 //! types, kept in the tree's text store (React's `<textarea rows
 //! maxLength>`).
 //!
+//! Contract v20 adds layers over the screen ([`LayerId`]):
+//! [`UiBuilder::dialog`], [`UiBuilder::menu`], [`UiBuilder::popover`] and
+//! [`UiBuilder::tooltip`] (HTML's `<dialog>`, and menus, popovers and
+//! tooltips beside a control).
+//!
 //! Provisional: tracks Screen Compiler's contract; both sides change together.
 
-use crate::{ContainerKind, Length, NodeId, NodeKind, Style, Tree, UiError};
+use crate::{ContainerKind, LayerKind, Length, NodeId, NodeKind, Style, Tree, UiError};
 
 /// The icons generated screens name (contract v6).
 pub use crate::icons;
 /// How a picture fills its box (contract v15).
 pub use crate::pictures::{Fit, Picture};
 pub use crate::{
-    ActionId, Align, ButtonVariant, Colour, FieldId, GroupId, Input, InputMode, Justify, ListId,
-    Look, MAX_LINES, SLOT_CAPACITY, ScrollAxes, SlotId, Space, Surface, SwitchId,
+    ActionId, Align, ButtonVariant, Colour, FieldId, GroupId, Input, InputMode, Justify, LayerId,
+    ListId, Look, MAX_LINES, SLOT_CAPACITY, ScrollAxes, SlotId, Space, Surface, SwitchId,
     TEMPLATE_CAPACITY, Template, TextAlign, TextRole, TextStyle, Tone, Weight,
 };
 
@@ -537,6 +542,59 @@ pub trait UiBuilder {
         rows: u8,
         max_len: u16,
         placeholder: &'static str,
+    ) -> Result<Self::Node, Self::Error>;
+
+    /// A modal dialog holding `child` (contract v20), opened and closed by
+    /// the application as `layer` ([`Tree::open`], [`Tree::close`]): in
+    /// the middle of the viewport, over the screen, which it veils and
+    /// keeps out of reach while open. It takes no place where it is
+    /// written.
+    ///
+    /// # Errors
+    ///
+    /// The builder's error: for example when it is full or `layer` is
+    /// already used.
+    fn dialog(&mut self, layer: LayerId, child: Self::Node) -> Result<Self::Node, Self::Error>;
+
+    /// A menu holding `child` - its choices, as buttons - beside `anchor`
+    /// (contract v20), opened by the application as `layer`; it closes on
+    /// Escape, a press outside it or a choice made.
+    ///
+    /// # Errors
+    ///
+    /// As [`dialog`](Self::dialog).
+    fn menu(
+        &mut self,
+        layer: LayerId,
+        anchor: Self::Node,
+        child: Self::Node,
+    ) -> Result<Self::Node, Self::Error>;
+
+    /// A popover holding `child` beside `anchor` (contract v20), opened by
+    /// the application as `layer`; it closes on Escape or a press outside
+    /// it.
+    ///
+    /// # Errors
+    ///
+    /// As [`dialog`](Self::dialog).
+    fn popover(
+        &mut self,
+        layer: LayerId,
+        anchor: Self::Node,
+        child: Self::Node,
+    ) -> Result<Self::Node, Self::Error>;
+
+    /// A tooltip, `text` beside `anchor` (contract v20): shown while the
+    /// pointer rests on `anchor` or it has focus after a key.
+    ///
+    /// # Errors
+    ///
+    /// The builder's error: for example when it is full or `text` cannot
+    /// be shown.
+    fn tooltip(
+        &mut self,
+        anchor: Self::Node,
+        text: &'static str,
     ) -> Result<Self::Node, Self::Error>;
 
     /// One choice of `options` bound to `field`, in a list `picker` shapes
@@ -936,6 +994,28 @@ impl<const N: usize, const T: usize> UiBuilder for Tree<N, T> {
             return Err(UiError::DuplicateField(field));
         }
         Tree::text_area(self, field, rows, u32::from(max_len), placeholder)
+    }
+
+    fn dialog(&mut self, layer: LayerId, child: NodeId) -> Result<NodeId, UiError> {
+        Tree::add_layer(self, LayerKind::Dialog, Some(layer), None, child)
+    }
+
+    fn menu(&mut self, layer: LayerId, anchor: NodeId, child: NodeId) -> Result<NodeId, UiError> {
+        Tree::add_layer(self, LayerKind::Menu, Some(layer), Some(anchor), child)
+    }
+
+    fn popover(
+        &mut self,
+        layer: LayerId,
+        anchor: NodeId,
+        child: NodeId,
+    ) -> Result<NodeId, UiError> {
+        Tree::add_layer(self, LayerKind::Popover, Some(layer), Some(anchor), child)
+    }
+
+    fn tooltip(&mut self, anchor: NodeId, text: &'static str) -> Result<NodeId, UiError> {
+        let line = self.add(NodeKind::Text(text), Style::DEFAULT)?;
+        Tree::add_layer(self, LayerKind::Tooltip, None, Some(anchor), line)
     }
 
     fn slot(&mut self, slot: SlotId) -> Result<NodeId, UiError> {

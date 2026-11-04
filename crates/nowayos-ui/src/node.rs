@@ -1417,14 +1417,32 @@ pub enum NodeKind {
     /// only takes space along the main axis — it never widens its parent
     /// across it.
     Spacer,
+    /// A layer over the screen (#10076, builder contract v20): a dialog,
+    /// menu, popover or tooltip, holding one child. It takes no place where
+    /// it is written; laid out against the viewport and drawn over the
+    /// screen while open ([`crate::layer`]), on a card - a tooltip on a
+    /// header bar's colours.
+    Layer {
+        /// Which layer it is: the application opens and closes it by this.
+        /// `None` for a tooltip, which shows by itself.
+        layer: Option<crate::LayerId>,
+        /// What it is.
+        kind: crate::LayerKind,
+        /// The control it shows beside: a menu's, popover's or tooltip's.
+        anchor: Option<NodeId>,
+    },
 }
 
 impl NodeKind {
     /// Whether this kind shows at most one of its children, by a value the
-    /// application sets: a group or a switch.
+    /// application sets: a group, a switch, or a layer, whose child shows
+    /// only over the screen.
     #[must_use]
     pub const fn is_conditional(&self) -> bool {
-        matches!(self, Self::Group { .. } | Self::Switch { .. })
+        matches!(
+            self,
+            Self::Group { .. } | Self::Switch { .. } | Self::Layer { .. }
+        )
     }
 
     /// Whether this kind can have children.
@@ -1599,6 +1617,7 @@ impl NodeKind {
             | Self::Scroll { .. }
             | Self::Group { .. }
             | Self::Switch { .. }
+            | Self::Layer { .. }
             | Self::Spacer
             | Self::Progress { .. }
             | Self::Icon(_)
@@ -1655,6 +1674,7 @@ impl NodeKind {
             | Self::Scroll { .. }
             | Self::Group { .. }
             | Self::Switch { .. }
+            | Self::Layer { .. }
             | Self::Spacer
             | Self::Progress { .. }
             | Self::Keyboard { .. }
