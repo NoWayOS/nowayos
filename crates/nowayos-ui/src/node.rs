@@ -1205,6 +1205,36 @@ pub enum NodeKind {
         max_len: u8,
         /// Which characters it takes.
         mode: InputMode,
+        /// Where text goes: a byte offset into `value`, on a character
+        /// boundary ([`crate::edit`]).
+        caret: u8,
+        /// Where the selection starts: the caret itself when nothing is
+        /// selected.
+        anchor: u8,
+    },
+    /// Several lines of text a person types (#10075): a text input whose
+    /// value lives in the tree's text store, up to `capacity` bytes, wrapped
+    /// at its width and shown `rows` lines at a time, scrolled to keep its
+    /// caret in view. Enter starts a line; Up and Down move between lines.
+    TextArea {
+        /// Which application value it edits.
+        field: FieldId,
+        /// Shown, dimmed, while the value is empty. One line.
+        placeholder: &'static str,
+        /// Where its bytes start in the text store.
+        start: u32,
+        /// How many bytes it may hold.
+        capacity: u32,
+        /// How many it holds.
+        len: u32,
+        /// Where text goes: a byte offset, on a character boundary.
+        caret: u32,
+        /// Where the selection starts: the caret when nothing is selected.
+        anchor: u32,
+        /// How many lines show.
+        rows: u8,
+        /// The first line that shows.
+        top: u32,
     },
     /// A single line of text the application sets while the screen shows -
     /// an answer to review, a reference number - held in the tree's own
@@ -1413,6 +1443,7 @@ impl NodeKind {
             self,
             Self::Button { .. }
                 | Self::TextInput { .. }
+                | Self::TextArea { .. }
                 | Self::Checkbox { .. }
                 | Self::RadioGroup { .. }
                 | Self::ListPicker { .. }
@@ -1424,6 +1455,7 @@ impl NodeKind {
     pub const fn field(&self) -> Option<FieldId> {
         match self {
             Self::TextInput { field, .. }
+            | Self::TextArea { field, .. }
             | Self::Checkbox { field, .. }
             | Self::RadioGroup { field, .. }
             | Self::ListPicker { field, .. } => Some(*field),
@@ -1554,6 +1586,7 @@ impl NodeKind {
                 })
             }),
             Self::TextInput { .. }
+            | Self::TextArea { .. }
             | Self::Checkbox { .. }
             | Self::RadioGroup { .. }
             | Self::ListPicker { .. }
@@ -1593,6 +1626,8 @@ impl NodeKind {
             Self::TextInput {
                 placeholder, value, ..
             } => check_printable(placeholder).and_then(|()| check_printable(value)),
+            // Its value is checked as it is typed or set.
+            Self::TextArea { placeholder, .. } => check_printable(placeholder),
             Self::Slot { text, template, .. } => check_printable(text).and_then(|()| {
                 template.map_or(Ok(()), |template| {
                     check_printable(template.before).and_then(|()| check_printable(template.after))
@@ -1949,7 +1984,24 @@ impl Wipe for Node {
     /// session (their texts are `&'static str`).
     fn wipe(&mut self) {
         match &mut self.kind {
-            NodeKind::TextInput { value, .. } => value.wipe(),
+            NodeKind::TextInput {
+                value,
+                caret,
+                anchor,
+                ..
+            } => {
+                value.wipe();
+                (*caret, *anchor) = (0, 0);
+            }
+            // Their bytes are the tree's to zero, in the text store.
+            NodeKind::LongText { len, .. } => *len = 0,
+            NodeKind::TextArea {
+                len,
+                caret,
+                anchor,
+                top,
+                ..
+            } => (*len, *caret, *anchor, *top) = (0, 0, 0, 0),
             NodeKind::Slot { text, .. } => text.wipe(),
             NodeKind::Progress { permille, .. } => *permille = 0,
             NodeKind::FieldError { message, .. } => *message = None,

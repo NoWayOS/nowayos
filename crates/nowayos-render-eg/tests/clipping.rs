@@ -380,6 +380,8 @@ fn kind(k: u8, n: usize) -> NodeKind {
             value: Default::default(),
             max_len: 64,
             mode: nowayos_ui::InputMode::Text,
+            caret: 0,
+            anchor: 0,
         },
         7 => NodeKind::Slot {
             slot: SlotId(n as u16),

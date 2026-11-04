@@ -108,9 +108,10 @@ use embedded_graphics::text::{Baseline, Text};
 use nowayos_display::DeviceScale;
 use nowayos_display::{Insets, Rect};
 use nowayos_glyphs::{BOLD, DISPLAY, Face, REGULAR};
+use nowayos_ui::edit;
 use nowayos_ui::keyboard::KeyAction;
 use nowayos_ui::pictures::{Fit, Picture};
-use nowayos_ui::text::{fit_end, fit_start, wrap};
+use nowayos_ui::text::{fit_start, wrap};
 use nowayos_ui::{
     ButtonVariant, Colour, InputMode, Look, MIN_TARGET, Node, NodeId, NodeKind, Spacing, Surface,
     TextAlign, TextMetrics, TextRole, TextStyle, Tone, Tree, Weight,
@@ -381,6 +382,8 @@ pub struct Theme<C: PixelColor> {
     /// A scrollbar's thumb, over what a scroll view shows - on a header
     /// bar, the bar's text colour ([`Theme::scrollbar_on`]).
     pub scrollbar: C,
+    /// What is selected in a text input, behind its text (#10075).
+    pub selection: C,
     /// What each spacing token measures, in layout units: the
     /// gaps, padding and spacers a screen names by size. Layout gives them
     /// through [`Theme::metrics`].
@@ -529,6 +532,7 @@ impl<C: PixelColor + From<Rgb888>> Theme<C> {
             shape: Shape::SHOWCASE,
             progress_track: Rgb888::new(0xE6, 0xE0, 0xD5).into(),
             scrollbar: Rgb888::new(0x6B, 0x6B, 0x6B).into(),
+            selection: Rgb888::new(0xB9, 0xD4, 0xF5).into(),
             spacing: Spacing::STANDARD,
         }
     }
@@ -569,6 +573,7 @@ impl<C: PixelColor + From<Rgb888>> Theme<C> {
             },
             progress_track: Rgb888::new(0x59, 0x59, 0x59).into(),
             scrollbar: Rgb888::new(0xC8, 0xC8, 0xC8).into(),
+            selection: Rgb888::new(0x1F, 0x4E, 0x8C).into(),
             spacing: Spacing::LARGE,
         }
     }
@@ -1083,6 +1088,9 @@ where
                 ..
             } => self.text_lines(&template.around(text), node, content),
             NodeKind::Slot { text, .. } => self.text_lines(text, node, content),
+            NodeKind::TextArea { .. } => {
+                self.text_area(tree, id, node, rect, content, focused, ring)
+            }
             NodeKind::LongText { .. } => {
                 self.long_text(tree.long_text_of(node).unwrap_or(""), node, content)
             }
@@ -1276,7 +1284,11 @@ where
                 self.text(shown, content, TextAlign::Center, label_colour, fill)
             }
             NodeKind::TextInput {
-                value, placeholder, ..
+                value,
+                placeholder,
+                caret,
+                anchor,
+                ..
             } => {
                 let fill = self.theme.input;
                 // A rounded body, its border drawn after the text.
@@ -1302,10 +1314,68 @@ where
                     let hint = self.theme.placeholder;
                     self.text(shown, content, TextAlign::Start, hint, fill)?;
                 }
-                // Keep room for the caret; show the end of long values.
-                let room = content.size.width.saturating_sub(self.px(CARET_ROOM));
-                let shown = fit_end(value, room, &self.metrics);
-                self.text(shown, content, TextAlign::Start, self.theme.text, fill)?;
+                // The line drawn from as far left as keeps the caret in
+                // view (`edit::window`), cut at the content's edges; what
+                // is selected on the selection colour, its glyphs blended
+                // over it.
+                let text = value.as_str();
+                let (low, high) = edit::selection(text, usize::from(*caret), usize::from(*anchor));
+                let width_to = |at: usize| self.metrics.text_width(text.get(..at).unwrap_or(text));
+                let to_caret = width_to(edit::boundary(text, usize::from(*caret)));
+                let shift = edit::window(to_caret, content.size.width, self.px(edit::CARET_ROOM));
+                let left = content.left().saturating_sub(i64::from(shift));
+                let line = Rect::from_edges(left, content.top(), content.right(), content.bottom());
+                let (from, to) = (
+                    left.saturating_add(i64::from(width_to(low))),
+                    left.saturating_add(i64::from(width_to(high))),
+                );
+                let selected = focused && high > low;
+                let saved = self.clip;
+                // Cut at the content's left edge only when the line starts
+                // before it: unshifted, a glyph's overhang is kept.
+                let edge = if shift > 0 {
+                    content.left()
+                } else {
+                    saved.left()
+                };
+                // Unselected, the line is drawn in one part.
+                let parts = if selected {
+                    [
+                        (edge, from, fill),
+                        (from, to, self.theme.selection),
+                        (to, content.right(), fill),
+                    ]
+                } else {
+                    [(edge, content.right(), fill); 3]
+                };
+                let count = if selected { 3 } else { 1 };
+                for &(start, end, ground) in parts.iter().take(count) {
+                    let part = Rect::from_edges(
+                        start.max(edge),
+                        content.top(),
+                        end.min(content.right()),
+                        content.bottom(),
+                    );
+                    let Some(clip) = part.intersection(&saved) else {
+                        continue;
+                    };
+                    if !selected && ground != fill {
+                        continue;
+                    }
+                    self.clip = clip;
+                    if ground != fill {
+                        self.fill(part, ground)?;
+                    }
+                    self.text(
+                        text,
+                        line,
+                        TextAlign::Start,
+                        self.theme.text,
+                        if selected { ground } else { fill },
+                    )?;
+                }
+                self.clip = saved;
+                let shown = text;
                 // The border or focus ring after the text, over any edge of
                 // a glyph that reaches it: text is blended with the fill
                 // and is only right where the fill is.
@@ -1333,7 +1403,8 @@ where
                 if !focused {
                     return Ok(());
                 }
-                let advance = self.metrics.text_width(shown);
+                let _ = shown;
+                let advance = to_caret.saturating_sub(shift);
                 let caret = Rect::new(
                     content.origin.x,
                     content.origin.y,
@@ -1646,6 +1717,155 @@ where
             top = bottom;
         }
         Ok(())
+    }
+
+    /// A text area: a text input's body, its lines from the first that
+    /// shows, `rows` of them, each a line high; what is selected on the
+    /// selection colour; its caret, while focused; its border or focus ring
+    /// last.
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "the node's geometry and focus, worked out by the caller, passed whole"
+    )]
+    fn text_area<const N: usize, const T: usize>(
+        &mut self,
+        tree: &Tree<N, T>,
+        id: NodeId,
+        node: &Node,
+        rect: Rect,
+        content: Rect,
+        focused: bool,
+        ring: bool,
+    ) -> Result<(), D::Error> {
+        let NodeKind::TextArea {
+            placeholder,
+            caret,
+            anchor,
+            rows,
+            top,
+            ..
+        } = *node.kind()
+        else {
+            return Ok(());
+        };
+        let fill = self.theme.input;
+        let radius = Radii::all(self.px(self.theme.shape.field_radius));
+        let ground = self.ground;
+        Rounded {
+            rect,
+            radius,
+            border: 0,
+        }
+        .draw(
+            &mut *self.target,
+            self.clip,
+            Paint {
+                fill,
+                border: fill,
+                ground,
+            },
+            self.glyphs.rasteriser(),
+        )?;
+        let text = tree.area_text(id).unwrap_or("");
+        let metrics = self.metrics;
+        let height = i64::from(metrics.line_height());
+        if text.is_empty() {
+            let line = Rect::from_edges(
+                content.left(),
+                content.top(),
+                content.right(),
+                content.top().saturating_add(height),
+            );
+            let shown = fit_start(placeholder, content.size.width, &metrics);
+            let hint = self.theme.placeholder;
+            self.text(shown, line, TextAlign::Start, hint, fill)?;
+        }
+        let at = |offset: u32| edit::boundary(text, usize::try_from(offset).unwrap_or(0));
+        let (low, high) = edit::selection(text, at(caret), at(anchor));
+        let caret_at = at(caret);
+        let saved = self.clip;
+        let width = content.size.width;
+        let lines = nowayos_ui::area::line_spans(text, width, &metrics)
+            .skip(usize::try_from(top).unwrap_or(0))
+            .take(usize::from(rows));
+        let mut caret_rect = None;
+        for (index, (start, end)) in lines.enumerate() {
+            let y = content
+                .top()
+                .saturating_add(i64::try_from(index).unwrap_or(0).saturating_mul(height));
+            let line_rect =
+                Rect::from_edges(content.left(), y, content.right(), y.saturating_add(height));
+            let line = text.get(start..end).unwrap_or("");
+            let x_of = |offset: usize| {
+                content.left().saturating_add(i64::from(
+                    metrics.text_width(text.get(start..offset.clamp(start, end)).unwrap_or("")),
+                ))
+            };
+            // The part of this line that is selected.
+            let (from, to) = (low.max(start), high.min(end));
+            let selected = focused && from < to;
+            let (sx, ex) = (x_of(from), x_of(to));
+            let parts = if selected {
+                [
+                    (content.left(), sx, fill),
+                    (sx, ex, self.theme.selection),
+                    (ex, content.right(), fill),
+                ]
+            } else {
+                [(content.left(), content.right(), fill); 3]
+            };
+            let count = if selected { 3 } else { 1 };
+            for &(left, right, under) in parts.iter().take(count) {
+                if !selected && under != fill {
+                    continue;
+                }
+                let part = Rect::from_edges(left, y, right, y.saturating_add(height));
+                let Some(clip) = part.intersection(&saved) else {
+                    continue;
+                };
+                self.clip = clip;
+                if under != fill {
+                    self.fill(part, under)?;
+                }
+                let behind = if selected { under } else { fill };
+                self.text(line, line_rect, TextAlign::Start, self.theme.text, behind)?;
+            }
+            self.clip = saved;
+            if (start..=end).contains(&caret_at) && caret_rect.is_none() {
+                let x = x_of(caret_at);
+                caret_rect = Some(Rect::from_edges(
+                    x,
+                    y,
+                    x.saturating_add(i64::from(self.px(CARET_WIDTH))),
+                    y.saturating_add(height),
+                ));
+            }
+        }
+        let (border, colour) = if ring {
+            (self.px(self.theme.focus_width), self.theme.focus)
+        } else {
+            (self.px(INPUT_BORDER), self.theme.input_border)
+        };
+        Rounded {
+            rect,
+            radius,
+            border,
+        }
+        .draw_inside(
+            &mut *self.target,
+            self.clip,
+            Paint {
+                fill,
+                border: colour,
+                ground,
+            },
+            Inside::Keep,
+            self.glyphs.rasteriser(),
+        )?;
+        match caret_rect {
+            Some(caret) if focused => self.fill(caret, self.theme.focus),
+            _ => Ok(()),
+        }
     }
 
     /// A long text's paragraphs in `content`, wrapped at its width, each
@@ -2088,10 +2308,6 @@ const KEY_RADIUS: u32 = 6;
 
 /// Width, in layout units, of a text input's caret.
 const CARET_WIDTH: u32 = 1;
-
-/// Room, in layout units, a text input keeps at the end of its value for
-/// the caret.
-const CARET_ROOM: u32 = 2;
 
 /// Where a line of text sits: as its style aligns it, unless it was
 /// cut to fit - `shown` shorter than `whole` - when it starts at the start,

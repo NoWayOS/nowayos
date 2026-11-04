@@ -100,7 +100,9 @@
 #![forbid(unsafe_code)]
 #![deny(clippy::indexing_slicing, clippy::arithmetic_side_effects)]
 
+pub mod area;
 pub mod builder;
+pub mod edit;
 mod error;
 mod interact;
 pub mod keyboard;
