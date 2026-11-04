@@ -476,11 +476,15 @@ impl<const N: usize, const T: usize> Tree<N, T> {
     /// The scroll view showing virtual list `list`, if any.
     #[must_use]
     pub fn find_list(&self, list: crate::ListId) -> Option<NodeId> {
-        self.scroll_views().find(|&id| {
+        // Every node, not only those under the root: a screen being built
+        // sets its lists' counts before it has one.
+        self.nodes.iter().enumerate().find_map(|(index, node)| {
             matches!(
-                self.get(id).map(|node| &node.kind),
-                Some(NodeKind::Scroll { rows: Some(rows), .. }) if rows.list == list
+                &node.kind,
+                NodeKind::Scroll { rows: Some(rows), .. } if rows.list == list
             )
+            .then(|| u16::try_from(index).ok().map(NodeId))
+            .flatten()
         })
     }
 

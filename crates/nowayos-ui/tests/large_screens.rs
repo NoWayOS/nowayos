@@ -207,3 +207,19 @@ fn a_short_list_hides_the_rows_it_does_not_need_and_grows_in_place() {
     );
     let _ = Point::ORIGIN;
 }
+
+/// A screen being built sets its list's count and binds its rows before
+/// it has a root, as an application does.
+#[test]
+fn a_list_is_counted_and_bound_before_its_screen_has_a_root() {
+    let mut tree: Tree<64> = Tree::new();
+    let rows: Vec<NodeId> = (0..POOL)
+        .map(|r| UiBuilder::slot(&mut tree, SlotId(100 + r)).unwrap())
+        .collect();
+    let list = UiBuilder::virtual_list(&mut tree, Layout::new(), LIST, 32, &rows).unwrap();
+    tree.set_list_count(LIST, 40).unwrap();
+    assert_eq!(tree.list_window(LIST).unwrap().count, 40);
+    tree.set_root(list).unwrap();
+    tree.layout(Rect::new(0, 0, 400, 320), &metrics()).unwrap();
+    assert_eq!(bind(&mut tree), 16);
+}
