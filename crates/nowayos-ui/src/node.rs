@@ -1417,6 +1417,18 @@ pub enum NodeKind {
     /// only takes space along the main axis — it never widens its parent
     /// across it.
     Spacer,
+    /// One paragraph of runs (#10078, builder contract v21), each with its
+    /// own weight, italics, colour, code or link, wrapped as one text
+    /// ([`crate::rich`]) in the node's style. A text with links is
+    /// focusable: each link a tab stop of its own.
+    Rich {
+        /// Its runs.
+        runs: &'static [crate::rich::Run],
+        /// How many links they hold.
+        links: u8,
+        /// The link that has focus while the text does, from 0.
+        link: u8,
+    },
     /// A layer over the screen (#10076, builder contract v20): a dialog,
     /// menu, popover or tooltip, holding one child. It takes no place where
     /// it is written; laid out against the viewport and drawn over the
@@ -1465,7 +1477,7 @@ impl NodeKind {
                 | Self::Checkbox { .. }
                 | Self::RadioGroup { .. }
                 | Self::ListPicker { .. }
-        )
+        ) || matches!(self, Self::Rich { links, .. } if *links > 0)
     }
 
     /// The field this control edits, if it is one that does.
@@ -1610,6 +1622,7 @@ impl NodeKind {
             | Self::ListPicker { .. }
             | Self::Keyboard { .. }
             | Self::LongText { .. }
+            | Self::Rich { .. }
             | Self::FieldError { .. } => Err(UiError::RoleNotAllowed),
             Self::Column
             | Self::Row
@@ -1667,6 +1680,7 @@ impl NodeKind {
             }),
             Self::FieldError { message, .. } => message.map_or(Ok(()), check_printable),
             Self::Image { alt, .. } => check_printable(alt),
+            Self::Rich { runs, .. } => runs.iter().try_for_each(|run| check_printable(run.text)),
             // Its labels are fixed and printable (`keyboard`'s tests).
             Self::Column
             | Self::Row

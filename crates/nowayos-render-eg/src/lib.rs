@@ -111,6 +111,7 @@ use nowayos_glyphs::{BOLD, DISPLAY, Face, REGULAR};
 use nowayos_ui::edit;
 use nowayos_ui::keyboard::KeyAction;
 use nowayos_ui::pictures::{Fit, Picture};
+use nowayos_ui::rich::Run;
 use nowayos_ui::text::{fit_start, wrap};
 use nowayos_ui::{
     ButtonVariant, Colour, InputMode, Look, MIN_TARGET, Node, NodeId, NodeKind, Spacing, Surface,
@@ -384,6 +385,13 @@ pub struct Theme<C: PixelColor> {
     pub scrollbar: C,
     /// What is selected in a text input, behind its text (#10075).
     pub selection: C,
+    /// A link in a rich text, on the background and on a card (#10078); on
+    /// any other surface, links take its text's colour, underlined as
+    /// always ([`Theme::link_on`]).
+    pub link: C,
+    /// Code in a rich text: the tint behind it, which its text is blended
+    /// over (#10078).
+    pub code: C,
     /// What an open dialog veils the screen beneath it with: every colour
     /// there is drawn half way to this ([`Theme::veiled`], #10076).
     pub veil: C,
@@ -536,6 +544,8 @@ impl<C: PixelColor + From<Rgb888>> Theme<C> {
             progress_track: Rgb888::new(0xE6, 0xE0, 0xD5).into(),
             scrollbar: Rgb888::new(0x6B, 0x6B, 0x6B).into(),
             selection: Rgb888::new(0xB9, 0xD4, 0xF5).into(),
+            link: Rgb888::new(0x1F, 0x5F, 0xBF).into(),
+            code: Rgb888::new(0xE9, 0xE5, 0xDC).into(),
             veil: Rgb888::new(0x16, 0x19, 0x1D).into(),
             spacing: Spacing::STANDARD,
         }
@@ -578,6 +588,8 @@ impl<C: PixelColor + From<Rgb888>> Theme<C> {
             progress_track: Rgb888::new(0x59, 0x59, 0x59).into(),
             scrollbar: Rgb888::new(0xC8, 0xC8, 0xC8).into(),
             selection: Rgb888::new(0x1F, 0x4E, 0x8C).into(),
+            link: Rgb888::new(0x8A, 0xB4, 0xFF).into(),
+            code: Rgb888::new(0x2A, 0x2A, 0x2A).into(),
             veil: Rgb888::new(0, 0, 0).into(),
             spacing: Spacing::LARGE,
         }
@@ -703,6 +715,8 @@ impl<C: RgbColor + From<Rgb888>> Theme<C> {
             progress_track: v(self.progress_track),
             scrollbar: v(self.scrollbar),
             selection: v(self.selection),
+            link: v(self.link),
+            code: v(self.code),
             ..*self
         }
     }
@@ -746,6 +760,16 @@ impl<C: RgbColor + From<Rgb888>> Theme<C> {
         match on {
             None | Some(Surface::Card) if muted => self.text_muted,
             None => self.text,
+            Some(surface) => self.surfaces.of(surface).text,
+        }
+    }
+
+    /// A link's colour standing on `on` (#10078): the theme's on the
+    /// background or a card, the surface's text colour on any other.
+    #[must_use]
+    pub const fn link_on(&self, on: Option<Surface>) -> C {
+        match on {
+            None | Some(Surface::Card) => self.link,
             Some(surface) => self.surfaces.of(surface).text,
         }
     }
@@ -1170,6 +1194,7 @@ where
             NodeKind::Icon(icon) => self.icon(content, icon),
             NodeKind::Image { picture, fit, .. } => self.picture(content, picture, *fit),
             NodeKind::Text(text) => self.text_lines(text, node, content),
+            NodeKind::Rich { runs, link, .. } => self.rich(runs, *link, node, content, ring),
             NodeKind::Slot {
                 text,
                 template: Some(template),
@@ -2258,6 +2283,91 @@ where
         Ok(())
     }
 
+    /// A rich text's runs (#10078), line by line inside `content`: each
+    /// in its own weight and colour, italics slanted, code on its tint,
+    /// links underlined, and the focused link ringed after a key.
+    fn rich(
+        &mut self,
+        runs: &[Run],
+        link: u8,
+        node: &Node,
+        content: Rect,
+        ring: bool,
+    ) -> Result<(), D::Error> {
+        let style = node.style().text;
+        let (base, font, ground) = (self.metrics, self.font, self.ground);
+        let height = i64::from(base.line_height());
+        let theme = self.theme;
+        let mut top = content.top();
+        for line in nowayos_ui::rich::lines(runs, content.size.width, style, &base) {
+            let row_top = top;
+            top = top.saturating_add(height);
+            if row_top >= self.clip.bottom() {
+                break;
+            }
+            if top <= self.clip.top() {
+                continue;
+            }
+            for piece in nowayos_ui::rich::pieces(runs, line, style, &base) {
+                let Some(run) = runs.get(piece.run) else {
+                    continue;
+                };
+                let rect = Rect::from_edges(
+                    content.left().saturating_add(i64::from(piece.x)),
+                    row_top,
+                    content
+                        .left()
+                        .saturating_add(i64::from(piece.x))
+                        .saturating_add(i64::from(piece.width)),
+                    top,
+                );
+                let on = if run.code {
+                    self.fill(rect, theme.code)?;
+                    theme.code
+                } else {
+                    ground
+                };
+                let linked = nowayos_ui::rich::link_of(runs, piece.run);
+                let colour = match (run.colour, linked) {
+                    (Some(colour), _) => theme.colour(colour),
+                    (None, Some(_)) => theme.link_on(self.surface),
+                    (None, None) => style.colour.map_or_else(
+                        || theme.text_on(self.surface, style.role),
+                        |colour| theme.colour(colour),
+                    ),
+                };
+                let run_style = run.style_in(style);
+                self.metrics = base.for_style(run_style);
+                self.font = theme.type_scale.font(run_style);
+                self.text_slanted(piece.text, rect, TextAlign::Start, colour, on, run.italic)?;
+                if linked.is_some() {
+                    // Underlined, a little below the baseline.
+                    let thick = self.px(1).max(1);
+                    let below = rect.bottom().saturating_sub(i64::from(self.px(3)));
+                    let underline = Rect::from_edges(
+                        rect.left(),
+                        below,
+                        rect.left().saturating_add(i64::from(
+                            self.metrics.text_width(piece.text.trim_end_matches(' ')),
+                        )),
+                        below.saturating_add(i64::from(thick)),
+                    );
+                    self.fill(underline, colour)?;
+                }
+                if ring && linked == Some(link) {
+                    self.frame(
+                        rect,
+                        self.px(self.theme.focus_width),
+                        self.theme.focus_on(self.surface),
+                    )?;
+                }
+            }
+        }
+        self.metrics = base;
+        self.font = font;
+        Ok(())
+    }
+
     /// Draws one line of text in `rect`, vertically centred, clipped, in
     /// `color` - from the face's outlines blended over `background`, the colour
     /// the node is known to draw beneath it (the `text` module); in a
@@ -2269,6 +2379,19 @@ where
         align: TextAlign,
         color: D::Color,
         background: D::Color,
+    ) -> Result<(), D::Error> {
+        self.text_slanted(text, rect, align, color, background, false)
+    }
+
+    /// As [`text`](Self::text), slanted as an oblique if `slanted`.
+    fn text_slanted(
+        &mut self,
+        text: &str,
+        rect: Rect,
+        align: TextAlign,
+        color: D::Color,
+        background: D::Color,
+        slanted: bool,
     ) -> Result<(), D::Error> {
         if text.is_empty() {
             return Ok(());
@@ -2295,6 +2418,7 @@ where
                         size64,
                         self.metrics.line_height(),
                     )),
+                    slanted,
                 };
                 text::draw(
                     &mut *self.target,

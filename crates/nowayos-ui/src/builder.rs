@@ -141,6 +141,10 @@
 //! [`UiBuilder::tooltip`] (HTML's `<dialog>`, and menus, popovers and
 //! tooltips beside a control).
 //!
+//! Contract v21 adds [`UiBuilder::rich_text`]: one paragraph of runs, each
+//! with its own weight, italics, colour, code or link ([`Run`]; React's
+//! `<strong>`, `<em>`, `<code>`, `<a onClick>` and `<span>` inside a text).
+//!
 //! Provisional: tracks Screen Compiler's contract; both sides change together.
 
 use crate::{ContainerKind, LayerKind, Length, NodeId, NodeKind, Style, Tree, UiError};
@@ -149,6 +153,8 @@ use crate::{ContainerKind, LayerKind, Length, NodeId, NodeKind, Style, Tree, UiE
 pub use crate::icons;
 /// How a picture fills its box (contract v15).
 pub use crate::pictures::{Fit, Picture};
+/// A run of a rich text (contract v21).
+pub use crate::rich::Run;
 pub use crate::{
     ActionId, Align, ButtonVariant, Colour, FieldId, GroupId, Input, InputMode, Justify, LayerId,
     ListId, Look, MAX_LINES, SLOT_CAPACITY, ScrollAxes, SlotId, Space, Surface, SwitchId,
@@ -542,6 +548,20 @@ pub trait UiBuilder {
         rows: u8,
         max_len: u16,
         placeholder: &'static str,
+    ) -> Result<Self::Node, Self::Error>;
+
+    /// One paragraph of `runs`, wrapped as one text in `style` (contract
+    /// v21): each run in its own weight, italics, theme colour, as code or
+    /// as a link reporting its action; each link a tab stop.
+    ///
+    /// # Errors
+    ///
+    /// The builder's error: for example when it is full or a run's text
+    /// cannot be shown.
+    fn rich_text(
+        &mut self,
+        runs: &'static [Run],
+        style: TextStyle,
     ) -> Result<Self::Node, Self::Error>;
 
     /// A modal dialog holding `child` (contract v20), opened and closed by
@@ -994,6 +1014,18 @@ impl<const N: usize, const T: usize> UiBuilder for Tree<N, T> {
             return Err(UiError::DuplicateField(field));
         }
         Tree::text_area(self, field, rows, u32::from(max_len), placeholder)
+    }
+
+    fn rich_text(&mut self, runs: &'static [Run], style: TextStyle) -> Result<NodeId, UiError> {
+        let links = crate::rich::links(runs);
+        self.add(
+            NodeKind::Rich {
+                runs,
+                links,
+                link: 0,
+            },
+            Style::DEFAULT.text(style),
+        )
     }
 
     fn dialog(&mut self, layer: LayerId, child: NodeId) -> Result<NodeId, UiError> {

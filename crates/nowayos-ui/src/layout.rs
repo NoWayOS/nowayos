@@ -700,6 +700,15 @@ impl<const N: usize, const T: usize> Tree<N, T> {
                 message.map_or(0, |message| metrics.marked_width(message)),
                 metrics.line_height,
             ),
+            // Every line its runs wrap onto at the width it may take.
+            NodeKind::Rich { runs, .. } => {
+                let (mut width, mut lines) = (0_u32, 0_u32);
+                for line in crate::rich::lines(runs, inner, style.text, metrics) {
+                    width = width.max(crate::rich::line_width(runs, line, style.text, metrics));
+                    lines = lines.saturating_add(1);
+                }
+                Size::new(width, metrics.line_height.saturating_mul(lines.max(1)))
+            }
             NodeKind::Checkbox { label, .. } => Size::new(
                 metrics.marked_width(label).max(metrics.min_target),
                 metrics.choice_height(),

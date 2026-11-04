@@ -63,6 +63,8 @@ pub(crate) struct Line<'a> {
     pub(crate) text: &'a str,
     pub(crate) left: i64,
     pub(crate) baseline: i64,
+    /// Whether it is drawn slanted, as an oblique (#10078).
+    pub(crate) slanted: bool,
 }
 
 /// How far below a line's top its baseline lies: the face's ascent at
@@ -182,6 +184,7 @@ impl<'a> Line<'a> {
             text,
             left,
             baseline,
+            slanted,
         } = self;
         let scales = face.scale(size64).zip(face.outline_scale(size64));
         text.chars()
@@ -198,7 +201,7 @@ impl<'a> Line<'a> {
                 let at = pen.checked_add(kerning)?;
                 *pen = at.checked_add(i64::from(metrics.to_64(outline.advance())))?;
                 *previous = Some(ch);
-                let placement = outline.placement(outlines);
+                let placement = outline.placement_slanted(outlines, slanted);
                 let x = left
                     .checked_add(nearest_pixel(at)?)?
                     .checked_add(i64::from(placement.left()))?;
@@ -287,7 +290,9 @@ where
                 {
                     continue;
                 }
-                if let Some(glyph) = glyphs.glyph(line.face, line.size64, placed.ch) {
+                if let Some(glyph) =
+                    glyphs.glyph_in(line.face, line.size64, placed.ch, line.slanted)
+                {
                     add_coverage(&mut cover, tile, placed, glyph.coverage());
                 }
             }
@@ -651,6 +656,7 @@ mod tests {
             text: "To",
             left: 10,
             baseline: 30,
+            slanted: false,
         };
         let placed: Vec<Placed> = line.glyphs().collect();
         assert_eq!(placed.len(), 2);
@@ -694,6 +700,7 @@ mod tests {
             text: "\u{EF}\u{EF}",
             left: 0,
             baseline: i64::from(i.top()),
+            slanted: false,
         };
         let coverage: Vec<u8> = glyphs
             .glyph(&REGULAR, 24 * 64, '\u{EF}')
@@ -758,7 +765,7 @@ mod tests {
             for atlas in ATLASES {
                 let metrics = TextMetrics::from_atlas(atlas);
                 let (face, size64) = (atlas.face(), u32::from(atlas.size()) * 64);
-                let line = Line { face, size64, text: &text, left: 0, baseline: 0 };
+                let line = Line { face, size64, text: &text, left: 0, baseline: 0, slanted: false };
                 let end = line.end().unwrap();
                 let width = if end <= 0 { 0 } else { u32::try_from((end + 63) / 64).unwrap() };
                 prop_assert_eq!(width, metrics.text_width(&text), "{} px", atlas.size());

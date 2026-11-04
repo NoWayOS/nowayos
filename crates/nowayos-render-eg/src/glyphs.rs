@@ -27,6 +27,10 @@ use nowayos_raster::{CachedGlyph, GlyphCache, GlyphKey, Placement, Rasteriser};
 /// 16,384 cells, a band of rows of a glyph at a time.
 pub type GlyphRasteriser = Rasteriser<4096, 16_384>;
 
+/// The bit a slanted glyph's face number carries in the cache, apart from
+/// its upright one's: faces are numbered far below it.
+const SLANTED: u16 = 0x8000;
+
 /// How many glyphs a UI's cache holds by default, and its bytes of
 /// coverage: enough for every character of the type scale's sizes at
 /// device scale 2 at once, and for a screen of text at scale 4.
@@ -55,18 +59,38 @@ impl<'a> Glyphs<'a> {
     /// cache, or drawn into it. `None` for a character the face lacks, a
     /// size the rasteriser refuses or a glyph larger than the whole cache.
     pub fn glyph(&mut self, face: &'static Face, size64: u32, ch: char) -> Option<CachedGlyph<'_>> {
+        self.glyph_in(face, size64, ch, false)
+    }
+
+    /// As [`glyph`](Self::glyph), slanted as an oblique if `slanted`
+    /// (#10078): kept apart from the upright glyph.
+    pub fn glyph_in(
+        &mut self,
+        face: &'static Face,
+        size64: u32,
+        ch: char,
+        slanted: bool,
+    ) -> Option<CachedGlyph<'_>> {
         let outline: &Outline = face.glyph(ch).ok()?;
         let scale = face.outline_scale(size64)?;
-        let placement: Placement = outline.placement(scale);
+        let placement: Placement = outline.placement_slanted(scale, slanted);
         let key = GlyphKey {
-            face: face.id(),
+            face: if slanted {
+                face.id() | SLANTED
+            } else {
+                face.id()
+            },
             size64,
             ch,
         };
         let rasteriser = &mut self.rasteriser;
         self.cache
             .get_or_draw(key, placement, |pixels| {
-                rasteriser.render(outline.path(), scale, placement, pixels)
+                if slanted {
+                    rasteriser.render(outline.path_slanted(), scale, placement, pixels)
+                } else {
+                    rasteriser.render(outline.path(), scale, placement, pixels)
+                }
             })
             .ok()
     }

@@ -111,6 +111,7 @@ mod layout;
 pub mod long_text;
 pub mod nav;
 mod node;
+pub mod rich;
 pub mod scroll;
 pub mod text;
 mod tree;
