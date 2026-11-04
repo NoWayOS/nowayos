@@ -127,6 +127,37 @@ impl Framebuffer {
         })
     }
 
+    /// Moves the pixels in `area`, clipped to the framebuffer, `dx` right
+    /// and `dy` down: what that carries out of the area is dropped, and
+    /// what it leaves behind keeps the pixels it held - as a UI PD moves
+    /// what a scroll moved.
+    pub fn move_area(&mut self, area: &embedded_graphics::primitives::Rectangle, dx: i64, dy: i64) {
+        let left = i64::from(area.top_left.x).max(0);
+        let top = i64::from(area.top_left.y).max(0);
+        let right = i64::from(area.top_left.x)
+            .saturating_add(i64::from(area.size.width))
+            .min(i64::from(self.width));
+        let bottom = i64::from(area.top_left.y)
+            .saturating_add(i64::from(area.size.height))
+            .min(i64::from(self.height));
+        let before = self.pixels.clone();
+        let width = i64::from(self.width);
+        let at = |x: i64, y: i64| usize::try_from(y.saturating_mul(width).saturating_add(x)).ok();
+        for y in top..bottom {
+            for x in left..right {
+                let (from_x, from_y) = (x.saturating_sub(dx), y.saturating_sub(dy));
+                let inside = (left..right).contains(&from_x) && (top..bottom).contains(&from_y);
+                if inside
+                    && let (Some(to), Some(from)) = (at(x, y), at(from_x, from_y))
+                    && let (Some(pixel), Some(slot)) =
+                        (before.get(from).copied(), self.pixels.get_mut(to))
+                {
+                    *slot = pixel;
+                }
+            }
+        }
+    }
+
     /// Width in pixels.
     #[must_use]
     pub const fn width(&self) -> u32 {

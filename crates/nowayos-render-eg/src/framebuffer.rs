@@ -192,6 +192,68 @@ impl<M: FrameMemory> DrawTarget for RawFramebuffer<M> {
 }
 
 impl<M: FrameMemory> RawFramebuffer<M> {
+    /// Moves the pixels in `area`, clipped to the layout, `dx` right and
+    /// `dy` down: what that carries out of the area is dropped, and what it
+    /// leaves behind keeps the pixels it held - a scroll's move
+    /// ([`nowayos_ui::scroll::Move`]), made before the strips it exposes are
+    /// drawn. `false` if the memory cannot copy within itself, perhaps
+    /// after moving some rows: then the area is to be drawn again whole.
+    pub fn move_area(&mut self, area: &Rectangle, dx: i64, dy: i64) -> bool {
+        let Some((left, top, width, height)) = self.inside(area) else {
+            return true;
+        };
+        let (left, top) = (i64::from(left), i64::from(top));
+        let (right, bottom) = (
+            left.saturating_add(i64::from(width)),
+            top.saturating_add(i64::from(height)),
+        );
+        // Where the moved pixels land inside the area.
+        let (to_left, to_right) = (
+            left.max(left.saturating_add(dx)),
+            right.min(right.saturating_add(dx)),
+        );
+        let (to_top, to_bottom) = (
+            top.max(top.saturating_add(dy)),
+            bottom.min(bottom.saturating_add(dy)),
+        );
+        if to_left >= to_right || to_top >= to_bottom {
+            return true;
+        }
+        let bytes = usize::from(self.layout.format().bytes_per_pixel());
+        let Some(len) = usize::try_from(to_right.saturating_sub(to_left))
+            .ok()
+            .and_then(|pixels| pixels.checked_mul(bytes))
+        else {
+            return false;
+        };
+        let offset = |x: i64, y: i64| {
+            let (x, y) = (u32::try_from(x).ok()?, u32::try_from(y).ok()?);
+            self.layout.pixel_offset(x, y)
+        };
+        // Down the rows when moving up, up them when moving down, so no
+        // row is overwritten before it is read.
+        let rows = to_top..to_bottom;
+        let mut down = rows.clone();
+        let mut up = rows.rev();
+        let next = |down: &mut core::ops::Range<i64>,
+                    up: &mut core::iter::Rev<core::ops::Range<i64>>| {
+            if dy > 0 { up.next() } else { down.next() }
+        };
+        while let Some(y) = next(&mut down, &mut up) {
+            let source = y.saturating_sub(dy);
+            let (Some(from), Some(to)) = (
+                offset(to_left.saturating_sub(dx), source),
+                offset(to_left, y),
+            ) else {
+                return false;
+            };
+            if !self.memory.copy_within(from, to, len) {
+                return false;
+            }
+        }
+        true
+    }
+
     /// The part of `area` inside the layout, as its left column, top row,
     /// width and height; `None` if they share no pixel.
     /// Worked in `i64`, so no rectangle a caller gives can overflow it.

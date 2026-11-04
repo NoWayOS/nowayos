@@ -378,6 +378,9 @@ pub struct Theme<C: PixelColor> {
     /// the [`button`](Self::button) colour - on a header bar, the bar's text
     /// colour over the bar's own fill ([`Theme::progress_on`]).
     pub progress_track: C,
+    /// A scrollbar's thumb, over what a scroll view shows - on a header
+    /// bar, the bar's text colour ([`Theme::scrollbar_on`]).
+    pub scrollbar: C,
     /// What each spacing token measures, in layout units: the
     /// gaps, padding and spacers a screen names by size. Layout gives them
     /// through [`Theme::metrics`].
@@ -525,6 +528,7 @@ impl<C: PixelColor + From<Rgb888>> Theme<C> {
             },
             shape: Shape::SHOWCASE,
             progress_track: Rgb888::new(0xE6, 0xE0, 0xD5).into(),
+            scrollbar: Rgb888::new(0x6B, 0x6B, 0x6B).into(),
             spacing: Spacing::STANDARD,
         }
     }
@@ -564,6 +568,7 @@ impl<C: PixelColor + From<Rgb888>> Theme<C> {
                 ..Shape::SHOWCASE
             },
             progress_track: Rgb888::new(0x59, 0x59, 0x59).into(),
+            scrollbar: Rgb888::new(0xC8, 0xC8, 0xC8).into(),
             spacing: Spacing::LARGE,
         }
     }
@@ -782,6 +787,16 @@ impl<C: RgbColor + From<Rgb888>> Theme<C> {
         }
     }
 
+    /// A scrollbar's thumb standing on `on`: on a header bar, the bar's
+    /// text colour; elsewhere the theme's.
+    #[must_use]
+    pub const fn scrollbar_on(&self, on: Option<Surface>) -> C {
+        match on {
+            Some(Surface::Header) => self.surfaces.header.text,
+            _ => self.scrollbar,
+        }
+    }
+
     /// A field's error colour standing on `on`: on a header bar,
     /// the bar's text colour; elsewhere the theme's.
     #[must_use]
@@ -914,6 +929,40 @@ where
                 surface,
             }
             .node(tree, id, node)?;
+        }
+    }
+    // Each scroll view's thumbs, over what it shows.
+    for id in tree.scroll_views() {
+        let Some(view) = tree.get(id) else {
+            continue;
+        };
+        let seen = match tree.scroll_clip(view) {
+            Some(outer) => view.content().intersection(&outer),
+            None => Some(view.content()),
+        };
+        let Some(clip) = seen.and_then(|seen| seen.intersection(&area)) else {
+            continue;
+        };
+        let bars = tree.scrollbars(id);
+        let style = view.style();
+        let (surface, fill) = if style.surface.is_some() || style.look.fill.is_some() {
+            (style.surface, style.look.fill)
+        } else {
+            under(tree, view)
+        };
+        let mut painter = Painter {
+            target: &mut target.clipped(&to_eg(clip)),
+            theme,
+            glyphs: &mut *glyphs,
+            metrics: base,
+            scale,
+            font: theme.type_scale.body,
+            clip,
+            ground: fill.map_or_else(|| theme.ground(surface), |fill| theme.colour(fill)),
+            surface,
+        };
+        for bar in [bars.vertical, bars.horizontal].into_iter().flatten() {
+            painter.thumb(bar.thumb)?;
         }
     }
     Ok(())
@@ -1782,6 +1831,28 @@ where
             })
         });
         self.target.fill_contiguous(&to_eg(visible), colours)
+    }
+
+    /// A scrollbar's thumb in `rect`: rounded at each end, in the
+    /// scrollbar's colour where its view stands.
+    fn thumb(&mut self, rect: Rect) -> Result<(), D::Error> {
+        let colour = self.theme.scrollbar_on(self.surface);
+        let radius = rect.size.width.min(rect.size.height) / 2;
+        Rounded {
+            rect,
+            radius: Radii::all(radius),
+            border: 0,
+        }
+        .draw(
+            &mut *self.target,
+            self.clip,
+            Paint {
+                fill: colour,
+                border: colour,
+                ground: self.ground,
+            },
+            self.glyphs.rasteriser(),
+        )
     }
 
     /// A progress bar in `rect`: a rounded track, and over it, from

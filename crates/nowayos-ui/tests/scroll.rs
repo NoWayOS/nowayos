@@ -15,7 +15,7 @@
 use nowayos_display::{Point, Rect};
 use nowayos_input::{InputEvent, KeyCode, TouchPhase};
 use nowayos_ui::builder::{Layout, UiBuilder};
-use nowayos_ui::{ActionId, NodeId, TextMetrics, Tree, UiError, UiEvent};
+use nowayos_ui::{ActionId, NodeId, TextMetrics, Tree, UiEvent};
 
 /// A title, then a scroll view filling the rest of a 200 x 200 screen,
 /// holding ten buttons 30 high each (with a gap of 10: 390 high in all).
@@ -165,25 +165,6 @@ fn a_control_scrolled_out_of_the_view_cannot_be_hit() {
         i32::try_from(first.top()).unwrap() + 5,
     );
     assert_ne!(tree.control_at(inside_first), Some(buttons[0]));
-}
-
-#[test]
-fn a_screen_has_one_scroll_view_never_nested() {
-    let mut tree: Tree<16> = Tree::new();
-    let a = tree.text("A").unwrap();
-    let inner = UiBuilder::column(&mut tree, Layout::new(), &[a]).unwrap();
-    let first = UiBuilder::scroll_view(&mut tree, Layout::new(), inner).unwrap();
-    let b = tree.text("B").unwrap();
-    let other = UiBuilder::column(&mut tree, Layout::new(), &[b]).unwrap();
-    assert_eq!(
-        UiBuilder::scroll_view(&mut tree, Layout::new(), other),
-        Err(UiError::SecondScrollView)
-    );
-    let outer = UiBuilder::column(&mut tree, Layout::new(), &[first]).unwrap();
-    assert_eq!(
-        UiBuilder::scroll_view(&mut tree, Layout::new(), outer),
-        Err(UiError::NestedScrollView)
-    );
 }
 
 #[test]

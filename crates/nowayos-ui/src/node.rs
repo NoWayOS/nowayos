@@ -1082,6 +1082,33 @@ impl Default for Style {
     }
 }
 
+/// Which ways a scroll view scrolls (builder contract v17): CSS's
+/// `overflow-y`, `overflow-x` or both.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub enum ScrollAxes {
+    /// Up and down: its child as wide as the view.
+    #[default]
+    Vertical,
+    /// Left and right: its child as high as the view.
+    Horizontal,
+    /// Both ways.
+    Both,
+}
+
+impl ScrollAxes {
+    /// Whether it scrolls up and down.
+    #[must_use]
+    pub const fn vertical(self) -> bool {
+        matches!(self, Self::Vertical | Self::Both)
+    }
+
+    /// Whether it scrolls left and right.
+    #[must_use]
+    pub const fn horizontal(self) -> bool {
+        matches!(self, Self::Horizontal | Self::Both)
+    }
+}
+
 /// What a node is.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NodeKind {
@@ -1091,18 +1118,26 @@ pub enum NodeKind {
     Row,
     /// Children on top of each other; later children are drawn on top.
     Stack,
-    /// A scroll view: one child - a column - laid out at its
-    /// natural height and shown through the view's own rectangle, moved up
-    /// by `offset` pixels; nothing inside is drawn or hit outside the view.
-    /// At most one in a tree, never inside another
-    /// ([`UiBuilder::scroll_view`](crate::builder::UiBuilder::scroll_view)).
-    /// Page Up and Page Down scroll it a page at a time, a mouse's wheel
-    /// three lines a notch, a touch dragged on it scrolls it, and focus
-    /// moving onto a control it hides scrolls that control into view.
+    /// A scroll view: one child laid out at its natural size along the
+    /// axes it scrolls - as wide as the view across one that scrolls only
+    /// down - and shown through the view's own rectangle, moved left by
+    /// `x` and up by `y` pixels; nothing inside is drawn or hit outside the
+    /// view ([`UiBuilder::scroll_view`](crate::builder::UiBuilder::scroll_view),
+    /// [`UiBuilder::scroll_view_axes`](crate::builder::UiBuilder::scroll_view_axes)).
+    /// A tree may hold several, one inside another. A mouse's wheel or a
+    /// touch scrolls the innermost under the pointer that can still move,
+    /// Page Up and Page Down the one holding focus, and focus moving onto a
+    /// control one hides scrolls it into view; a scrollbar shows where it
+    /// is, and can be dragged.
     Scroll {
+        /// How far its child is moved left, in pixels: kept by layout
+        /// between 0 and how much wider the child is than the view.
+        x: u32,
         /// How far its child is moved up, in pixels: kept by layout
         /// between 0 and how much taller the child is than the view.
-        offset: u32,
+        y: u32,
+        /// Which ways it scrolls.
+        axes: ScrollAxes,
     },
     /// A single line of fixed text, every character one the glyph atlases
     /// draw and a person can see ([`NodeKind::check_text`]).
@@ -1891,7 +1926,7 @@ impl Wipe for Node {
             NodeKind::Group { visible, .. } => *visible = false,
             NodeKind::Switch { case, .. } => *case = None,
             // The next person starts at the top.
-            NodeKind::Scroll { offset } => *offset = 0,
+            NodeKind::Scroll { x, y, .. } => (*x, *y) = (0, 0),
             // Its layout follows focus; only its Shift is the person's.
             NodeKind::Keyboard { shift, .. } => *shift = false,
             _ => {}

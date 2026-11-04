@@ -124,6 +124,10 @@
 //! text store - `T` bytes of a [`Tree<N, T>`](Tree) - so nothing allocates
 //! (React's `<Text maxLength={10240}>{props.article}</Text>`).
 //!
+//! Contract v17 adds [`UiBuilder::scroll_view_axes`]: scroll views that
+//! scroll down, across or both ways ([`ScrollAxes`]), any number of them,
+//! one inside another (CSS's `overflow`, `overflowX`, `overflowY`).
+//!
 //! Provisional: tracks Screen Compiler's contract; both sides change together.
 
 use crate::{ContainerKind, Length, NodeId, NodeKind, Style, Tree, UiError};
@@ -134,8 +138,8 @@ pub use crate::icons;
 pub use crate::pictures::{Fit, Picture};
 pub use crate::{
     ActionId, Align, ButtonVariant, Colour, FieldId, GroupId, Input, InputMode, Justify, Look,
-    MAX_LINES, SLOT_CAPACITY, SlotId, Space, Surface, SwitchId, TEMPLATE_CAPACITY, Template,
-    TextAlign, TextRole, TextStyle, Tone, Weight,
+    MAX_LINES, SLOT_CAPACITY, ScrollAxes, SlotId, Space, Surface, SwitchId, TEMPLATE_CAPACITY,
+    Template, TextAlign, TextRole, TextStyle, Tone, Weight,
 };
 
 /// How a list picker shows (contract v10): the placeholder its
@@ -469,10 +473,26 @@ pub trait UiBuilder {
     ///
     /// # Errors
     ///
-    /// The builder's error: for example when it is full, when the screen
-    /// already has a scroll view, or when `child` holds one.
+    /// The builder's error: for example when it is full.
     fn scroll_view(&mut self, layout: Layout, child: Self::Node)
     -> Result<Self::Node, Self::Error>;
+
+    /// A scroll view of `child` along `axes` (contract v17): CSS's
+    /// `overflow`, `overflowX` or `overflowY` of `auto` or `scroll`. Along
+    /// each axis it scrolls, `child` takes its natural size and the view the
+    /// room its parent leaves, unless `layout` gives it a size; across one
+    /// it does not, `child` is as large as the view. Views may stand side by
+    /// side and one inside another.
+    ///
+    /// # Errors
+    ///
+    /// The builder's error: for example when it is full.
+    fn scroll_view_axes(
+        &mut self,
+        layout: Layout,
+        axes: ScrollAxes,
+        child: Self::Node,
+    ) -> Result<Self::Node, Self::Error>;
 
     /// One choice of `options` bound to `field`, in a list `picker` shapes
     /// (contract v10).
@@ -809,26 +829,25 @@ impl<const N: usize, const T: usize> UiBuilder for Tree<N, T> {
     }
 
     fn scroll_view(&mut self, layout: Layout, child: NodeId) -> Result<NodeId, UiError> {
-        // At most one in a screen, and none inside it: the child,
-        // built first, holds none; nor does any other node yet.
-        if self
-            .nodes
-            .iter()
-            .any(|node| matches!(node.kind, NodeKind::Scroll { .. }))
-        {
-            let inside = self.subtree_has_scroll(child, 0);
-            return Err(if inside {
-                UiError::NestedScrollView
-            } else {
-                UiError::SecondScrollView
-            });
-        }
+        UiBuilder::scroll_view_axes(self, layout, ScrollAxes::Vertical, child)
+    }
+
+    fn scroll_view_axes(
+        &mut self,
+        layout: Layout,
+        axes: ScrollAxes,
+        child: NodeId,
+    ) -> Result<NodeId, UiError> {
         let mut style = layout.style();
-        // The room its parent leaves, unless it is given a height.
-        if style.height == Length::Auto {
+        // The room its parent leaves along each axis it scrolls, unless it
+        // is given a size there.
+        if axes.vertical() && style.height == Length::Auto {
             style = style.height(Length::Fill);
         }
-        let id = self.add(NodeKind::Scroll { offset: 0 }, style)?;
+        if axes.horizontal() && style.width == Length::Auto {
+            style = style.width(Length::Fill);
+        }
+        let id = self.add(NodeKind::Scroll { x: 0, y: 0, axes }, style)?;
         self.append(id, child)?;
         Ok(id)
     }
@@ -1051,23 +1070,6 @@ impl<const N: usize, const T: usize> Tree<N, T> {
             .filter(|node| matches!(node.kind, NodeKind::TextInput { .. }))
             .count();
         FieldId(u16::try_from(inputs.saturating_add(1)).unwrap_or(u16::MAX))
-    }
-}
-
-impl<const N: usize, const T: usize> Tree<N, T> {
-    /// Whether `id`'s subtree holds a scroll view, searched to
-    /// [`MAX_DEPTH`](crate::MAX_DEPTH) levels below it at most.
-    fn subtree_has_scroll(&self, id: NodeId, level: usize) -> bool {
-        let Some(node) = self.get(id) else {
-            return false;
-        };
-        if matches!(node.kind, NodeKind::Scroll { .. }) {
-            return true;
-        }
-        level < crate::MAX_DEPTH
-            && self
-                .children(id)
-                .any(|child| self.subtree_has_scroll(child, level.saturating_add(1)))
     }
 }
 

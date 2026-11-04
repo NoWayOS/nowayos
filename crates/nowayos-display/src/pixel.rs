@@ -278,6 +278,15 @@ pub trait FrameMemory {
     /// Copies `bytes` to `offset`. Returns `false` (copying nothing) if they
     /// do not fit.
     fn store(&mut self, offset: usize, bytes: &[u8]) -> bool;
+
+    /// Copies the `len` bytes at `from` to `to`, as if through a buffer:
+    /// the two may overlap. Returns `false` (copying nothing) if either
+    /// does not fit, or if this memory cannot copy within itself - then
+    /// its owner draws the bytes again instead.
+    fn copy_within(&mut self, from: usize, to: usize, len: usize) -> bool {
+        let _ = (from, to, len);
+        false
+    }
 }
 
 impl FrameMemory for &mut [u8] {
@@ -291,6 +300,20 @@ impl FrameMemory for &mut [u8] {
             .and_then(|end| self.get_mut(offset..end))
             .map(|span| span.copy_from_slice(bytes))
             .is_some()
+    }
+
+    fn copy_within(&mut self, from: usize, to: usize, len: usize) -> bool {
+        let fits = |at: usize| at.checked_add(len).is_some_and(|end| end <= self.len());
+        if !fits(from) || !fits(to) {
+            return false;
+        }
+        match from.checked_add(len) {
+            Some(end) => {
+                <[u8]>::copy_within(self, from..end, to);
+                true
+            }
+            None => false,
+        }
     }
 }
 
@@ -310,6 +333,24 @@ impl FrameMemory for &[AtomicU8] {
         };
         for (cell, byte) in span.iter().zip(bytes) {
             cell.store(*byte, Ordering::Relaxed);
+        }
+        true
+    }
+
+    /// Relaxed byte loads and stores, a byte at a time, in the order that
+    /// keeps an overlapping copy right.
+    fn copy_within(&mut self, from: usize, to: usize, len: usize) -> bool {
+        let span = |at: usize| at.checked_add(len).and_then(|end| self.get(at..end));
+        let (Some(source), Some(target)) = (span(from), span(to)) else {
+            return false;
+        };
+        let copy = |(cell, byte): (&AtomicU8, &AtomicU8)| {
+            cell.store(byte.load(Ordering::Relaxed), Ordering::Relaxed);
+        };
+        if to <= from {
+            target.iter().zip(source).for_each(copy);
+        } else {
+            target.iter().rev().zip(source.iter().rev()).for_each(copy);
         }
         true
     }

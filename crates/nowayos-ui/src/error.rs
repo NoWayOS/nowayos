@@ -105,8 +105,7 @@ pub enum UiError {
     /// within [`MAX_VIEWPORT_OFFSET`](crate::MAX_VIEWPORT_OFFSET) of the
     /// origin.
     ViewportOutOfRange(Rect),
-    /// A tree holds at most one scroll view.
-    SecondScrollView,
+
     /// The tree's text store has fewer bytes left than a long text asks
     /// for: a `Tree<N, T>` holds `T`.
     TextStoreFull {
@@ -118,8 +117,6 @@ pub enum UiError {
     LongTextOutOfRange,
     /// A list picker shows from 3 to 8 rows at once.
     RowsOutOfRange,
-    /// A scroll view cannot hold another.
-    NestedScrollView,
     /// A tree holds at most one on-screen keyboard.
     SecondKeyboard,
     /// The field already has an error line.
@@ -174,7 +171,7 @@ impl fmt::Display for UiError {
                 write!(f, "the back stack is full ({capacity} screens)")
             }
             Self::ViewportOutOfRange(rect) => write!(f, "viewport {rect:?} is out of range"),
-            Self::SecondScrollView => f.write_str("a screen has at most one scroll view"),
+
             Self::TextStoreFull { capacity } => {
                 write!(f, "the tree's text store ({capacity} bytes) is full")
             }
@@ -184,7 +181,6 @@ impl fmt::Display for UiError {
                 crate::long_text::MAX_LONG_TEXT
             ),
             Self::RowsOutOfRange => f.write_str("a list picker shows from 3 to 8 rows"),
-            Self::NestedScrollView => f.write_str("a scroll view cannot hold another"),
             Self::SecondKeyboard => f.write_str("a screen has at most one keyboard"),
             Self::SecondFieldError(field) => write!(f, "{field:?} already has an error line"),
         }

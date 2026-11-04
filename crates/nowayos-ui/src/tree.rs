@@ -59,21 +59,34 @@ pub struct Tree<const N: usize, const T: usize = 0> {
     pub(crate) drag: Option<Drag>,
     /// The long texts' bytes: `T` of them (builder contract v16).
     pub(crate) texts: crate::long_text::TextStore<T>,
+    /// What scrolls moved of what is drawn, since the last repaint.
+    pub(crate) moves: crate::scroll::Moves,
+    /// A view flinging on after a touch lifted.
+    pub(crate) fling: Option<crate::scroll::Fling>,
+    /// A scrollbar's thumb held by the pointer or a finger.
+    pub(crate) thumb: Option<crate::scroll::ThumbHold>,
 }
 
-/// A touch that may scroll the scroll view.
+/// A touch that may scroll a scroll view.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Drag {
-    /// Where the touch started, down the screen.
-    pub(crate) from: i32,
-    /// The scroll view's offset then.
-    pub(crate) offset: u32,
+    /// Where the touch started.
+    pub(crate) from: Point,
+    /// The view it scrolls - the innermost under it that can - if any.
+    pub(crate) view: Option<NodeId>,
+    /// That view's offsets then: right and down.
+    pub(crate) offset: (u32, u32),
     /// Whether it has moved past [`DRAG_SLOP`](crate::interact::DRAG_SLOP)
     /// and now scrolls, its press cancelled.
     pub(crate) scrolling: bool,
     /// The list picker it started on, and its first option showing then:
     /// the drag scrolls that list, not the scroll view.
     pub(crate) list: Option<(NodeId, u8)>,
+    /// Where it was at the last tick of the runtime's clock
+    /// ([`Tree::advance`]).
+    pub(crate) last: (i64, i64),
+    /// How fast it moved then, in 1/256 pixel a second: right and down.
+    pub(crate) speed: (i64, i64),
 }
 
 impl<const N: usize, const T: usize> Default for Tree<N, T> {
@@ -102,6 +115,9 @@ impl<const N: usize, const T: usize> Tree<N, T> {
             metrics: None,
             drag: None,
             texts: crate::long_text::TextStore::new(),
+            moves: nowayos_bounded::BoundedVec::new(),
+            fling: None,
+            thumb: None,
         }
     }
 
@@ -114,6 +130,9 @@ impl<const N: usize, const T: usize> Tree<N, T> {
     pub fn clear(&mut self) {
         self.nodes.wipe();
         self.texts.clear();
+        self.moves.clear();
+        self.fling = None;
+        self.thumb = None;
         self.root = None;
         self.focus = None;
         self.pressed = None;
@@ -1671,6 +1690,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
     /// Records that the renderer has repainted the dirty areas.
     pub fn clear_dirty(&mut self) {
         self.dirty.clear();
+        self.moves.clear();
     }
 
     /// Marks a node's area for repainting.

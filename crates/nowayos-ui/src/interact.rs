@@ -220,11 +220,20 @@ impl<const N: usize, const T: usize> Tree<N, T> {
             InputEvent::PointerMove { x, y } => {
                 self.pointer = Point::new(x, y);
                 self.pointer_shown = true;
+                self.thumb_to();
                 None
             }
             InputEvent::PointerButton { button: 0, down } => {
+                self.fling = None;
                 if down {
+                    // A scrollbar's thumb is held, not pressed.
+                    if let Some((view, vertical)) = self.thumb_at(self.pointer) {
+                        self.hold_thumb(view, vertical);
+                        return None;
+                    }
                     self.press()
+                } else if self.thumb.take().is_some() {
+                    None
                 } else {
                     self.release()
                 }
@@ -235,20 +244,34 @@ impl<const N: usize, const T: usize> Tree<N, T> {
                 self.pointer_shown = false;
                 match phase {
                     TouchPhase::Start => {
+                        self.fling = None;
+                        if let Some((view, vertical)) = self.thumb_at(self.pointer) {
+                            self.hold_thumb(view, vertical);
+                            return None;
+                        }
                         let event = self.press();
-                        self.start_drag(y);
+                        self.start_drag();
                         event
                     }
                     TouchPhase::End => {
+                        if self.thumb.take().is_some() {
+                            return None;
+                        }
+                        self.fling_on();
                         self.drag = None;
                         self.release()
                     }
                     TouchPhase::Move => {
-                        self.drag_to(y);
+                        if self.thumb.is_some() {
+                            self.thumb_to();
+                        } else {
+                            self.drag_to();
+                        }
                         None
                     }
                     TouchPhase::Cancel => {
                         self.drag = None;
+                        self.thumb = None;
                         self.set_pressed(None);
                         None
                     }
@@ -256,6 +279,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
             }
             InputEvent::PointerButton { .. } | InputEvent::Touch { .. } => None,
             InputEvent::Wheel { notches } => {
+                self.fling = None;
                 self.wheel(notches);
                 None
             }
@@ -694,34 +718,34 @@ impl<const N: usize, const T: usize> Tree<N, T> {
         }
     }
 
-    /// Scrolls the scroll view a page down or up: its height less a
-    /// line, at least one pixel.
+    /// Scrolls the view holding focus - or, failing that, the first - a
+    /// page down or up: its height less a line, at least one pixel.
     fn scroll_page(&mut self, down: bool) {
-        let (Some(id), Some(offset), Some(metrics)) =
-            (self.scroll_node(), self.scroll_offset(), self.metrics)
-        else {
+        let view = self
+            .focus
+            .and_then(|id| self.views_around(id).next())
+            .or_else(|| self.scroll_node());
+        let (Some(view), Some(metrics)) = (view, self.metrics) else {
             return;
         };
-        let Some(view) = self.get(id).map(Node::content) else {
+        let Some(seen) = self.get(view).map(Node::content) else {
             return;
         };
-        let page = view
-            .size
-            .height
-            .saturating_sub(metrics.line_height())
-            .max(1);
-        let target = if down {
-            offset.saturating_add(page)
-        } else {
-            offset.saturating_sub(page)
-        };
-        let _ = self.scroll_to(target);
+        let page = i64::from(
+            seen.size
+                .height
+                .saturating_sub(metrics.line_height())
+                .max(1),
+        );
+        let by = if down { page } else { page.saturating_neg() };
+        self.scroll_by(view, 0, by);
     }
 
     /// A mouse's wheel turned `notches` (positive away from the user): a
     /// list picker under the pointer shows earlier or later options, a row
-    /// a notch, and otherwise the scroll view moves [`WHEEL_LINES`] lines a
-    /// notch.
+    /// a notch; otherwise the innermost view under the pointer that can
+    /// still move goes [`WHEEL_LINES`] lines a notch - across, with Shift
+    /// held.
     fn wheel(&mut self, notches: i8) {
         let up = i64::from(notches);
         if let Some(id) = self.hit_test(self.pointer)
@@ -734,58 +758,70 @@ impl<const N: usize, const T: usize> Tree<N, T> {
             self.drag_list(id, top, up.saturating_neg().saturating_mul(row));
             return;
         }
-        let (Some(offset), Some(metrics)) = (self.scroll_offset(), self.metrics) else {
+        let Some(metrics) = self.metrics else {
             return;
         };
         let lines = i64::from(metrics.line_height().saturating_mul(WHEEL_LINES));
-        let target = i64::from(offset)
-            .saturating_sub(up.saturating_mul(lines))
-            .max(0);
-        let _ = self.scroll_to(u32::try_from(target).unwrap_or(u32::MAX));
+        let by = up.saturating_neg().saturating_mul(lines);
+        if self.shift_keys.contains(&true) {
+            self.scroll_under_pointer(by, 0);
+        } else {
+            self.scroll_under_pointer(0, by);
+        }
     }
 
-    /// A touch starting at height `y`: on a list picker it may
-    /// become a drag of the list, and elsewhere on the scroll view
-    /// a drag of the view.
-    fn start_drag(&mut self, y: i32) {
+    /// A touch starting where the pointer is: on a list picker it may
+    /// become a drag of the list, and elsewhere a drag of the innermost
+    /// scroll view under it that can scroll.
+    fn start_drag(&mut self) {
         self.drag = None;
+        let from = self.pointer;
+        let last = (i64::from(from.x), i64::from(from.y));
         if let Some(id) = self.pressed
             && let Some(NodeKind::ListPicker { top, .. }) = self.get(id).map(|node| &node.kind)
         {
             self.drag = Some(crate::tree::Drag {
-                from: y,
-                offset: 0,
+                from,
+                view: None,
+                offset: (0, 0),
                 scrolling: false,
                 list: Some((id, *top)),
+                last,
+                speed: (0, 0),
             });
             return;
         }
-        let (Some(id), Some(offset)) = (self.scroll_node(), self.scroll_offset()) else {
+        let view = self.hit_test(from).and_then(|hit| {
+            self.views_around(hit)
+                .find(|&view| self.scroll_range(view).is_some_and(|range| range != (0, 0)))
+        });
+        let (Some(view), Some(offset)) = (view, view.and_then(|view| self.scroll_position(view)))
+        else {
             return;
         };
-        if self
-            .get(id)
-            .is_some_and(|view| view.rect.contains(self.pointer))
-        {
-            self.drag = Some(crate::tree::Drag {
-                from: y,
-                offset,
-                scrolling: false,
-                list: None,
-            });
-        }
+        self.drag = Some(crate::tree::Drag {
+            from,
+            view: Some(view),
+            offset,
+            scrolling: false,
+            list: None,
+            last,
+            speed: (0, 0),
+        });
     }
 
-    /// A touch moved to height `y`: once it has moved past
-    /// [`DRAG_SLOP`], it cancels its press - so lifting it presses nothing
-    /// - and scrolls the view with the finger.
-    fn drag_to(&mut self, y: i32) {
+    /// A touch moved to where the pointer is: once it has moved past
+    /// [`DRAG_SLOP`], it cancels its press, so lifting it presses nothing,
+    /// and scrolls its view with the finger, along each axis the view
+    /// scrolls.
+    fn drag_to(&mut self) {
         let Some(mut drag) = self.drag else {
             return;
         };
-        let moved = i64::from(drag.from).saturating_sub(i64::from(y));
-        let slop = self.scale.px(DRAG_SLOP);
-        if !drag.scrolling && moved.unsigned_abs() <= u64::from(slop) {
+        let moved_x = i64::from(drag.from.x).saturating_sub(i64::from(self.pointer.x));
+        let moved_y = i64::from(drag.from.y).saturating_sub(i64::from(self.pointer.y));
+        let slop = u64::from(self.scale.px(DRAG_SLOP));
+        if !drag.scrolling && moved_x.unsigned_abs().max(moved_y.unsigned_abs()) <= slop {
             return;
         }
         if !drag.scrolling {
@@ -794,11 +830,82 @@ impl<const N: usize, const T: usize> Tree<N, T> {
         }
         self.drag = Some(drag);
         if let Some((id, from_top)) = drag.list {
-            self.drag_list(id, from_top, moved);
+            self.drag_list(id, from_top, moved_y);
             return;
         }
-        let target = i64::from(drag.offset).saturating_add(moved).max(0);
-        let _ = self.scroll_to(u32::try_from(target).unwrap_or(u32::MAX));
+        let Some(view) = drag.view else {
+            return;
+        };
+        let to = |offset: u32, by: i64| {
+            u32::try_from(i64::from(offset).saturating_add(by).max(0)).unwrap_or(u32::MAX)
+        };
+        let _ = self.scroll_view_to(view, to(drag.offset.0, moved_x), to(drag.offset.1, moved_y));
+    }
+
+    /// Holds scroll view `view`'s thumb - its vertical one, or else its
+    /// horizontal one - where the pointer is.
+    fn hold_thumb(&mut self, view: NodeId, vertical: bool) {
+        let Some((x, y)) = self.scroll_position(view) else {
+            return;
+        };
+        let (from, offset) = if vertical {
+            (i64::from(self.pointer.y), y)
+        } else {
+            (i64::from(self.pointer.x), x)
+        };
+        self.set_pressed(None);
+        self.thumb = Some(crate::scroll::ThumbHold {
+            view,
+            vertical,
+            from,
+            offset,
+        });
+    }
+
+    /// The held thumb follows the pointer: the view scrolls as far through
+    /// its range as the thumb moves through its track.
+    fn thumb_to(&mut self) {
+        let Some(hold) = self.thumb else {
+            return;
+        };
+        let bars = self.scrollbars(hold.view);
+        let (Some(bar), Some((most_x, most_y)), Some((x, y))) = (
+            if hold.vertical {
+                bars.vertical
+            } else {
+                bars.horizontal
+            },
+            self.scroll_range(hold.view),
+            self.scroll_position(hold.view),
+        ) else {
+            return;
+        };
+        let (along, free, most) = if hold.vertical {
+            (
+                i64::from(self.pointer.y),
+                bar.track.size.height.saturating_sub(bar.thumb.size.height),
+                most_y,
+            )
+        } else {
+            (
+                i64::from(self.pointer.x),
+                bar.track.size.width.saturating_sub(bar.thumb.size.width),
+                most_x,
+            )
+        };
+        let moved = along
+            .saturating_sub(hold.from)
+            .saturating_mul(i64::from(most))
+            .checked_div(i64::from(free))
+            .unwrap_or(0);
+        let target =
+            u32::try_from(i64::from(hold.offset).saturating_add(moved).max(0)).unwrap_or(u32::MAX);
+        let (to_x, to_y) = if hold.vertical {
+            (x, target)
+        } else {
+            (target, y)
+        };
+        let _ = self.scroll_view_to(hold.view, to_x, to_y);
     }
 
     /// Scrolls list picker `id` with a finger that has moved `moved`
