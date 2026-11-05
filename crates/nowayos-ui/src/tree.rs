@@ -65,6 +65,8 @@ pub struct Tree<const N: usize, const T: usize = 0> {
     pub(crate) fling: Option<crate::scroll::Fling>,
     /// A scrollbar's thumb held by the pointer or a finger.
     pub(crate) thumb: Option<crate::scroll::ThumbHold>,
+    /// A virtual list whose window of items moved, not yet reported.
+    pub(crate) list_moved: Option<crate::ListId>,
 }
 
 /// A touch that may scroll a scroll view.
@@ -118,6 +120,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
             moves: nowayos_bounded::BoundedVec::new(),
             fling: None,
             thumb: None,
+            list_moved: None,
         }
     }
 
@@ -1162,8 +1165,16 @@ impl<const N: usize, const T: usize> Tree<N, T> {
             && self.root.is_some()
             && let Some(metrics) = self.metrics
         {
-            let viewport = self.viewport;
-            self.layout(viewport, &metrics)?;
+            // Inside a scroll view, only that view is laid out again: its
+            // child grows or shrinks, the view does not.
+            let around = self.views_around(id).next();
+            match around {
+                Some(view) => self.relayout_view(view)?,
+                None => {
+                    let viewport = self.viewport;
+                    self.layout(viewport, &metrics)?;
+                }
+            }
         }
         Ok(())
     }

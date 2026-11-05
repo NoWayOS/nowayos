@@ -128,6 +128,10 @@
 //! scroll down, across or both ways ([`ScrollAxes`]), any number of them,
 //! one inside another (CSS's `overflow`, `overflowX`, `overflowY`).
 //!
+//! Contract v18 adds [`UiBuilder::virtual_list`]: a list of as many items
+//! as the application counts, shown through a pool of rows built once and
+//! rebound as it scrolls ([`ListId`]).
+//!
 //! Provisional: tracks Screen Compiler's contract; both sides change together.
 
 use crate::{ContainerKind, Length, NodeId, NodeKind, Style, Tree, UiError};
@@ -137,9 +141,9 @@ pub use crate::icons;
 /// How a picture fills its box (contract v15).
 pub use crate::pictures::{Fit, Picture};
 pub use crate::{
-    ActionId, Align, ButtonVariant, Colour, FieldId, GroupId, Input, InputMode, Justify, Look,
-    MAX_LINES, SLOT_CAPACITY, ScrollAxes, SlotId, Space, Surface, SwitchId, TEMPLATE_CAPACITY,
-    Template, TextAlign, TextRole, TextStyle, Tone, Weight,
+    ActionId, Align, ButtonVariant, Colour, FieldId, GroupId, Input, InputMode, Justify, ListId,
+    Look, MAX_LINES, SLOT_CAPACITY, ScrollAxes, SlotId, Space, Surface, SwitchId,
+    TEMPLATE_CAPACITY, Template, TextAlign, TextRole, TextStyle, Tone, Weight,
 };
 
 /// How a list picker shows (contract v10): the placeholder its
@@ -492,6 +496,27 @@ pub trait UiBuilder {
         layout: Layout,
         axes: ScrollAxes,
         child: Self::Node,
+    ) -> Result<Self::Node, Self::Error>;
+
+    /// A virtual list (contract v18): a scroll view down showing list
+    /// `list`, whose items the application counts
+    /// ([`Tree::set_list_count`]) - as many as it likes - through `rows`, a
+    /// pool of rows built once, each `row_height` layout units high: item
+    /// `i` is shown by row `i` mod the pool's size, and as the view scrolls
+    /// the application binds each row that comes to show another item
+    /// ([`Tree::list_row`], [`UiEvent::ListMoved`](crate::UiEvent::ListMoved)).
+    /// The pool needs a row more than the view shows, and a few for a
+    /// margin.
+    ///
+    /// # Errors
+    ///
+    /// The builder's error: for example when it is full.
+    fn virtual_list(
+        &mut self,
+        layout: Layout,
+        list: ListId,
+        row_height: u16,
+        rows: &[Self::Node],
     ) -> Result<Self::Node, Self::Error>;
 
     /// One choice of `options` bound to `field`, in a list `picker` shapes
@@ -847,9 +872,37 @@ impl<const N: usize, const T: usize> UiBuilder for Tree<N, T> {
         if axes.horizontal() && style.width == Length::Auto {
             style = style.width(Length::Fill);
         }
-        let id = self.add(NodeKind::Scroll { x: 0, y: 0, axes }, style)?;
+        let id = self.add(
+            NodeKind::Scroll {
+                x: 0,
+                y: 0,
+                axes,
+                rows: None,
+            },
+            style,
+        )?;
         self.append(id, child)?;
         Ok(id)
+    }
+
+    fn virtual_list(
+        &mut self,
+        layout: Layout,
+        list: ListId,
+        row_height: u16,
+        rows: &[NodeId],
+    ) -> Result<NodeId, UiError> {
+        let pool = UiBuilder::column(self, Layout::new(), rows)?;
+        let view = UiBuilder::scroll_view(self, layout, pool)?;
+        if let NodeKind::Scroll { rows, .. } = &mut self.node_mut(view)?.kind {
+            *rows = Some(crate::Rows {
+                list,
+                count: 0,
+                height: u32::from(row_height),
+                first: 0,
+            });
+        }
+        Ok(view)
     }
 
     fn slot(&mut self, slot: SlotId) -> Result<NodeId, UiError> {
