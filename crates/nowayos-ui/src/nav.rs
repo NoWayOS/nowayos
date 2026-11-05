@@ -147,9 +147,9 @@ impl<const DEPTH: usize> Navigator<DEPTH> {
     ///
     /// A layout error ([`Tree::layout`]); the navigator then keeps the new
     /// viewport and metrics, and the tree its last layout.
-    pub fn resize<const N: usize>(
+    pub fn resize<const N: usize, const T: usize>(
         &mut self,
-        tree: &mut Tree<N>,
+        tree: &mut Tree<N, T>,
         viewport: Rect,
         metrics: TextMetrics,
     ) -> Result<(), UiError> {
@@ -165,13 +165,13 @@ impl<const DEPTH: usize> Navigator<DEPTH> {
     /// The build function's error, or a layout error. The tree is then left
     /// cleared, with no root, and the next frame paints only the
     /// background.
-    pub fn show_start<const N: usize, F>(
+    pub fn show_start<const N: usize, const T: usize, F>(
         &mut self,
-        tree: &mut Tree<N>,
+        tree: &mut Tree<N, T>,
         mut build: F,
     ) -> Result<(), UiError>
     where
-        F: FnMut(ScreenId, &mut Tree<N>) -> Result<NodeId, UiError>,
+        F: FnMut(ScreenId, &mut Tree<N, T>) -> Result<NodeId, UiError>,
     {
         self.back.clear();
         self.current = self.start;
@@ -193,9 +193,13 @@ impl<const DEPTH: usize> Navigator<DEPTH> {
     ///
     /// As [`show_start`](Self::show_start); the wipe happens first either
     /// way.
-    pub fn reset<const N: usize, F>(&mut self, tree: &mut Tree<N>, build: F) -> Result<(), UiError>
+    pub fn reset<const N: usize, const T: usize, F>(
+        &mut self,
+        tree: &mut Tree<N, T>,
+        build: F,
+    ) -> Result<(), UiError>
     where
-        F: FnMut(ScreenId, &mut Tree<N>) -> Result<NodeId, UiError>,
+        F: FnMut(ScreenId, &mut Tree<N, T>) -> Result<NodeId, UiError>,
     {
         tree.wipe_session();
         self.show_start(tree, build)
@@ -211,14 +215,14 @@ impl<const DEPTH: usize> Navigator<DEPTH> {
     /// [`UiError::TreeFull`] or [`UiError::TooDeep`]) or a layout error,
     /// after the start screen has been shown in its place, freshly built,
     /// with nothing to go back to.
-    pub fn go<const N: usize, F>(
+    pub fn go<const N: usize, const T: usize, F>(
         &mut self,
         screen: ScreenId,
-        tree: &mut Tree<N>,
+        tree: &mut Tree<N, T>,
         build: F,
     ) -> Result<(), UiError>
     where
-        F: FnMut(ScreenId, &mut Tree<N>) -> Result<NodeId, UiError>,
+        F: FnMut(ScreenId, &mut Tree<N, T>) -> Result<NodeId, UiError>,
     {
         self.back
             .push(self.current)
@@ -231,14 +235,14 @@ impl<const DEPTH: usize> Navigator<DEPTH> {
     /// # Errors
     ///
     /// As [`go`](Self::go) when `screen` cannot be built.
-    pub fn replace<const N: usize, F>(
+    pub fn replace<const N: usize, const T: usize, F>(
         &mut self,
         screen: ScreenId,
-        tree: &mut Tree<N>,
+        tree: &mut Tree<N, T>,
         build: F,
     ) -> Result<(), UiError>
     where
-        F: FnMut(ScreenId, &mut Tree<N>) -> Result<NodeId, UiError>,
+        F: FnMut(ScreenId, &mut Tree<N, T>) -> Result<NodeId, UiError>,
     {
         self.switch(screen, tree, build)
     }
@@ -249,9 +253,13 @@ impl<const DEPTH: usize> Navigator<DEPTH> {
     /// # Errors
     ///
     /// As [`go`](Self::go) when that screen cannot be built.
-    pub fn back<const N: usize, F>(&mut self, tree: &mut Tree<N>, build: F) -> Result<bool, UiError>
+    pub fn back<const N: usize, const T: usize, F>(
+        &mut self,
+        tree: &mut Tree<N, T>,
+        build: F,
+    ) -> Result<bool, UiError>
     where
-        F: FnMut(ScreenId, &mut Tree<N>) -> Result<NodeId, UiError>,
+        F: FnMut(ScreenId, &mut Tree<N, T>) -> Result<NodeId, UiError>,
     {
         let Some(previous) = self.back.pop() else {
             return Ok(false);
@@ -261,14 +269,14 @@ impl<const DEPTH: usize> Navigator<DEPTH> {
 
     /// Clears the tree and shows `screen`; if it cannot be built, shows the
     /// start screen instead and returns the error.
-    fn switch<const N: usize, F>(
+    fn switch<const N: usize, const T: usize, F>(
         &mut self,
         screen: ScreenId,
-        tree: &mut Tree<N>,
+        tree: &mut Tree<N, T>,
         mut build: F,
     ) -> Result<(), UiError>
     where
-        F: FnMut(ScreenId, &mut Tree<N>) -> Result<NodeId, UiError>,
+        F: FnMut(ScreenId, &mut Tree<N, T>) -> Result<NodeId, UiError>,
     {
         match self.build_into(screen, tree, &mut build) {
             Ok(()) => {
@@ -286,14 +294,14 @@ impl<const DEPTH: usize> Navigator<DEPTH> {
 
     /// Clears the tree, builds `screen` into it, lays it out (so the whole
     /// viewport is dirty) and focuses its first control.
-    fn build_into<const N: usize, F>(
+    fn build_into<const N: usize, const T: usize, F>(
         &self,
         screen: ScreenId,
-        tree: &mut Tree<N>,
+        tree: &mut Tree<N, T>,
         build: &mut F,
     ) -> Result<(), UiError>
     where
-        F: FnMut(ScreenId, &mut Tree<N>) -> Result<NodeId, UiError>,
+        F: FnMut(ScreenId, &mut Tree<N, T>) -> Result<NodeId, UiError>,
     {
         tree.clear();
         let root = build(screen, tree)?;

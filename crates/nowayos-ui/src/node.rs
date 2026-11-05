@@ -1279,6 +1279,21 @@ pub enum NodeKind {
         /// a picture that is only decoration.
         alt: &'static str,
     },
+    /// Paragraphs the application sets at run time (builder contract v16),
+    /// bound to `slot` as a slot is, kept in the tree's text store
+    /// ([`crate::long_text`]): wrapped onto as many lines as they need at
+    /// the node's width, a line break starting a new paragraph. As wide as
+    /// its container gives it; as high as its lines.
+    LongText {
+        /// Which application value it shows.
+        slot: SlotId,
+        /// Where its bytes start in the text store.
+        start: u32,
+        /// How many bytes it may hold.
+        capacity: u32,
+        /// How many it holds.
+        len: u32,
+    },
     /// A bar showing how far something has gone - a pump's
     /// fuelling, say - as a fraction in thousandths the application sets,
     /// bound to `slot` like a slot's text ([`Tree::set_progress`](crate::Tree::set_progress)).
@@ -1466,6 +1481,7 @@ impl NodeKind {
             | Self::RadioGroup { .. }
             | Self::ListPicker { .. }
             | Self::Keyboard { .. }
+            | Self::LongText { .. }
             | Self::FieldError { .. } => Err(UiError::RoleNotAllowed),
             Self::Column
             | Self::Row
@@ -1531,6 +1547,8 @@ impl NodeKind {
             | Self::Progress { .. }
             | Self::Keyboard { .. }
             | Self::Icon(_) => Ok(()),
+            // Its text is checked when it is set.
+            Self::LongText { .. } => Ok(()),
         }
     }
 }

@@ -155,7 +155,10 @@ impl UiLoop {
     }
 
     /// Where the pointer is drawn for `tree`, if it is: its tip and area.
-    fn pointer_for<const N: usize>(&self, tree: &Tree<N>) -> Option<(Point, Rect)> {
+    fn pointer_for<const N: usize, const T: usize>(
+        &self,
+        tree: &Tree<N, T>,
+    ) -> Option<(Point, Rect)> {
         if !self.pointer {
             return None;
         }
@@ -234,9 +237,9 @@ impl UiLoop {
     /// [`ContractError::NotConfigured`] or [`ContractError::PresentInFlight`] if the UI
     /// may not draw yet; [`LoopError::Framebuffer`] if `frame` is shorter
     /// than the layout.
-    pub fn draw_all<M: FrameMemory, const N: usize>(
+    pub fn draw_all<M: FrameMemory, const N: usize, const T: usize>(
         &mut self,
-        tree: &Tree<N>,
+        tree: &Tree<N, T>,
         frame: M,
         glyphs: &mut Glyphs<'_>,
     ) -> Result<Present, LoopError> {
@@ -273,9 +276,9 @@ impl UiLoop {
     /// # Errors
     ///
     /// As [`draw_all`](Self::draw_all); on an error the tree stays dirty.
-    pub fn draw_dirty<M: FrameMemory, const N: usize>(
+    pub fn draw_dirty<M: FrameMemory, const N: usize, const T: usize>(
         &mut self,
-        tree: &mut Tree<N>,
+        tree: &mut Tree<N, T>,
         frame: M,
         glyphs: &mut Glyphs<'_>,
     ) -> Result<Present, LoopError> {

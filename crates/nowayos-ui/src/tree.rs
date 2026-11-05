@@ -30,7 +30,7 @@ const DIRTY_RECTS: usize = 8;
 ///
 /// Provisional: this API may change.
 #[derive(Debug, Clone)]
-pub struct Tree<const N: usize> {
+pub struct Tree<const N: usize, const T: usize = 0> {
     pub(crate) nodes: BoundedVec<Node, N>,
     pub(crate) root: Option<NodeId>,
     pub(crate) viewport: Rect,
@@ -57,6 +57,8 @@ pub struct Tree<const N: usize> {
     /// A touch on the scroll view: where it started, the view's
     /// offset then, and whether it has moved far enough to scroll.
     pub(crate) drag: Option<Drag>,
+    /// The long texts' bytes: `T` of them (builder contract v16).
+    pub(crate) texts: crate::long_text::TextStore<T>,
 }
 
 /// A touch that may scroll the scroll view.
@@ -74,13 +76,13 @@ pub(crate) struct Drag {
     pub(crate) list: Option<(NodeId, u8)>,
 }
 
-impl<const N: usize> Default for Tree<N> {
+impl<const N: usize, const T: usize> Default for Tree<N, T> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<const N: usize> Tree<N> {
+impl<const N: usize, const T: usize> Tree<N, T> {
     /// An empty tree.
     #[must_use]
     pub fn new() -> Self {
@@ -99,6 +101,7 @@ impl<const N: usize> Tree<N> {
             dirty: DirtyRegion::new(Rect::EMPTY),
             metrics: None,
             drag: None,
+            texts: crate::long_text::TextStore::new(),
         }
     }
 
@@ -110,6 +113,7 @@ impl<const N: usize> Tree<N> {
     /// is the same person's next.
     pub fn clear(&mut self) {
         self.nodes.wipe();
+        self.texts.clear();
         self.root = None;
         self.focus = None;
         self.pressed = None;
@@ -347,6 +351,37 @@ impl<const N: usize> Tree<N> {
         alt: &'static str,
     ) -> Result<NodeId, UiError> {
         self.add(NodeKind::Image { picture, fit, alt }, Style::new())
+    }
+
+    /// Creates a long text bound to `slot` (builder contract v16), taking
+    /// `capacity` bytes of the tree's text store: empty until the
+    /// application sets it ([`set_slot`](Self::set_slot)). Its width is
+    /// [`Length::Fill`]; its height is the lines its text wraps onto there.
+    /// When a new text takes another number of lines the tree is laid out
+    /// again.
+    ///
+    /// # Errors
+    ///
+    /// [`UiError::LongTextOutOfRange`] for 0 bytes or more than
+    /// [`MAX_LONG_TEXT`](crate::long_text::MAX_LONG_TEXT);
+    /// [`UiError::TextStoreFull`] when the store has fewer left;
+    /// [`UiError::TreeFull`].
+    pub fn long_text(&mut self, slot: crate::SlotId, capacity: u32) -> Result<NodeId, UiError> {
+        if capacity == 0 || capacity > crate::long_text::MAX_LONG_TEXT {
+            return Err(UiError::LongTextOutOfRange);
+        }
+        let start = self
+            .texts
+            .take(capacity)
+            .ok_or(UiError::TextStoreFull { capacity: T })?;
+        let kind = NodeKind::LongText {
+            slot,
+            start,
+            capacity,
+            len: 0,
+        };
+        self.add(kind, Style::new().width(Length::Fill))
+            .inspect_err(|_| self.texts.give_back(start))
     }
 
     /// Creates an empty progress bar bound to `slot`, as wide as
@@ -960,8 +995,24 @@ impl<const N: usize> Tree<N> {
     pub fn slot_text(&self, slot: crate::SlotId) -> Option<&str> {
         self.nodes.iter().find_map(|node| match &node.kind {
             NodeKind::Slot { slot: s, text, .. } if *s == slot => Some(text.as_str()),
+            NodeKind::LongText {
+                slot: s,
+                start,
+                len,
+                ..
+            } if *s == slot => Some(self.texts.get(*start, *len)),
             _ => None,
         })
+    }
+
+    /// The text a long text node shows (builder contract v16): `None` for
+    /// any other node.
+    #[must_use]
+    pub fn long_text_of(&self, node: &Node) -> Option<&str> {
+        match node.kind {
+            NodeKind::LongText { start, len, .. } => Some(self.texts.get(start, len)),
+            _ => None,
+        }
     }
 
     /// The slot node bound to `slot`, if any (the first created, if several
@@ -969,7 +1020,7 @@ impl<const N: usize> Tree<N> {
     #[must_use]
     pub fn find_slot(&self, slot: crate::SlotId) -> Option<NodeId> {
         self.nodes.iter().enumerate().find_map(|(index, node)| {
-            matches!(&node.kind, NodeKind::Slot { slot: s, .. } if *s == slot)
+            matches!(&node.kind, NodeKind::Slot { slot: s, .. } | NodeKind::LongText { slot: s, .. } if *s == slot)
                 .then(|| u16::try_from(index).ok().map(NodeId))
                 .flatten()
         })
@@ -991,8 +1042,11 @@ impl<const N: usize> Tree<N> {
     /// [`UiError::NoGlyph`] ([`crate::text::check_printable`]). On error
     /// the previous text stays.
     pub fn set_slot(&mut self, slot: crate::SlotId, text: &str) -> Result<(), UiError> {
-        check_printable(text)?;
         let id = self.find_slot(slot).ok_or(UiError::UnknownSlot(slot))?;
+        if matches!(self.node(id)?.kind, NodeKind::LongText { .. }) {
+            return self.set_long_text(id, text);
+        }
+        check_printable(text)?;
         let metrics = self.metrics;
         let node = self.node_mut(id)?;
         // A slot in the display role takes only what its atlases draw.
@@ -1039,6 +1093,62 @@ impl<const N: usize> Tree<N> {
         Ok(())
     }
 
+    /// Shows `text` in the long text `id`: its paragraphs checked as any
+    /// text is, its bytes replacing the old in place, and only the lines
+    /// that differ marked for repainting - or, if it now takes another
+    /// number of lines, the tree laid out again as last time and repainted
+    /// whole.
+    fn set_long_text(&mut self, id: NodeId, text: &str) -> Result<(), UiError> {
+        crate::long_text::check_paragraphs(text)?;
+        let node = self.node(id)?;
+        let (rect, content, style) = (node.rect, node.content(), node.style.text);
+        let NodeKind::LongText {
+            start,
+            capacity,
+            len,
+            ..
+        } = node.kind
+        else {
+            return Err(UiError::WrongKind(id));
+        };
+        let required = u32::try_from(text.len()).unwrap_or(u32::MAX);
+        if required > capacity {
+            return Err(UiError::TextTooLong(nowayos_bounded::CapacityError {
+                capacity: usize::try_from(capacity).unwrap_or(usize::MAX),
+                required: text.len(),
+            }));
+        }
+        let mut relayout = false;
+        match self.metrics {
+            Some(metrics) => {
+                let metrics = metrics.for_style(style);
+                let old = self.texts.get(start, len);
+                let changed = crate::long_text::changed_lines(old, text, content, &metrics);
+                match changed {
+                    Some(lines) => lines.for_each(|rect| self.dirty.add(rect)),
+                    None => relayout = true,
+                }
+            }
+            None => self.dirty.add(rect),
+        }
+        self.texts
+            .put(start, capacity, text)
+            .ok_or(UiError::WrongKind(id))?;
+        if let NodeKind::LongText { len, .. } = &mut self.node_mut(id)?.kind {
+            *len = required;
+        }
+        // Laid out again only once the screen is whole: a long text set as
+        // its screen is built is laid out with the rest.
+        if relayout
+            && self.root.is_some()
+            && let Some(metrics) = self.metrics
+        {
+            let viewport = self.viewport;
+            self.layout(viewport, &metrics)?;
+        }
+        Ok(())
+    }
+
     /// Empties every slot, zeroing its bytes in place, and every progress
     /// bar, and marks the ones that showed anything for
     /// repainting.
@@ -1050,6 +1160,18 @@ impl<const N: usize> Tree<N> {
                         self.dirty.add(node.rect);
                     }
                     text.wipe();
+                }
+                NodeKind::LongText {
+                    start,
+                    capacity,
+                    len,
+                    ..
+                } => {
+                    if *len != 0 {
+                        self.dirty.add(node.rect);
+                    }
+                    let _ = self.texts.put(*start, *capacity, "");
+                    *len = 0;
                 }
                 NodeKind::Progress { permille, .. } => {
                     if *permille != 0 {
@@ -1432,6 +1554,12 @@ impl<const N: usize> Tree<N> {
         self.nodes.iter().all(|node| match &node.kind {
             NodeKind::TextInput { value, .. } => value.is_zeroed(),
             NodeKind::Slot { text, .. } => text.is_zeroed(),
+            NodeKind::LongText {
+                start,
+                capacity,
+                len,
+                ..
+            } => *len == 0 && self.texts.is_zeroed(*start, *capacity),
             NodeKind::Progress { permille, .. } => *permille == 0,
             NodeKind::Checkbox { checked, .. } => !checked,
             NodeKind::RadioGroup { selected, .. } => selected.is_none(),
@@ -1476,7 +1604,7 @@ impl<const N: usize> Tree<N> {
 
     /// The children of `id`, first to last (empty for an invalid id).
     #[must_use]
-    pub fn children(&self, id: NodeId) -> Children<'_, N> {
+    pub fn children(&self, id: NodeId) -> Children<'_, N, T> {
         Children {
             tree: self,
             next: self.get(id).and_then(|n| n.first_child),
@@ -1488,7 +1616,7 @@ impl<const N: usize> Tree<N> {
     /// siblings in order — the order to paint in, and the focus order. A
     /// group's hidden child and everything in it are left out.
     #[must_use]
-    pub fn paint_order(&self) -> PaintOrder<'_, N> {
+    pub fn paint_order(&self) -> PaintOrder<'_, N, T> {
         PaintOrder {
             tree: self,
             root: self.root,
@@ -1687,14 +1815,14 @@ impl<const N: usize> Tree<N> {
 
 /// Iterator over a node's children. See [`Tree::children`].
 #[derive(Debug, Clone)]
-pub struct Children<'a, const N: usize> {
-    tree: &'a Tree<N>,
+pub struct Children<'a, const N: usize, const T: usize = 0> {
+    tree: &'a Tree<N, T>,
     next: Option<NodeId>,
     /// Steps left; bounds the walk even if the links were ever corrupt.
     budget: usize,
 }
 
-impl<const N: usize> Iterator for Children<'_, N> {
+impl<const N: usize, const T: usize> Iterator for Children<'_, N, T> {
     type Item = NodeId;
 
     fn next(&mut self) -> Option<NodeId> {
@@ -1709,14 +1837,14 @@ impl<const N: usize> Iterator for Children<'_, N> {
 /// [`Tree::paint_order`]. Uses the parent and sibling links, so it needs no
 /// stack.
 #[derive(Debug, Clone)]
-pub struct PaintOrder<'a, const N: usize> {
-    tree: &'a Tree<N>,
+pub struct PaintOrder<'a, const N: usize, const T: usize = 0> {
+    tree: &'a Tree<N, T>,
     root: Option<NodeId>,
     next: Option<NodeId>,
     budget: usize,
 }
 
-impl<'a, const N: usize> Iterator for PaintOrder<'a, N> {
+impl<'a, const N: usize, const T: usize> Iterator for PaintOrder<'a, N, T> {
     type Item = (NodeId, &'a Node);
 
     fn next(&mut self) -> Option<Self::Item> {
@@ -1731,7 +1859,7 @@ impl<'a, const N: usize> Iterator for PaintOrder<'a, N> {
     }
 }
 
-impl<const N: usize> PaintOrder<'_, N> {
+impl<const N: usize, const T: usize> PaintOrder<'_, N, T> {
     /// The next node after `id`'s subtree: its next sibling, or the next
     /// sibling of the nearest ancestor that has one, stopping at the root.
     /// A group's child has no next sibling here: a group shows one child.

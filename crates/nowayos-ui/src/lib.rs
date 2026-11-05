@@ -105,6 +105,7 @@ mod error;
 mod interact;
 pub mod keyboard;
 mod layout;
+pub mod long_text;
 pub mod nav;
 mod node;
 pub mod text;
