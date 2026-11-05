@@ -485,6 +485,10 @@ pub struct Look {
     /// How opaque it and everything inside it are drawn, from 0, unseen, to
     /// 255, as now (#10079).
     pub opacity: Option<u8>,
+    /// How it comes into view when a condition shows it (#10087).
+    pub transition: Option<crate::motion::Transition>,
+    /// An animation of its own, running while motion is on (#10087).
+    pub animation: Option<crate::motion::Animation>,
 }
 
 /// One of the theme's shadows, by how high what casts it stands (#10079):
@@ -559,7 +563,27 @@ impl Look {
         shadow: None,
         gradient: None,
         opacity: None,
+        transition: None,
+        animation: None,
     };
+
+    /// Coming into view by `transition` when a condition shows it.
+    #[must_use]
+    pub const fn transition(self, transition: crate::motion::Transition) -> Self {
+        Self {
+            transition: Some(transition),
+            ..self
+        }
+    }
+
+    /// Running `animation` while motion is on.
+    #[must_use]
+    pub const fn animation(self, animation: crate::motion::Animation) -> Self {
+        Self {
+            animation: Some(animation),
+            ..self
+        }
+    }
 
     /// With the theme's shadow for `elevation` beneath it.
     #[must_use]

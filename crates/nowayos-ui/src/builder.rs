@@ -149,12 +149,19 @@
 //! [`Gradient`] between the theme's colours and an opacity (CSS's
 //! `boxShadow`, `linear-gradient`, `radial-gradient` and `opacity`).
 //!
+//! Contract v23 adds to [`Look`] a [`Transition`] - how a node comes into
+//! view when a condition shows it - and an [`Animation`] of its own (CSS's
+//! `transition` and `animation`).
+//!
 //! Provisional: tracks Screen Compiler's contract; both sides change together.
 
 use crate::{ContainerKind, LayerKind, Length, NodeId, NodeKind, Style, Tree, UiError};
 
 /// The icons generated screens name (contract v6).
 pub use crate::icons;
+/// Motion a screen declares (contract v23): how a node comes into view,
+/// and an animation of its own.
+pub use crate::motion::{Animation, Easing, Property, Repeat, Transition};
 /// How a picture fills its box (contract v15).
 pub use crate::pictures::{Fit, Picture};
 /// A run of a rich text (contract v21).

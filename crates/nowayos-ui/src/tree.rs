@@ -814,6 +814,8 @@ impl<const N: usize, const T: usize> Tree<N, T> {
         self.focus = None;
         self.pressed = None;
         self.dirty.mark_all();
+        // Each node's own animation, if motion is on (#10087).
+        self.start_declared();
         Ok(())
     }
 
@@ -1355,6 +1357,10 @@ impl<const N: usize, const T: usize> Tree<N, T> {
         if changed {
             self.drop_hidden_focus();
             self.dirty.mark_all();
+            // What came into view, transitions in (#10087).
+            self.enter_shown(
+                |kind| matches!(kind, NodeKind::Group { group: g, .. } if *g == group),
+            );
         }
         Ok(())
     }
@@ -1395,6 +1401,10 @@ impl<const N: usize, const T: usize> Tree<N, T> {
         if changed {
             self.drop_hidden_focus();
             self.dirty.mark_all();
+            // What came into view, transitions in (#10087).
+            self.enter_shown(
+                |kind| matches!(kind, NodeKind::Switch { switch: s, .. } if *s == switch),
+            );
         }
         Ok(())
     }

@@ -383,6 +383,67 @@ impl Animation {
     }
 }
 
+/// How a node comes into view when what it is in starts to show (builder
+/// contract v23; CSS's `transition` on a property a condition changes):
+/// from `property`'s unshown value - unseen, a little to the side or
+/// below, a little small - to rest.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Transition {
+    /// What moves: opacity, a translation or the scale.
+    pub property: Property,
+    /// How long, in milliseconds.
+    pub duration: u32,
+    /// After how long, in milliseconds.
+    pub delay: u32,
+    /// How it is paced.
+    pub easing: Easing,
+}
+
+impl Transition {
+    /// `property` over `duration` milliseconds, as CSS's `ease`.
+    #[must_use]
+    pub const fn new(property: Property, duration: u32) -> Self {
+        Self {
+            property,
+            duration,
+            delay: 0,
+            easing: Easing::Ease,
+        }
+    }
+
+    /// After `delay` milliseconds.
+    #[must_use]
+    pub const fn delay(self, delay: u32) -> Self {
+        Self { delay, ..self }
+    }
+
+    /// Paced by `easing`.
+    #[must_use]
+    pub const fn easing(self, easing: Easing) -> Self {
+        Self { easing, ..self }
+    }
+
+    /// The animation it runs as its node comes into view.
+    #[must_use]
+    pub const fn entering(&self) -> Animation {
+        let from = match self.property {
+            Property::Opacity => 0,
+            Property::TranslateX | Property::TranslateY => 8,
+            Property::Scale => 950,
+            Property::Reveal => 0,
+            _ => 0,
+        };
+        let to = match self.property {
+            Property::Opacity => 255,
+            Property::Scale | Property::Reveal => 1000,
+            _ => 0,
+        };
+        Animation::new(self.property, from, to, self.duration)
+            .delay(self.delay)
+            .easing(self.easing)
+    }
+}
+
 /// How a node is drawn while it moves: at rest, all at their identities.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Visual {
@@ -526,9 +587,68 @@ impl Motion {
 }
 
 impl<const N: usize, const T: usize> Tree<N, T> {
-    /// Sets how much the screen moves, from now.
+    /// Sets how much the screen moves, from now; turned on, every node's
+    /// own animation starts ([`Look::animation`](crate::Look)).
     pub fn set_motion(&mut self, setting: MotionSetting) {
+        let was = self.motion.setting;
         self.motion.setting = setting;
+        if was == MotionSetting::Off && setting != MotionSetting::Off {
+            self.start_declared();
+        }
+    }
+
+    /// Starts every node's own animation (builder contract v23), as the
+    /// motion setting allows.
+    pub(crate) fn start_declared(&mut self) {
+        if self.motion.setting == MotionSetting::Off {
+            return;
+        }
+        for index in 0..self.nodes.len() {
+            let Ok(index) = u16::try_from(index) else {
+                break;
+            };
+            let id = NodeId(index);
+            if let Some(animation) = self.get(id).and_then(|node| node.style.look.animation) {
+                let _ = self.animate(id, animation);
+            }
+        }
+    }
+
+    /// After a condition changed what shows: each node with a transition
+    /// now showing inside a group or switch numbered `which` comes into
+    /// view (builder contract v23).
+    pub(crate) fn enter_shown(&mut self, which: impl Fn(&crate::NodeKind) -> bool) {
+        if self.motion.setting == MotionSetting::Off {
+            return;
+        }
+        for index in 0..self.nodes.len() {
+            let Ok(index) = u16::try_from(index) else {
+                break;
+            };
+            let id = NodeId(index);
+            let Some(transition) = self.get(id).and_then(|node| node.style.look.transition) else {
+                continue;
+            };
+            if !self.is_shown(id) || !self.inside_where(id, &which) {
+                continue;
+            }
+            let _ = self.animate(id, transition.entering());
+        }
+    }
+
+    /// Whether `id` is inside a node `which` picks.
+    fn inside_where(&self, id: NodeId, which: &impl Fn(&crate::NodeKind) -> bool) -> bool {
+        let mut current = self.get(id).and_then(|node| node.parent);
+        for _ in 0..=crate::MAX_DEPTH {
+            let Some(node) = current.and_then(|at| self.get(at)) else {
+                return false;
+            };
+            if which(&node.kind) {
+                return true;
+            }
+            current = node.parent;
+        }
+        false
     }
 
     /// How much the screen moves.
