@@ -101,3 +101,62 @@ fn animations_repeat_stop_and_a_wipe_leaves_nothing_moving() {
     assert!(!tree.is_moving());
     assert_eq!(tree.visual(keep), Visual::REST);
 }
+
+#[test]
+fn a_node_with_a_transition_comes_into_view_when_its_group_shows() {
+    const FADE: Transition = Transition::new(Property::Opacity, 200);
+    use nowayos_ui::builder::Transition;
+    use nowayos_ui::{GroupId, Look};
+    let mut tree: Tree<8> = Tree::new();
+    let words = UiBuilder::text(&mut tree, "Hello").unwrap();
+    let card = UiBuilder::column(
+        &mut tree,
+        Layout::new().look(Look::NONE.transition(&FADE)),
+        &[words],
+    )
+    .unwrap();
+    let group = UiBuilder::group(&mut tree, GroupId(1), card).unwrap();
+    let root = UiBuilder::column(&mut tree, Layout::new(), &[group]).unwrap();
+    tree.set_root(root).unwrap();
+    tree.layout(Rect::new(0, 0, 200, 100), &TextMetrics::new(8, 16))
+        .unwrap();
+    // Off: it just shows.
+    tree.set_visible(GroupId(1), true).unwrap();
+    assert!(!tree.is_moving());
+    tree.set_visible(GroupId(1), false).unwrap();
+    tree.set_motion(MotionSetting::Full);
+    tree.set_visible(GroupId(1), true).unwrap();
+    assert_eq!(tree.visual(card).opacity, 0, "fading in");
+    tree.advance(200);
+    assert_eq!(tree.visual(card), Visual::REST);
+}
+
+#[test]
+fn a_node_s_own_animation_runs_while_motion_is_on() {
+    const SHIMMER: Animation = Animation::shimmer();
+    const PULSE: Animation = Animation::pulse();
+    use nowayos_ui::Look;
+    let mut tree: Tree<8> = Tree::new();
+    let words = UiBuilder::text(&mut tree, "Loading").unwrap();
+    let card = UiBuilder::column(
+        &mut tree,
+        Layout::new().look(Look::NONE.animation(&SHIMMER)),
+        &[words],
+    )
+    .unwrap();
+    tree.set_root(card).unwrap();
+    assert!(!tree.is_moving(), "off");
+    tree.set_motion(MotionSetting::Full);
+    assert!(tree.is_moving(), "turned on, it starts");
+    // A new screen with motion on starts its own at once.
+    tree.clear();
+    let words = UiBuilder::text(&mut tree, "Again").unwrap();
+    let again = UiBuilder::column(
+        &mut tree,
+        Layout::new().look(Look::NONE.animation(&PULSE)),
+        &[words],
+    )
+    .unwrap();
+    tree.set_root(again).unwrap();
+    assert!(tree.is_moving());
+}
