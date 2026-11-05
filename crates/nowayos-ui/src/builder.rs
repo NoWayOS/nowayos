@@ -153,6 +153,9 @@
 //! view when a condition shows it - and an [`Animation`] of its own (CSS's
 //! `transition` and `animation`).
 //!
+//! Contract v24 adds [`TextStyle::selectable`](crate::TextStyle::selectable):
+//! text a press selects, for Ctrl+C to copy (CSS's `userSelect: "text"`).
+//!
 //! Provisional: tracks Screen Compiler's contract; both sides change together.
 
 use crate::{ContainerKind, LayerKind, Length, NodeId, NodeKind, Style, Tree, UiError};

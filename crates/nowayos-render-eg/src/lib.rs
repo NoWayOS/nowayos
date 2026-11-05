@@ -1664,14 +1664,18 @@ where
             NodeKind::Progress { permille, .. } => self.progress(content, *permille),
             NodeKind::Icon(icon) => self.icon(content, icon),
             NodeKind::Image { picture, fit, .. } => self.picture(content, picture, *fit),
-            NodeKind::Text(text) => self.text_lines(text, node, content),
+            NodeKind::Text(text) => {
+                self.selected(tree, id, content)?;
+                self.text_lines(text, node, content)
+            }
             NodeKind::Rich { runs, link, .. } => self.rich(runs, *link, node, content, ring),
-            NodeKind::Slot {
-                text,
-                template: Some(template),
-                ..
-            } => self.text_lines(&template.around(text), node, content),
-            NodeKind::Slot { text, .. } => self.text_lines(text, node, content),
+            NodeKind::Slot { text, template, .. } => {
+                self.selected(tree, id, content)?;
+                match template {
+                    Some(template) => self.text_lines(&template.around(text), node, content),
+                    None => self.text_lines(text, node, content),
+                }
+            }
             NodeKind::TextArea { .. } => {
                 self.text_area(tree, id, node, rect, content, focused, ring)
             }
@@ -2274,6 +2278,22 @@ where
     /// broken after spaces at the content's width, at most the style's
     /// lines - each a line high, the block centred in the content's height.
     /// Each line sits across the content as its style aligns it.
+    /// Selectable text a press has selected (#10080): its box on the
+    /// selection colour, its text blended over it.
+    fn selected<const N: usize, const T: usize>(
+        &mut self,
+        tree: &Tree<N, T>,
+        id: NodeId,
+        content: Rect,
+    ) -> Result<(), D::Error> {
+        if tree.selected_text() != Some(id) {
+            return Ok(());
+        }
+        self.ground = self.theme.selection;
+        self.gradient = None;
+        self.fill(content, self.theme.selection)
+    }
+
     fn text_lines(&mut self, text: &str, node: &Node, content: Rect) -> Result<(), D::Error> {
         let (on, colour) = (self.ground, self.text_colour(node));
         let style = node.style().text;

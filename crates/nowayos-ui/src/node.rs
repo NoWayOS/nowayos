@@ -890,6 +890,9 @@ pub struct TextStyle {
     /// Its colour, one of the theme's; `None` for the colour of
     /// its role where it stands.
     pub colour: Option<Colour>,
+    /// Whether a press selects it, for Ctrl+C to copy (#10080; CSS's
+    /// `userSelect: "text"`).
+    pub selectable: bool,
 }
 
 impl TextStyle {
@@ -908,6 +911,17 @@ impl TextStyle {
             lines: 1,
             align: TextAlign::Start,
             colour: None,
+            selectable: false,
+        }
+    }
+
+    /// The same, selectable: a press selects it, for Ctrl+C to copy
+    /// (#10080, builder contract v24).
+    #[must_use]
+    pub const fn selectable(self) -> Self {
+        Self {
+            selectable: true,
+            ..self
         }
     }
 
