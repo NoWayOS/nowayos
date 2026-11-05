@@ -21,6 +21,7 @@ NOWAYOS: ui: action Continue
 NOWAYOS: display: showing 0xd4775af2d7df6ca4
 NOWAYOS: ui: action Start again
 NOWAYOS: display: showing 0x0ee912d0f2a5615f
+NOWAYOS: display: showing 0x49a33d551f0c65cb
 
 # Output that fails the test at once if it appears anywhere (substring match):
 # a fault reported by the Microkit monitor, a kernel error message, a panic, a

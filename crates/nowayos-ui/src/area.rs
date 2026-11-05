@@ -6,7 +6,7 @@
 use nowayos_bounded::Wipe;
 use nowayos_input::KeyCode;
 
-use nowayos_input::keymap;
+use nowayos_input::keymap::Typed;
 
 use crate::edit::{Step, boundary, selection, step};
 use crate::{FieldId, NodeId, NodeKind, Style, TextMetrics, Tree, UiError, UiEvent};
@@ -135,7 +135,13 @@ impl<const N: usize, const T: usize> Tree<N, T> {
     /// text input, and Enter starts a line, Up and Down move a line - with
     /// Shift, selecting - and Home and End go to the ends of the caret's
     /// line.
-    pub(crate) fn type_area(&mut self, id: NodeId, key: KeyCode, shift: bool) -> Option<UiEvent> {
+    pub(crate) fn type_area(
+        &mut self,
+        id: NodeId,
+        key: KeyCode,
+        shift: bool,
+        typed: Typed,
+    ) -> Option<UiEvent> {
         let ctrl = self.ctrl_keys.contains(&true);
         // Copy, cut and paste (#10080).
         if ctrl && crate::interact::is_clip_key(key) {
@@ -202,15 +208,19 @@ impl<const N: usize, const T: usize> Tree<N, T> {
             return None;
         }
         // Editing.
-        let mut typed = [0_u8; 4];
+        let mut bytes = [0_u8; crate::interact::TYPED_BYTES];
         let (range, insert) = match key {
             KeyCode::BACKSPACE | KeyCode::DELETE if low != high => ((low, high), ""),
             KeyCode::BACKSPACE => ((step(text, at, Step::Left), at), ""),
             KeyCode::DELETE => ((at, step(text, at, Step::Right)), ""),
             KeyCode::ENTER => ((low, high), "\n"),
             _ => {
-                let ch = keymap::us_char(key, shift)?;
-                ((low, high), &*ch.encode_utf8(&mut typed))
+                let len =
+                    crate::interact::encode_typed(typed, crate::text::is_printable, &mut bytes);
+                if len == 0 {
+                    return None;
+                }
+                ((low, high), core::str::from_utf8(bytes.get(..len)?).ok()?)
             }
         };
         if range.0 == range.1 && insert.is_empty() {
@@ -233,7 +243,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
             }
             None => Some(UiEvent::InputFull(field)),
         };
-        typed.wipe();
+        bytes.wipe();
         self.dirty.add(rect);
         event
     }
@@ -269,7 +279,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
                 self.clipboard.set(part);
             }
             return if KeyCode::letter('x') == Some(key) {
-                self.type_area(id, KeyCode::DELETE, false)
+                self.type_area(id, KeyCode::DELETE, false, Typed::NONE)
             } else {
                 None
             };

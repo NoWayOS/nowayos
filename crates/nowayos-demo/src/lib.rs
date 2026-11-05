@@ -11,7 +11,8 @@
 //!
 //! The session includes input the UI must ignore without panicking: a tap
 //! outside every control, keys with nothing focused, and typing into a full
-//! text input.
+//! text input. Its keys type on a UK keyboard ([`LAYOUT`]), its last step
+//! accents with AltGr.
 //!
 //! The screen is the Raspberry Pi 5's HDMI monitor - all 1920 × 1080 of its
 //! pixels - drawn at its own pixels at device scale 2:
@@ -27,6 +28,7 @@
 #![no_std]
 
 use nowayos_display::Rect;
+use nowayos_input::keymap::Layout;
 use nowayos_input::{InputEvent, KeyCode, TouchPhase};
 use nowayos_ui::{ActionId, Align, FieldId, Style, TextMetrics, Tree, UiError, UiEvent};
 
@@ -39,6 +41,8 @@ pub const HEIGHT: u32 = 1080;
 pub const SCALE: nowayos_display::DeviceScale = nowayos_display::DeviceScale::TWO;
 /// The screen, in pixels: what the session's taps and clicks are placed on.
 pub const SCREEN: Rect = Rect::new(0, 0, WIDTH, HEIGHT);
+/// The keyboard layout the demo's keys type on (#10081).
+pub const LAYOUT: Layout = Layout::Uk;
 
 /// Space around the screen's edge, in layout units.
 const MARGIN: u32 = 24;
@@ -93,6 +97,7 @@ impl Demo {
             metrics,
             viewport,
         };
+        demo.tree.set_keyboard_layout(LAYOUT);
         demo.show(Screen::Form)?;
         Ok(demo)
     }
@@ -267,6 +272,59 @@ const FILL_NAME: [InputEvent; 62] = [InputEvent::KeyDown(key('x')); 62];
 const CLICK_HELP: [InputEvent; 3] = click(120, 970);
 const CLICK_CONTINUE: [InputEvent; 3] = click(1750, 970);
 const TAP_START_AGAIN: [InputEvent; 2] = tap(180, 970);
+/// The name focused again, and "Zoë Siobhán £5" typed on the demo's UK
+/// [`LAYOUT`]: AltGr+2 is a dead diaeresis, AltGr+a an á, Shift+3 a £.
+const TYPE_ACCENTS: [InputEvent; 27] = {
+    const fn down(key: KeyCode) -> InputEvent {
+        InputEvent::KeyDown(key)
+    }
+    const fn up(key: KeyCode) -> InputEvent {
+        InputEvent::KeyUp(key)
+    }
+    const SHIFT: KeyCode = KeyCode::LEFT_SHIFT;
+    const ALTGR: KeyCode = KeyCode::RIGHT_ALT;
+    const TWO: KeyCode = match KeyCode::digit(2) {
+        Some(key) => key,
+        None => KeyCode::SPACE,
+    };
+    const THREE: KeyCode = match KeyCode::digit(3) {
+        Some(key) => key,
+        None => KeyCode::SPACE,
+    };
+    const FIVE: KeyCode = match KeyCode::digit(5) {
+        Some(key) => key,
+        None => KeyCode::SPACE,
+    };
+    [
+        TAP_NAME[0],
+        TAP_NAME[1],
+        down(SHIFT),
+        down(key('z')),
+        up(SHIFT),
+        down(key('o')),
+        down(ALTGR),
+        down(TWO),
+        up(ALTGR),
+        down(key('e')),
+        down(KeyCode::SPACE),
+        down(SHIFT),
+        down(key('s')),
+        up(SHIFT),
+        down(key('i')),
+        down(key('o')),
+        down(key('b')),
+        down(key('h')),
+        down(ALTGR),
+        down(key('a')),
+        up(ALTGR),
+        down(key('n')),
+        down(KeyCode::SPACE),
+        down(SHIFT),
+        down(THREE),
+        up(SHIFT),
+        down(FIVE),
+    ]
+};
 
 /// The scripted session: each step's input, then a frame to check.
 pub const SESSION: &[Step] = &[
@@ -309,6 +367,10 @@ pub const SESSION: &[Step] = &[
     Step {
         name: "tap-start-again",
         events: &TAP_START_AGAIN,
+    },
+    Step {
+        name: "type-accents",
+        events: &TYPE_ACCENTS,
     },
 ];
 
@@ -430,7 +492,7 @@ mod tests {
         let screens: std::vec::Vec<_> = steps.iter().map(|(_, _, screen)| *screen).collect();
         assert_eq!(screens[..7], [Screen::Form; 7]);
         assert_eq!(screens[7..9], [Screen::Done; 2]);
-        assert_eq!(screens[9], Screen::Form);
+        assert_eq!(screens[9..], [Screen::Form; 2]);
     }
 
     #[test]
@@ -447,14 +509,17 @@ mod tests {
     }
 
     #[test]
-    fn start_again_shows_an_empty_form() {
+    fn start_again_shows_an_empty_form_and_the_uk_layout_types_accents() {
         let mut demo = Demo::new(metrics(), SCREEN).unwrap();
-        for step in SESSION {
+        for (number, step) in SESSION.iter().enumerate() {
             for event in step.events {
                 demo.handle(*event).unwrap();
             }
+            if step.name == "tap-start-again" {
+                assert_eq!(demo.screen(), Screen::Form);
+                assert_eq!(demo.tree().value(NAME), Some(""), "step {number}");
+            }
         }
-        assert_eq!(demo.screen(), Screen::Form);
-        assert_eq!(demo.tree().value(NAME), Some(""));
+        assert_eq!(demo.tree().value(NAME), Some("Zoë Siobhán £5"));
     }
 }

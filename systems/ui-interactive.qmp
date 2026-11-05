@@ -58,3 +58,30 @@ screen ../crates/nowayos-demo/session/08-keys-on-done.png
 click 180 970
 wait NOWAYOS: display: showing 0x0ee912d0f2a5615f
 screen ../crates/nowayos-demo/session/09-tap-start-again.png
+
+# 10 type-accents: the name focused again, and "Zoë Siobhán £5" typed on the
+# demo's UK layout - AltGr+2 a dead diaeresis, AltGr+a an á, Shift+3 a £ -
+# through the virtio keyboard and the input broker.
+click 400 260
+hold shift
+key z
+release shift
+key o
+hold alt_r
+key 2
+release alt_r
+key e spc
+hold shift
+key s
+release shift
+key i o b h
+hold alt_r
+key a
+release alt_r
+key n spc
+hold shift
+key 3
+release shift
+key 5
+wait NOWAYOS: display: showing 0x49a33d551f0c65cb
+screen ../crates/nowayos-demo/session/10-type-accents.png

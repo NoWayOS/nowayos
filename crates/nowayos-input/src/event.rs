@@ -119,6 +119,10 @@ impl KeyCode {
     pub const SLASH: Self = Self(0x38);
     /// Caps Lock.
     pub const CAPS_LOCK: Self = Self(0x39);
+    /// The non-US # and ~ key, beside Enter on an ISO keyboard.
+    pub const NON_US_HASH: Self = Self(0x32);
+    /// The non-US \\ and | key, beside the left Shift on an ISO keyboard.
+    pub const NON_US_BACKSLASH: Self = Self(0x64);
     /// F1.
     pub const F1: Self = Self(0x3A);
     /// F12.

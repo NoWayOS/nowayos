@@ -2,7 +2,8 @@
 //! Hit-testing, focus and input handling.
 
 use nowayos_display::Point;
-use nowayos_input::{InputEvent, KeyCode, TouchPhase, keymap};
+use nowayos_input::keymap::{self, Layout, Typed};
+use nowayos_input::{InputEvent, KeyCode, TouchPhase};
 
 use crate::keyboard::KeyAction;
 use crate::tree::MAX_DEPTH;
@@ -321,18 +322,22 @@ impl<const N: usize, const T: usize> Tree<N, T> {
             InputEvent::KeyDown(key)
                 if key.is_shift() || matches!(key, KeyCode::LEFT_CTRL | KeyCode::RIGHT_CTRL) =>
             {
+                self.keymap.key_down(key);
                 self.set_shift_key(key, true);
                 None
             }
             InputEvent::KeyUp(key) => {
+                self.keymap.key_up(key);
                 self.set_shift_key(key, false);
                 None
             }
             InputEvent::KeyDown(key) => {
+                // What it types on the keyboard's layout (#10081).
+                let typed = self.keymap.key_down(key);
                 // A key shows the focus ring, and ends any double click.
                 self.set_focus_visible(true);
                 self.last_click = None;
-                self.key_down(key)
+                self.key_down(key, typed)
             }
         }
     }
@@ -530,7 +535,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
         }
     }
 
-    fn key_down(&mut self, key: KeyCode) -> Option<UiEvent> {
+    fn key_down(&mut self, key: KeyCode, typed: Typed) -> Option<UiEvent> {
         // Escape in a layer holding focus: a menu or popover closes, a
         // dialog asks the application to close it (#10076).
         if key == KeyCode::ESCAPE
@@ -579,7 +584,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
             && !matches!(key, KeyCode::PAGE_UP | KeyCode::PAGE_DOWN)
         {
             let shift = self.shift();
-            return self.type_area(focused, key, shift);
+            return self.type_area(focused, key, shift, typed);
         }
         // Page Up and Page Down scroll the scroll view a page, less a line.
         if matches!(key, KeyCode::PAGE_UP | KeyCode::PAGE_DOWN) {
@@ -663,7 +668,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
                     None
                 }
             }
-            NodeKind::TextInput { .. } => self.type_key(focused, key, shift),
+            NodeKind::TextInput { .. } => self.type_key(focused, key, shift, typed),
             _ => None,
         }
     }
@@ -675,7 +680,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
     /// character replaces what is selected or goes in at the caret;
     /// Backspace and Delete remove what is selected, or the character
     /// before or after the caret. Enter moves to the next control.
-    fn type_key(&mut self, id: NodeId, key: KeyCode, shift: bool) -> Option<UiEvent> {
+    fn type_key(&mut self, id: NodeId, key: KeyCode, shift: bool, typed: Typed) -> Option<UiEvent> {
         use crate::edit::{Step, selection, step};
         use nowayos_bounded::Wipe;
         if key == KeyCode::ENTER {
@@ -731,18 +736,21 @@ impl<const N: usize, const T: usize> Tree<N, T> {
             self.dirty.add(rect);
             return None;
         }
-        let mut typed = [0_u8; 4];
+        let mut bytes = [0_u8; TYPED_BYTES];
         let (range, insert) = match key {
             KeyCode::BACKSPACE | KeyCode::DELETE if low != high => ((low, high), ""),
             KeyCode::BACKSPACE => ((step(text, at, Step::Left), at), ""),
             KeyCode::DELETE => ((at, step(text, at, Step::Right)), ""),
             _ => {
-                // A key types only a character the glyph atlases draw, as
-                // text set any other way must be one (the US map types no
-                // other), and only one the input's mode takes: any other
-                // key is refused, reporting nothing.
-                let ch = keymap::us_char(key, shift).filter(|&ch| mode.accepts(ch))?;
-                ((low, high), &*ch.encode_utf8(&mut typed))
+                // A key types only characters the glyph atlases draw, as
+                // text set any other way must be (the layouts type no
+                // other), and only ones the input's mode takes: a key that
+                // types none is refused, reporting nothing.
+                let len = encode_typed(typed, |ch| mode.accepts(ch), &mut bytes);
+                if len == 0 {
+                    return None;
+                }
+                ((low, high), core::str::from_utf8(bytes.get(..len)?).ok()?)
             }
         };
         if range.0 == range.1 && insert.is_empty() {
@@ -750,7 +758,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
         }
         let event = self.put_input(id, range, insert);
         // What was typed leaves no copy behind.
-        typed.wipe();
+        bytes.wipe();
         event
     }
 
@@ -849,15 +857,29 @@ impl<const N: usize, const T: usize> Tree<N, T> {
 
     /// A key of the on-screen keyboard typed into `target`: a text input or
     /// a text area.
+    /// Its keys are the US layout's, as their labels show.
     fn type_into(&mut self, target: NodeId, key: KeyCode, shift: bool) -> Option<UiEvent> {
+        let typed = Typed::one(keymap::us_char(key, shift));
         if matches!(
             self.get(target).map(|node| &node.kind),
             Some(NodeKind::TextArea { .. })
         ) {
-            self.type_area(target, key, shift)
+            self.type_area(target, key, shift, typed)
         } else {
-            self.type_key(target, key, shift)
+            self.type_key(target, key, shift, typed)
         }
+    }
+
+    /// Sets the keyboard layout keys type on (#10081): US until a product
+    /// names another. A dead key waiting is dropped.
+    pub fn set_keyboard_layout(&mut self, layout: Layout) {
+        self.keymap.set_layout(layout);
+    }
+
+    /// The keyboard layout keys type on.
+    #[must_use]
+    pub const fn keyboard_layout(&self) -> Layout {
+        self.keymap.layout()
     }
 
     /// The on-screen keyboard's key under the pointer, if a text input has
@@ -1149,6 +1171,9 @@ impl<const N: usize, const T: usize> Tree<N, T> {
             self.mark_optional(to);
             let before = self.focus;
             self.focus = to;
+            // An accent waiting for its letter is not carried to another
+            // control (#10081).
+            self.keymap.cancel();
             self.keyboard_follows(before);
         }
     }
@@ -1394,6 +1419,28 @@ impl<const N: usize, const T: usize> Tree<N, T> {
 }
 
 /// Whether `key` is C, X or V: with Ctrl, copy, cut or paste (#10080).
+/// The most bytes one key types: two characters, a dead key's and the
+/// letter it did not go on.
+pub(crate) const TYPED_BYTES: usize = 8;
+
+/// The characters `typed` that `accepts` takes, encoded into `into`: how
+/// many bytes.
+pub(crate) fn encode_typed(
+    typed: Typed,
+    accepts: impl Fn(char) -> bool,
+    into: &mut [u8; TYPED_BYTES],
+) -> usize {
+    let mut len = 0_usize;
+    for ch in typed.chars().filter(|&ch| accepts(ch)) {
+        let end = len.saturating_add(ch.len_utf8());
+        if let Some(slot) = into.get_mut(len..end) {
+            ch.encode_utf8(slot);
+            len = end;
+        }
+    }
+    len
+}
+
 pub(crate) fn is_clip_key(key: KeyCode) -> bool {
     ['c', 'x', 'v']
         .iter()

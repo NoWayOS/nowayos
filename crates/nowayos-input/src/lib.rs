@@ -19,8 +19,8 @@
 //!   positions;
 //! * [`RateLimiter`] — a token bucket that bounds the event rate, driven by
 //!   ticks the caller supplies (this crate has no clock);
-//! * [`keymap`] — a minimal US-English key-to-character mapping for
-//!   bring-up;
+//! * [`keymap`] — the keyboard layouts (US, UK, US International) that
+//!   turn keys into characters, with Shift, Caps Lock, AltGr and dead keys;
 //! * [`evdev`] — virtio-input's Linux evdev events turned into canonical
 //!   events, dropping and counting what it does not know;
 //! * [`broker`] — the input broker's decisions: each source's events

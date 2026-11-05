@@ -81,6 +81,8 @@ pub struct Tree<const N: usize, const T: usize = 0> {
     pub(crate) clipboard: crate::clipboard::Clipboard,
     /// The selectable text a press selected (#10080).
     pub(crate) selected: Option<NodeId>,
+    /// The keyboard's layout and state: what keys type (#10081).
+    pub(crate) keymap: nowayos_input::keymap::Keymap,
 }
 
 /// A touch that may scroll a scroll view.
@@ -140,6 +142,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
             layers: crate::layer::Layers::new(),
             motion: crate::motion::Motion::new(),
             clipboard: crate::clipboard::Clipboard::new(),
+            keymap: nowayos_input::keymap::Keymap::new(nowayos_input::keymap::Layout::Us),
             selected: None,
         }
     }
@@ -168,6 +171,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
         self.motion.clear();
         self.clipboard.wipe();
         self.selected = None;
+        self.keymap.cancel();
         self.dirty.mark_all();
     }
 
@@ -1662,9 +1666,11 @@ impl<const N: usize, const T: usize> Tree<N, T> {
         // Every layer closed: the next person starts on the screen.
         self.close_all();
         self.motion.clear();
-        // What was copied leaves nothing behind for the next person.
+        // What was copied leaves nothing behind for the next person, nor
+        // does an accent waiting for its letter.
         self.clipboard.wipe();
         self.selected = None;
+        self.keymap.cancel();
         self.drop_hidden_focus();
         self.dirty.mark_all();
     }
