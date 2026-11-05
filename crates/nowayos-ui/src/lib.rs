@@ -109,6 +109,7 @@ pub mod keyboard;
 pub mod layer;
 mod layout;
 pub mod long_text;
+pub mod motion;
 pub mod nav;
 mod node;
 pub mod rich;

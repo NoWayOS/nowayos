@@ -111,6 +111,7 @@ use nowayos_display::{Insets, Rect};
 use nowayos_glyphs::{BOLD, DISPLAY, Face, REGULAR};
 use nowayos_ui::edit;
 use nowayos_ui::keyboard::KeyAction;
+use nowayos_ui::motion::Visual;
 use nowayos_ui::pictures::{Fit, Picture};
 use nowayos_ui::rich::Run;
 use nowayos_ui::text::{fit_start, wrap};
@@ -1057,7 +1058,177 @@ fn has_effects<const N: usize, const T: usize>(tree: &Tree<N, T>, area: Rect) ->
             )
             .intersects(&area))
             || (look.is_translucent() && rect.intersects(&area))
+    }) || tree.paint_order().any(|(id, node)| {
+        // A node moving see-through, scaled or shimmering (#10086).
+        let visual = tree.visual(id);
+        visual.composes()
+            && nowayos_ui::motion::drawn_area(node.rect(), visual, tree.scale(), 0)
+                .intersects(&area)
     })
+}
+
+/// A see-through or shimmering group open while its subtree is drawn
+/// (#10079, #10086).
+#[derive(Clone, Copy)]
+struct Group<C> {
+    node: NodeId,
+    opacity: u8,
+    /// Where its shimmer's band is, and over what.
+    shimmer: Option<(u16, Rect)>,
+    /// The band's colour.
+    light: C,
+}
+
+/// Finishes `group`: its shimmer's band over what it drew, then all of it
+/// blended at its opacity.
+fn finish<K: compose::Canvas>(target: &mut K, area: Rect, group: Group<K::Color>)
+where
+    K::Color: RgbColor + From<Rgb888>,
+{
+    if let Some((band, rect)) = group.shimmer {
+        // A soft band a third of the box wide, crossing from before its
+        // start to past its end.
+        let width = i64::from(rect.size.width).max(1);
+        let half = width / 6;
+        let centre = rect.left().saturating_sub(half).saturating_add(
+            (width.saturating_add(half.saturating_mul(2))).saturating_mul(i64::from(band)) / 1000,
+        );
+        target.shade(rect, group.light, |x, _| {
+            let away = x.saturating_sub(centre).abs();
+            if away >= half || half == 0 {
+                return 0;
+            }
+            u8::try_from(
+                half.saturating_sub(away)
+                    .saturating_mul(160)
+                    .checked_div(half)
+                    .unwrap_or(0),
+            )
+            .unwrap_or(0)
+        });
+    }
+    if group.opacity < u8::MAX {
+        target.end(area, group.opacity);
+    } else {
+        target.end(area, u8::MAX);
+    }
+}
+
+/// The sine and cosine of `tenths` of a degree, in 4096ths: a quarter turn
+/// at a time exactly, and between them from a table every 15 degrees.
+fn turn_sin_cos(tenths: i32) -> (i64, i64) {
+    const SIN: [i64; 7] = [0, 1060, 2048, 2896, 3547, 3956, 4096];
+    let degrees = i64::from(tenths / 10).rem_euclid(360);
+    let sin_of = |d: i64| -> i64 {
+        let d = d.rem_euclid(360);
+        let (quarter, within) = (d / 90, d % 90);
+        let first = |w: i64| {
+            let at = usize::try_from(w / 15).unwrap_or(0);
+            let (a, b) = (
+                SIN.get(at).copied().unwrap_or(0),
+                SIN.get(at.saturating_add(1)).copied().unwrap_or(4096),
+            );
+            a.saturating_add(b.saturating_sub(a).saturating_mul(w % 15) / 15)
+        };
+        match quarter {
+            0 => first(within),
+            1 => first(90_i64.saturating_sub(within)),
+            2 => first(within).saturating_neg(),
+            _ => first(90_i64.saturating_sub(within)).saturating_neg(),
+        }
+    };
+    (sin_of(degrees), sin_of(degrees.saturating_add(90)))
+}
+
+/// `rect` scaled by `scale` thousandths about its centre.
+fn scaled(rect: Rect, scale: u16) -> Rect {
+    if scale == 1000 {
+        return rect;
+    }
+    let grow = |length: u32| {
+        (i64::from(length).saturating_mul(i64::from(scale)) / 1000)
+            .saturating_sub(i64::from(length))
+            / 2
+    };
+    let (gx, gy) = (grow(rect.size.width), grow(rect.size.height));
+    Rect::from_edges(
+        rect.left().saturating_sub(gx),
+        rect.top().saturating_sub(gy),
+        rect.right().saturating_add(gx),
+        rect.bottom().saturating_add(gy),
+    )
+}
+
+/// Where node `id` is moved to while it, or anything around it up to
+/// `root`, moves (#10086): how far right and down, in pixels at `scale`,
+/// and what it is cut to - each box around it scaled or partly revealed -
+/// in its own coordinates.
+fn moved<const N: usize, const T: usize>(
+    tree: &Tree<N, T>,
+    id: NodeId,
+    root: NodeId,
+    scale: DeviceScale,
+) -> ((i64, i64), Option<Rect>) {
+    let px = |units: i32| scale.px_signed(i64::from(units));
+    // The node and those around it, inner first.
+    let mut path: [Option<NodeId>; nowayos_ui::MAX_DEPTH + 2] = [None; nowayos_ui::MAX_DEPTH + 2];
+    let mut current = Some(id);
+    for slot in &mut path {
+        let Some(node) = current else {
+            break;
+        };
+        *slot = Some(node);
+        if node == root {
+            break;
+        }
+        current = tree.get(node).and_then(Node::parent);
+    }
+    let total = path.iter().flatten().fold((0_i64, 0_i64), |sum, &node| {
+        let (dx, dy) = tree.visual(node).offset;
+        (sum.0.saturating_add(px(dx)), sum.1.saturating_add(px(dy)))
+    });
+    // Each box around it in its coordinates: moved by what lies between.
+    let mut between = (0_i64, 0_i64);
+    let mut clip: Option<Rect> = None;
+    for &node in path.iter().flatten() {
+        let visual = tree.visual(node);
+        let Some(rect) = tree.get(node).map(Node::rect) else {
+            continue;
+        };
+        let mut cut = None;
+        if visual.reveal < 1000 {
+            let height = u32::try_from(
+                u64::from(rect.size.height).saturating_mul(u64::from(visual.reveal)) / 1000,
+            )
+            .unwrap_or(0);
+            cut = Some(Rect::new(
+                rect.origin.x,
+                rect.origin.y,
+                rect.size.width,
+                height,
+            ));
+        }
+        if visual.scale != 1000 && node != id {
+            let box_ = scaled(rect, visual.scale);
+            cut = Some(cut.map_or(box_, |c| c.intersection(&box_).unwrap_or(Rect::EMPTY)));
+        }
+        if let Some(cut) = cut {
+            let cut = Rect::from_edges(
+                cut.left().saturating_sub(between.0),
+                cut.top().saturating_sub(between.1),
+                cut.right().saturating_sub(between.0),
+                cut.bottom().saturating_sub(between.1),
+            );
+            clip = Some(clip.map_or(cut, |c| c.intersection(&cut).unwrap_or(Rect::EMPTY)));
+        }
+        let (dx, dy) = visual.offset;
+        between = (
+            between.0.saturating_add(px(dx)),
+            between.1.saturating_add(px(dy)),
+        );
+    }
+    let _ = total;
+    (between, clip)
 }
 
 /// Whether `id` is `ancestor` or inside it.
@@ -1111,6 +1282,7 @@ where
         surface: None,
         veil,
         gradient: None,
+        visual: Visual::REST,
     }
     .fill(area, ground_theme.background)?;
     // The screen, then each layer shown over it, bottom to top.
@@ -1120,18 +1292,43 @@ where
         };
         let (theme, veil) = theme_of(plane);
         // The see-through groups open around the node being drawn.
-        let mut groups: [Option<(NodeId, u8)>; compose::GROUPS] = [None; compose::GROUPS];
+        let mut groups: [Option<Group<K::Color>>; compose::GROUPS] = [None; compose::GROUPS];
         for (id, node) in tree.plane_order(plane) {
             // Each group the node is outside of is finished.
             for slot in groups.iter_mut().rev() {
-                if let Some((group, opacity)) = *slot
-                    && !within(tree, id, group)
+                if let Some(group) = *slot
+                    && !within(tree, id, group.node)
                 {
-                    target.end(area, opacity);
+                    finish(target, area, group);
                     *slot = None;
                 }
             }
             let look = node.style().look;
+            // How it, and those around it, are drawn while they move.
+            let visual = tree.visual(id);
+            let (offset, moved) = moved(tree, id, plane_root, scale);
+            let opacity = u8::try_from(
+                u32::from(look.opacity.unwrap_or(u8::MAX))
+                    .saturating_mul(u32::from(visual.opacity))
+                    / 255,
+            )
+            .unwrap_or(u8::MAX);
+            if (opacity < u8::MAX || visual.shimmer.is_some())
+                && let Some(slot) = groups.iter_mut().find(|slot| slot.is_none())
+                && target.begin()
+            {
+                let shifted = node.rect().checked_translate(
+                    i32::try_from(offset.0).unwrap_or(0),
+                    i32::try_from(offset.1).unwrap_or(0),
+                );
+                *slot = Some(Group {
+                    node: id,
+                    opacity,
+                    shimmer: visual.shimmer.zip(shifted),
+                    light: theme.progress_track,
+                });
+            }
+            // Its shadow inside its group, so it fades with it.
             if let Some(elevation) = look.shadow {
                 let clip = match tree.scroll_clip(node) {
                     Some(view) => area.intersection(&view),
@@ -1148,21 +1345,27 @@ where
                     );
                 }
             }
-            if let Some(opacity) = look.opacity.filter(|_| look.is_translucent())
-                && let Some(slot) = groups.iter_mut().find(|slot| slot.is_none())
-                && target.begin()
-            {
-                *slot = Some((id, opacity));
-            }
             // The part of the node inside the area - and, inside a scroll
             // view, inside the view: everything it draws is clipped to
             // this, in NoWayOS's overflow-safe geometry first and by
             // `embedded-graphics` as well.
+            // In the node's own coordinates, before it is moved.
+            let local = Rect::from_edges(
+                area.left().saturating_sub(offset.0),
+                area.top().saturating_sub(offset.1),
+                area.right().saturating_sub(offset.0),
+                area.bottom().saturating_sub(offset.1),
+            );
             let seen = match tree.scroll_clip(node) {
-                Some(view) => area.intersection(&view),
-                None => Some(area),
+                Some(view) => local.intersection(&view),
+                None => Some(local),
             };
-            if let Some(clip) = seen.and_then(|seen| node.rect().intersection(&seen)) {
+            let seen = match moved {
+                Some(moved) => seen.and_then(|seen| seen.intersection(&moved)),
+                None => seen,
+            };
+            let own = scaled(node.rect(), visual.scale);
+            if let Some(clip) = seen.and_then(|seen| own.intersection(&seen)) {
                 // Its text in its own role and weight, measured as
                 // layout measured it.
                 let style = node.style().text;
@@ -1174,8 +1377,12 @@ where
                 } else {
                     under(tree, node)
                 };
+                let shift = embedded_graphics::prelude::Point::new(
+                    i32::try_from(offset.0).unwrap_or(0),
+                    i32::try_from(offset.1).unwrap_or(0),
+                );
                 Painter {
-                    target: &mut target.clipped(&to_eg(clip)),
+                    target: &mut target.translated(shift).clipped(&to_eg(clip)),
                     theme,
                     glyphs: &mut *glyphs,
                     metrics: base.for_style(style),
@@ -1190,12 +1397,13 @@ where
                     } else {
                         gradient_under(tree, node, theme)
                     },
+                    visual,
                 }
                 .node(tree, id, node)?;
             }
         }
-        for (_, opacity) in groups.iter().rev().flatten() {
-            target.end(area, *opacity);
+        for group in groups.iter().rev().flatten() {
+            finish(target, area, *group);
         }
         // Each scroll view's thumbs in the plane, over what it shows.
         let in_plane = |id: NodeId| match tree.layer_of(id) {
@@ -1232,6 +1440,7 @@ where
                 surface,
                 veil,
                 gradient: None,
+                visual: Visual::REST,
             };
             for bar in [bars.vertical, bars.horizontal].into_iter().flatten() {
                 painter.thumb(bar.thumb)?;
@@ -1412,6 +1621,9 @@ struct Painter<'t, 'th, 'g, 'c, D: DrawTarget> {
     /// The gradient the node stands on, if it does (#10079): its text is
     /// blended over the gradient's colour at each pixel.
     gradient: Option<shape::GradientFill<D::Color>>,
+    /// How the node is drawn while it moves (#10086): its colours, its
+    /// box's scale, an icon's turn, a progress bar's sweep.
+    visual: Visual,
 }
 
 impl<D> Painter<'_, '_, '_, '_, D>
@@ -1425,7 +1637,8 @@ where
         id: NodeId,
         node: &Node,
     ) -> Result<(), D::Error> {
-        let rect = node.rect();
+        // Its box scaled about its centre while it moves (#10086).
+        let rect = scaled(node.rect(), self.visual.scale);
         let focused = tree.focused() == Some(id);
         // The focus ring only after keyboard use; a text input's
         // caret whenever it has focus.
@@ -1434,7 +1647,7 @@ where
         match node.kind() {
             NodeKind::Column | NodeKind::Row | NodeKind::Stack | NodeKind::Scroll { .. } => {
                 let (surface, look) = (node.style().surface, node.style().look);
-                if look.draws() {
+                if look.draws() || self.visual.fill.is_some() {
                     self.looked(rect, surface, look)
                 } else if let Some(surface) = surface {
                     self.surface(rect, surface)
@@ -1879,6 +2092,7 @@ where
                     surface: self.surface,
                     veil: self.veil,
                     gradient: self.gradient,
+                    visual: Visual::REST,
                 }
                 .text("!", marker, TextAlign::Center, cut_out, on)?;
             }
@@ -2268,11 +2482,21 @@ where
     }
 
     fn text_colour(&self, node: &Node) -> D::Color {
+        // A text changing colour (#10086).
+        if let Some((from, to, t)) = self.visual.text {
+            return self.mixed(from, to, t);
+        }
         let style = node.style().text;
         style.colour.map_or_else(
             || self.theme.text_on(self.surface, style.role),
             |colour| self.theme.colour(colour),
         )
+    }
+
+    /// `t` thousandths of the way from the theme's `from` to its `to`.
+    fn mixed(&self, from: Colour, to: Colour, t: u16) -> D::Color {
+        let coverage = u8::try_from(u32::from(t.min(1000)) * 255 / 1000).unwrap_or(u8::MAX);
+        text::blend(self.theme.colour(to), self.theme.colour(from), coverage)
     }
 
     /// The colour of text and marks with no role of their own where the
@@ -2333,6 +2557,11 @@ where
             None => (self.ground, self.theme.input_border, 0, 0),
         };
         let fill = look.fill.map_or(fill, |colour| self.theme.colour(colour));
+        // A fill changing colour (#10086).
+        let fill = match self.visual.fill {
+            Some((from, to, t)) => self.mixed(from, to, t),
+            None => fill,
+        };
         let border = look
             .border
             .map_or(border, |colour| self.theme.colour(colour));
@@ -2393,9 +2622,33 @@ where
             .top()
             .saturating_add(i64::from(rect.size.height.saturating_sub(size) / 2));
         let (ink, ground, clip) = (self.ink(), self.ground, self.clip);
+        // Turned about its centre while it spins (#10086): each pixel
+        // takes the mask's nearest under it, turned back.
+        let (sin, cos) = turn_sin_cos(self.visual.turn);
+        let half = i64::from(size) / 2;
         let pixels = (0..size).flat_map(move |y| {
             (0..size).filter_map(move |x| {
-                let coverage = mask.at(x, y).filter(|&c| c > 0)?;
+                let (sx, sy) = if sin == 0 && cos == 4096 {
+                    (x, y)
+                } else {
+                    let (dx, dy) = (
+                        i64::from(x).saturating_sub(half),
+                        i64::from(y).saturating_sub(half),
+                    );
+                    let rx = (dx
+                        .saturating_mul(cos)
+                        .saturating_add(dy.saturating_mul(sin)))
+                        / 4096;
+                    let ry = (dy
+                        .saturating_mul(cos)
+                        .saturating_sub(dx.saturating_mul(sin)))
+                        / 4096;
+                    (
+                        u32::try_from(rx.saturating_add(half)).ok()?,
+                        u32::try_from(ry.saturating_add(half)).ok()?,
+                    )
+                };
+                let coverage = mask.at(sx, sy).filter(|&c| c > 0)?;
                 let px = left.saturating_add(i64::from(x));
                 let py = top.saturating_add(i64::from(y));
                 let point = Point::new(i32::try_from(px).ok()?, i32::try_from(py).ok()?);
@@ -2404,6 +2657,51 @@ where
             })
         });
         self.target.draw_iter(pixels)
+    }
+
+    /// An indeterminate progress bar: its track, and a segment a third of
+    /// its width `along` thousandths of the way along.
+    fn sweep(&mut self, rect: Rect, along: u16) -> Result<(), D::Error> {
+        let (fill, track) = self.theme.progress_on(self.surface);
+        let radius = rect.size.height / 2;
+        let paint = |fill: D::Color, ground: D::Color| Paint {
+            fill,
+            border: fill,
+            ground,
+        };
+        Rounded {
+            rect,
+            radius: Radii::all(radius),
+            border: 0,
+        }
+        .draw(
+            &mut *self.target,
+            self.clip,
+            paint(track, self.ground),
+            self.glyphs.rasteriser(),
+        )?;
+        let width = rect.size.width / 3;
+        let room = rect.size.width.saturating_sub(width);
+        let left = rect.left().saturating_add(
+            (i64::from(room).saturating_mul(i64::from(along.min(1000))) / 1000)
+                .min(i64::from(room)),
+        );
+        Rounded {
+            rect: Rect::from_edges(
+                left,
+                rect.top(),
+                left.saturating_add(i64::from(width)),
+                rect.bottom(),
+            ),
+            radius: Radii::all(radius),
+            border: 0,
+        }
+        .draw(
+            &mut *self.target,
+            self.clip,
+            paint(fill, track),
+            self.glyphs.rasteriser(),
+        )
     }
 
     /// A picture in `rect`: fitted by `fit`, sampled from the pixels it was
@@ -2471,6 +2769,10 @@ where
     /// A progress bar in `rect`: a rounded track, and over it, from
     /// the start, a rounded fill `permille` thousandths of its width.
     fn progress(&mut self, rect: Rect, permille: u16) -> Result<(), D::Error> {
+        // Indeterminate (#10086): a third of the bar sweeping along.
+        if let Some(along) = self.visual.sweep {
+            return self.sweep(rect, along);
+        }
         let (fill, track) = self.theme.progress_on(self.surface);
         let radius = rect.size.height / 2;
         let bar = Rounded {

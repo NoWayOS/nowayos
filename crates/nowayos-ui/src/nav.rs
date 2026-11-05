@@ -227,7 +227,10 @@ impl<const DEPTH: usize> Navigator<DEPTH> {
         self.back
             .push(self.current)
             .map_err(|_| UiError::BackStackFull { capacity: DEPTH })?;
-        self.switch(screen, tree, build)
+        self.switch(screen, tree, build)?;
+        // Its default transition, as the motion setting allows (#10086).
+        tree.transition_screen(true);
+        Ok(())
     }
 
     /// Shows `screen` in place of the current one, which is not remembered.
@@ -264,7 +267,9 @@ impl<const DEPTH: usize> Navigator<DEPTH> {
         let Some(previous) = self.back.pop() else {
             return Ok(false);
         };
-        self.switch(previous, tree, build).map(|()| true)
+        self.switch(previous, tree, build)?;
+        tree.transition_screen(false);
+        Ok(true)
     }
 
     /// Clears the tree and shows `screen`; if it cannot be built, shows the
