@@ -11,16 +11,16 @@ NOWAYOS: display: showing a 1920x1080 Xrgb8888 screen on QEMU's ramfb, from 1920
 NOWAYOS: input-broker: starting; 2 sources, screen 1920x1080, each source 64 events at once and 250 a second
 NOWAYOS: ui: starting
 NOWAYOS: ui: the display is 1920x1080 Xrgb8888 at scale 2
-NOWAYOS: display: showing 0xf8b341f608135e0f
-NOWAYOS: display: showing 0x60656e042bf20c9f
-NOWAYOS: display: showing 0xf9b94e44d9575fc8
-NOWAYOS: display: showing 0x5a2ae1ce6ff7fc1f
+NOWAYOS: display: showing 0x0ee912d0f2a5615f
+NOWAYOS: display: showing 0x9c6b90335b57b2af
+NOWAYOS: display: showing 0xde044e2bc9b442f8
+NOWAYOS: display: showing 0xb16f3bea36c04c2f
 NOWAYOS: ui: action Help
-NOWAYOS: display: showing 0xac3c467710533cf5
+NOWAYOS: display: showing 0x5b0cb5a6eb42e495
 NOWAYOS: ui: action Continue
-NOWAYOS: display: showing 0x108fede9490f45d4
+NOWAYOS: display: showing 0xd4775af2d7df6ca4
 NOWAYOS: ui: action Start again
-NOWAYOS: display: showing 0xf8b341f608135e0f
+NOWAYOS: display: showing 0x0ee912d0f2a5615f
 
 # Output that fails the test at once if it appears anywhere (substring match):
 # a fault reported by the Microkit monitor, a kernel error message, a panic, a

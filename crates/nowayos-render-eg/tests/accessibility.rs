@@ -45,10 +45,11 @@ fn every_theme_meets_the_contrast_minimums_for_every_pair_drawn_together() {
     // Every pair is checked: a text input's, the error marker's and a
     // progress bar's seven, and on each of the six grounds the six text
     // roles, the choice controls' label and marks, the error, the focus
-    // ring, a progress bar's fill and three button variants' four pairs -
-    // less a quiet button's boundary, which it has none of.
+    // ring, a progress bar's fill, a scrollbar's thumb and three button
+    // variants' four pairs - less a quiet button's boundary, which it has
+    // none of.
     for (name, theme) in Theme::<Rgb888>::all() {
-        assert_eq!(contrast::pairs(&theme).count(), 7 + 6 * 22, "{name}");
+        assert_eq!(contrast::pairs(&theme).count(), 7 + 6 * 23, "{name}");
     }
 }
 

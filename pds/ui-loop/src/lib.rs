@@ -45,10 +45,9 @@
 use core::fmt;
 
 use embedded_graphics::pixelcolor::Rgb888;
-use nowayos_bounded::BoundedVec;
 use nowayos_display::{
-    ContractError, DeviceScale, FrameMemory, FramebufferLayout, MAX_DAMAGE_RECTS, MAX_RECORD_LEN,
-    Point, Present, Rect, UiEnd, UiEvent,
+    ContractError, DeviceScale, DirtyRegion, FrameMemory, FramebufferLayout, MAX_DAMAGE_RECTS,
+    MAX_RECORD_LEN, Point, Present, Rect, UiEnd, UiEvent,
 };
 use nowayos_input::InputEvent;
 use nowayos_ipc::{Consumer, DecodeError, Producer, RecvError, RingError, SendError};
@@ -58,7 +57,7 @@ use nowayos_region::{
 };
 use nowayos_render_eg::{
     Glyphs, RawFramebuffer, RawFramebufferError, Theme, pointer_area, render, render_dirty,
-    render_pointer,
+    render_pointer, to_eg,
 };
 use nowayos_ui::{TextMetrics, Tree};
 
@@ -296,6 +295,31 @@ impl UiLoop {
             }
         }
         let mut target = RawFramebuffer::new(layout, frame).map_err(LoopError::Framebuffer)?;
+        // What scrolls moved of what is drawn moves first, in order; the
+        // pointer drawn over it is drawn again where it was, and where its
+        // pixels went is repainted. Memory that cannot move is repainted.
+        let mut moves = [nowayos_ui::scroll::Move::default(); nowayos_ui::scroll::MAX_MOVES];
+        let count = moves.len().min(tree.moves().len());
+        for (slot, made) in moves.iter_mut().zip(tree.moves()) {
+            *slot = *made;
+        }
+        for made in moves.iter().take(count) {
+            if !target.move_area(&to_eg(made.area), made.dx, made.dy) {
+                tree.mark_area_dirty(made.area);
+            }
+            if let Some(drawn) = self
+                .pointer_drawn
+                .and_then(|drawn| drawn.intersection(&made.area))
+            {
+                tree.mark_area_dirty(drawn);
+                tree.mark_area_dirty(Rect::from_edges(
+                    drawn.left().saturating_add(made.dx),
+                    drawn.top().saturating_add(made.dy),
+                    drawn.right().saturating_add(made.dx),
+                    drawn.bottom().saturating_add(made.dy),
+                ));
+            }
+        }
         match render_dirty(tree, &mut target, &self.theme, glyphs) {
             Ok(()) => {}
             Err(never) => match never {},
@@ -310,18 +334,17 @@ impl UiLoop {
                 }
             }
         }
+        // The display copies what changed: what was drawn, and every area
+        // whose pixels moved - merged, as there may be more than it takes.
         let bounds = layout.bounds();
-        let mut damage: BoundedVec<Rect, MAX_DAMAGE_RECTS> = BoundedVec::new();
-        for rect in tree.dirty_rects() {
-            if let Some(shown) = rect.intersection(&bounds) {
-                damage
-                    .push(shown)
-                    .map_err(|_| ContractError::TooManyRects {
-                        count: tree.dirty_rects().len(),
-                    })?;
-            }
+        let mut damage: DirtyRegion<MAX_DAMAGE_RECTS> = DirtyRegion::new(bounds);
+        for &rect in tree.dirty_rects() {
+            damage.add(rect);
         }
-        let present = self.end.present(damage.as_slice())?;
+        for made in moves.iter().take(count) {
+            damage.add(made.area);
+        }
+        let present = self.end.present(damage.rects())?;
         tree.clear_dirty();
         self.pointer_drawn = area;
         Ok(present)

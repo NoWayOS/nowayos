@@ -325,13 +325,22 @@ impl Edges {
     }
 }
 
-/// The tiles of the screen's fixed 64 x 16 grid that meet `visible`, each
-/// cut to `bounds` - the shape's own - but never to the area being painted,
-/// so a pixel's coverage is worked out the same way whatever is repainted.
+/// The tiles of a 64 x 16 grid from `bounds`' corner - the shape's own -
+/// that meet `visible`, each cut to `bounds` but never to the area being
+/// painted: a pixel's coverage is worked out the same way whatever is
+/// repainted, and wherever the shape stands, so a shape moved by whole
+/// pixels - scrolled - has exactly the pixels drawn there afresh.
 fn tiles(visible: Edges, bounds: Edges) -> impl Iterator<Item = Edges> {
     let (width, height) = (TILE_WIDTH as i64, TILE_HEIGHT as i64);
-    let first_top = visible.top.div_euclid(height).saturating_mul(height);
-    let first_left = visible.left.div_euclid(width).saturating_mul(width);
+    let grid = |from: i64, at: i64, step: i64| {
+        from.saturating_add(
+            at.saturating_sub(from)
+                .div_euclid(step)
+                .saturating_mul(step),
+        )
+    };
+    let first_top = grid(bounds.top, visible.top, height);
+    let first_left = grid(bounds.left, visible.left, width);
     (first_top..visible.bottom)
         .step_by(TILE_HEIGHT)
         .flat_map(move |top| {

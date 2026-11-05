@@ -267,7 +267,7 @@ const fn button_names(variant: ButtonVariant) -> [&'static str; 4] {
 /// labels and marks, a field's error, the focus ring, each button variant
 /// and a progress bar's fill against the ground. A quiet button has
 /// no boundary to check, so its third pair is `None`.
-fn on_ground(theme: &Theme<Rgb888>, on: Option<Surface>) -> [Option<Pair>; 23] {
+fn on_ground(theme: &Theme<Rgb888>, on: Option<Surface>) -> [Option<Pair>; 24] {
     let ground = theme.ground(on);
     let pair = |what, need, fore| {
         Some(Pair {
@@ -334,6 +334,7 @@ fn on_ground(theme: &Theme<Rgb888>, on: Option<Surface>) -> [Option<Pair>; 23] {
             Need::Graphic,
             theme.progress_on(on).0,
         ),
+        pair("a scrollbar's thumb", Need::Graphic, theme.scrollbar_on(on)),
         p0,
         p1,
         p2,
