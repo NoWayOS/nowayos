@@ -94,6 +94,39 @@ impl Outline {
         Placement::of(self.min(), self.max(), scale).unwrap_or_default()
     }
 
+    /// The ink box it fills at `scale`, slanted as an oblique
+    /// ([`path_slanted`](Self::path_slanted)) if `slanted`.
+    #[must_use]
+    pub fn placement_slanted(&self, scale: Scale, slanted: bool) -> Placement {
+        if !slanted {
+            return self.placement(scale);
+        }
+        if !self.has_ink() {
+            return Placement::default();
+        }
+        let (min, max) = (self.min(), self.max());
+        Placement::of(
+            Point::new(min.x.saturating_add(slant(min.y)), min.y),
+            Point::new(max.x.saturating_add(slant(max.y)), max.y),
+            scale,
+        )
+        .unwrap_or_default()
+    }
+
+    /// Its path slanted as an oblique: each point moved right by
+    /// 13/64 of its height above the baseline - italics drawn from the
+    /// upright face (#10078), until an italic face is signed off.
+    pub fn path_slanted(&self) -> impl Iterator<Item = Command> {
+        let lean = |p: Point| Point::new(p.x.saturating_add(slant(p.y)), p.y);
+        self.path().map(move |command| match command {
+            Command::MoveTo(p) => Command::MoveTo(lean(p)),
+            Command::LineTo(p) => Command::LineTo(lean(p)),
+            Command::QuadTo(a, b) => Command::QuadTo(lean(a), lean(b)),
+            Command::CurveTo(a, b, c) => Command::CurveTo(lean(a), lean(b), lean(c)),
+            Command::Close => Command::Close,
+        })
+    }
+
     /// Its path, in half font units.
     #[must_use]
     pub const fn path(&self) -> Path {
@@ -102,6 +135,15 @@ impl Outline {
             coords: self.coords,
         }
     }
+}
+
+/// An oblique's slant: x moved by this many 64ths of y - about 11.5
+/// degrees, as an italic leans.
+const SLANT: i32 = 13;
+
+/// How far an oblique moves a point `y` above the baseline.
+fn slant(y: i32) -> i32 {
+    y.saturating_mul(SLANT).div_euclid(64)
 }
 
 /// An outline's path: its steps in order.

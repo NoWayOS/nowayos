@@ -382,7 +382,19 @@ impl<const N: usize, const T: usize> Tree<N, T> {
             self.set_pressed(None);
             return outcome;
         }
-        let target = self.control_at(self.pointer);
+        // On a rich text, only its links can be pressed (#10078).
+        let target =
+            self.control_at(self.pointer)
+                .filter(|&id| match self.get(id).map(|node| &node.kind) {
+                    Some(NodeKind::Rich { .. }) => match self.link_at(id, self.pointer) {
+                        Some(link) => {
+                            self.set_link(id, link);
+                            true
+                        }
+                        None => false,
+                    },
+                    _ => true,
+                });
         self.set_pressed(target);
         if let Some(id) = target {
             self.place_caret(id, true);
@@ -485,6 +497,12 @@ impl<const N: usize, const T: usize> Tree<N, T> {
                 self.chosen_in_menu(pressed);
                 Some(UiEvent::Action(action))
             }
+            // Released over the link it pressed.
+            NodeKind::Rich { runs, link, .. } => (self.link_at(pressed, self.pointer)
+                == Some(link))
+            .then(|| crate::rich::link_action(runs, link))
+            .flatten()
+            .map(UiEvent::Action),
             NodeKind::Checkbox { .. } => self.toggle(pressed),
             NodeKind::RadioGroup { .. } => {
                 let option = node.option_at(self.pointer)?;
@@ -554,10 +572,39 @@ impl<const N: usize, const T: usize> Tree<N, T> {
             self.scroll_page(key == KeyCode::PAGE_DOWN);
             return None;
         }
+        // In a focused rich text, Tab and Shift-Tab go through its links
+        // before leaving it (#10078).
+        if key == KeyCode::TAB
+            && let Some(focused) = self.focus
+            && let Some(NodeKind::Rich { links, link, .. }) = self.get(focused).map(|n| &n.kind)
+        {
+            let (links, link) = (*links, *link);
+            let next = if self.shift() {
+                link.checked_sub(1)
+            } else {
+                link.checked_add(1).filter(|&next| next < links)
+            };
+            if let Some(next) = next {
+                self.set_link(focused, next);
+                return None;
+            }
+        }
         match key {
-            KeyCode::TAB if self.shift() => return self.focus_event(Self::focus_prev),
-            KeyCode::TAB | KeyCode::DOWN => return self.focus_event(Self::focus_next),
-            KeyCode::UP => return self.focus_event(Self::focus_prev),
+            KeyCode::TAB if self.shift() => {
+                let event = self.focus_event(Self::focus_prev);
+                self.enter_links(false);
+                return event;
+            }
+            KeyCode::TAB | KeyCode::DOWN => {
+                let event = self.focus_event(Self::focus_next);
+                self.enter_links(true);
+                return event;
+            }
+            KeyCode::UP => {
+                let event = self.focus_event(Self::focus_prev);
+                self.enter_links(false);
+                return event;
+            }
             _ => {}
         }
         let focused = self.focus?;
@@ -578,6 +625,10 @@ impl<const N: usize, const T: usize> Tree<N, T> {
                     None
                 }
             }
+            NodeKind::Rich { runs, link, .. } => matches!(key, KeyCode::ENTER | KeyCode::SPACE)
+                .then(|| crate::rich::link_action(runs, *link))
+                .flatten()
+                .map(UiEvent::Action),
             NodeKind::RadioGroup { selected, .. } => {
                 if key == KeyCode::SPACE && selected.is_none() {
                     self.choose(focused, 0)
@@ -919,6 +970,58 @@ impl<const N: usize, const T: usize> Tree<N, T> {
         let before = self.focus;
         let after = step(self);
         (after != before).then_some(UiEvent::FocusChanged(after))
+    }
+
+    /// Puts focus within rich text `id` on its link `link`, and marks it.
+    fn set_link(&mut self, id: NodeId, to: u8) {
+        if let Ok(node) = self.node_mut(id)
+            && let NodeKind::Rich { link, .. } = &mut node.kind
+        {
+            *link = to;
+            let rect = node.rect;
+            self.dirty.add(rect);
+        }
+    }
+
+    /// After focus moved onto a rich text: its first link, going forward,
+    /// or its last, going back.
+    fn enter_links(&mut self, forward: bool) {
+        if let Some(focused) = self.focus
+            && let Some(NodeKind::Rich { links, .. }) = self.get(focused).map(|n| &n.kind)
+        {
+            let to = if forward { 0 } else { links.saturating_sub(1) };
+            self.set_link(focused, to);
+        }
+    }
+
+    /// The link of rich text `id` at `point`, if any.
+    pub(crate) fn link_at(&self, id: NodeId, point: Point) -> Option<u8> {
+        let metrics = self.metrics?;
+        let node = self.get(id)?;
+        let NodeKind::Rich { runs, .. } = node.kind else {
+            return None;
+        };
+        let style = node.style.text;
+        let metrics = metrics.for_style(style);
+        let content = node.content();
+        let lines = crate::rich::lines(runs, content.size.width, style, &metrics);
+        for (index, line) in lines.enumerate() {
+            let top = content.top().saturating_add(
+                i64::from(metrics.line_height()).saturating_mul(i64::try_from(index).ok()?),
+            );
+            let bottom = top.saturating_add(i64::from(metrics.line_height()));
+            if !(top..bottom).contains(&i64::from(point.y)) {
+                continue;
+            }
+            return crate::rich::pieces(runs, line, style, &metrics)
+                .find(|piece| {
+                    let left = content.left().saturating_add(i64::from(piece.x));
+                    (left..left.saturating_add(i64::from(piece.width)))
+                        .contains(&i64::from(point.x))
+                })
+                .and_then(|piece| crate::rich::link_of(runs, piece.run));
+        }
+        None
     }
 
     /// Focusable nodes in tree order.

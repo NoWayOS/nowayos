@@ -426,6 +426,23 @@ pub fn text_colours<'a, const N: usize, const T: usize>(
                     .map_or(colours.label, |colour| theme.colour(colour));
                 Some((id, label, fill))
             }
+            // A rich text's runs: the one that stands out least (#10078).
+            NodeKind::Rich { runs, .. } => runs
+                .iter()
+                .enumerate()
+                .map(|(index, run)| {
+                    let on = if run.code { theme.code } else { ground };
+                    let text = match (run.colour, nowayos_ui::rich::link_of(runs, index)) {
+                        (Some(colour), _) => theme.colour(colour),
+                        (None, Some(_)) => theme.link_on(surface),
+                        (None, None) => style.text.colour.map_or_else(
+                            || theme.text_on(surface, style.text.role),
+                            |colour| theme.colour(colour),
+                        ),
+                    };
+                    (id, text, on)
+                })
+                .min_by(|a, b| ratio(a.1, a.2).total_cmp(&ratio(b.1, b.2))),
             _ => None,
         }
     })
