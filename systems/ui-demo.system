@@ -3,7 +3,7 @@
     The clickable demo in QEMU. The UI runs in its
     own PD, drawing into a framebuffer a display PD reads. The display here
     is a stub: it announces the Pi 5's window at its own pixels, 1920x1080
-    r5g6b5 at device scale 2 - a 960x540 screen drawn crisp -
+    x8r8g8b8 at device scale 2 - a 960x540 screen drawn crisp -
     checks each Present, hashes the frame and acknowledges it. An input PD plays the host demo's
     scripted session to the UI as canonical InputEvent records, one step per
     frame, with one malformed record the UI must reject. ui-demo.expect holds
@@ -20,7 +20,7 @@
         present_control    display rw, UI r   the display's index
         display_messages   display rw, UI r   Configure, PresentDone
         display_control    UI rw, display r   the UI's index
-        framebuffer        UI rw, display r   4 MiB: 4,085,760 bytes of pixels
+        framebuffer        UI rw, display r   8 MiB: 8,294,400 bytes of pixels
         input_messages     input rw, UI r     InputEvent records
         input_control      UI rw, input r     the UI's index
 
@@ -33,7 +33,7 @@
     <memory_region name="present_control" size="0x1000" />
     <memory_region name="display_messages" size="0x1000" />
     <memory_region name="display_control" size="0x1000" />
-    <memory_region name="framebuffer" size="0x400000" />
+    <memory_region name="framebuffer" size="0x800000" />
     <memory_region name="input_messages" size="0x1000" />
     <memory_region name="input_control" size="0x1000" />
 

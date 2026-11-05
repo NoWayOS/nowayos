@@ -16,3 +16,8 @@ kernel=u-boot.bin
 # setting: the two together program OTP (the warranty bit), so `make sdcard`
 # refuses any.
 force_turbo=1
+
+# The framebuffer at 32 bits a pixel (x8r8g8b8; D-153): 8 bits a colour,
+# so gradients and photographs show without banding. The board facts
+# (rpi5b_2gb.toml, firmware_fb) are this depth's.
+framebuffer_depth=32

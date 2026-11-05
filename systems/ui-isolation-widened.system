@@ -14,7 +14,7 @@
     <memory_region name="present_control" size="0x1000" />
     <memory_region name="display_messages" size="0x1000" />
     <memory_region name="display_control" size="0x1000" />
-    <memory_region name="framebuffer" size="0x400000" />
+    <memory_region name="framebuffer" size="0x800000" />
     <memory_region name="input_messages" size="0x1000" />
     <memory_region name="input_control" size="0x1000" />
     <memory_region name="display_private" size="0x1000" />

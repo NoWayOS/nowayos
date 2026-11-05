@@ -190,7 +190,7 @@ class FakeBoard:
 
     def __init__(self, *, registers=None, cancel_at_block=None, unzip_short=False, crc_wrong=False,
                  watchdog_works=True, at_prompt=True, answers=True, echo_wrong=False, readback_wrong=False,
-                 silent_after_cancel=False, power_cycle_after=None, fb=(1920, 1080, 3840, 0x3F80_0000, 16),
+                 silent_after_cancel=False, power_cycle_after=None, fb=(1920, 1080, 7680, 0x3F40_0000, 32),
                  echo_wrong_after=None, ignore_interrupt_on_line=False, lab_mode=False, mid_boot_at=None,
                  watchdog_at_go=None, go_returns_after=None, crossing=b"", garbled_reboot_after=None,
                  silent_reset=None, go_delay=0.0, go_return_text="## Application terminated, rc = 0x0\r\n",
@@ -618,21 +618,22 @@ class Watchdog(unittest.TestCase):
             self.assertIn(why, pi_run.check_pm_registers(rstc, rsts, wdog, reported))
 
     def test_the_firmware_framebuffer_must_be_the_board_facts(self):
-        """The Pi 5's board facts give 1920 x 1080 x 16 at 0x3f80_0000,
-        stride 3840; a boot whose framebuffer differs is refused, one with
+        """The Pi 5's board facts give 1920 x 1080 x 32 at 0x3f40_0000,
+        stride 7680; a boot whose framebuffer differs is refused, one with
         none passes."""
         expected = pi_run.board_framebuffer(os.path.join(HERE, os.pardir, "platforms", "rpi5b_2gb.toml"))
-        self.assertEqual(expected, (0x3F80_0000, 1920, 1080, 3840, 16))
-        bdinfo = "FB base     = 0x000000003f800000\nFB size     = 1920x1080x16\n"
-        boot = (1920, 1080, 3840, 0x3F80_0000)
+        self.assertEqual(expected, (0x3F40_0000, 1920, 1080, 7680, 32))
+        bdinfo = "FB base     = 0x000000003f400000\nFB size     = 1920x1080x32\n"
+        boot = (1920, 1080, 7680, 0x3F40_0000)
         self.assertEqual(pi_run.framebuffer_mismatch(expected, boot, bdinfo)[0], None)
         problem, note = pi_run.framebuffer_mismatch(expected, None, "devicetree  = board\n")
         self.assertIsNone(problem)
         self.assertIn("no framebuffer at this boot", note)
         for boot_fb, info, why in [
-            ((1280, 720, 2560, 0x3F80_0000), bdinfo.replace("1920x1080", "1280x720"), "is 1280x720x16, stride 2560"),
-            ((1920, 1080, 7680, 0x3F80_0000), bdinfo.replace("x16", "x32"), "is 1920x1080x32, stride 7680"),
-            ((1920, 1080, 3840, 0x3E80_0000), bdinfo.replace("3f800000", "3e800000"), "at 0x3e800000"),
+            ((1280, 720, 5120, 0x3F40_0000), bdinfo.replace("1920x1080", "1280x720"), "is 1280x720x32, stride 5120"),
+            ((1920, 1080, 3840, 0x3F80_0000), bdinfo.replace("x32", "x16").replace("3f400000", "3f800000"),
+             "is 1920x1080x16, stride 3840"),
+            ((1920, 1080, 7680, 0x3E40_0000), bdinfo.replace("3f400000", "3e400000"), "at 0x3e400000"),
             (boot, bdinfo.replace("1920x1080", "1280x720"), "(boot log: 1920x1080"),
             (None, bdinfo, "do not both describe a framebuffer"),
             (boot, "devicetree  = board\n", "do not both describe a framebuffer"),
@@ -801,10 +802,10 @@ class Session(unittest.TestCase):
                 os.remove(os.path.join(logs, name))
 
     def test_another_monitors_framebuffer_stops_the_run_with_nothing_armed(self):
-        with FakeBoard(fb=(1280, 720, 2560, 0x3F80_0000, 16)) as board:
+        with FakeBoard(fb=(1280, 720, 5120, 0x3F40_0000, 32)) as board:
             status, output, _ = self.run_series(board, f"ipc-demo@{make_image(self.dir, 'ipc-demo')}")
             self.assert_stopped_unarmed(board, status, output,
-                                        "the firmware's framebuffer at this boot is 1280x720x16, stride 2560")
+                                        "the firmware's framebuffer at this boot is 1280x720x32, stride 5120")
 
     def test_with_no_monitor_there_is_no_framebuffer_to_check(self):
         with FakeBoard(fb=None) as board:

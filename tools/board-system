@@ -55,7 +55,7 @@ the configuration, so the file needs no review of its own:
                                     set up, version 2: the string
                                     zero-padded to 64 bytes, then its
                                     mode's width, height, stride, format
-                                    (1: r5g6b5) and first row. For a device
+                                    (1: r5g6b5, 2: x8r8g8b8) and first row. For a device
                                     on a bus - `pci_bar0` or
                                     `dma_offset` in the board file -
                                     version 3: the string padded to 64
@@ -194,7 +194,7 @@ FACTS_VERSION_BUS = 3
 COMPATIBLE_MAX = 64
 # A framebuffer's pixel format, by the simple-framebuffer binding's name, as
 # its code in the record (check-system's FRAMEBUFFER_FORMATS).
-FRAMEBUFFER_FORMAT_CODES = {"r5g6b5": 1}
+FRAMEBUFFER_FORMAT_CODES = {"r5g6b5": 1, "x8r8g8b8": 2}
 BUILD_TIME = "build-time.bin"
 # The latest build time a device can hold: nowayos_time::Utc counts
 # nanoseconds in 64 bits, which runs out in 2554.

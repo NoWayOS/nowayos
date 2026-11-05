@@ -242,7 +242,7 @@ FB0_RE = re.compile(r"FB0 disp \d+ max-fb \d+ (\d+)x(\d+) stride (\d+) base (0x[
 BDINFO_FB_BASE_RE = re.compile(r"FB base\s*=\s*(0x[0-9a-fA-F]+)")
 BDINFO_FB_SIZE_RE = re.compile(r"FB size\s*=\s*(\d+)x(\d+)x(\d+)")
 # Bits a pixel of each framebuffer format the board facts name.
-FORMAT_DEPTH = {"r5g6b5": 16}
+FORMAT_DEPTH = {"r5g6b5": 16, "x8r8g8b8": 32}
 MD_RE = re.compile(r"^([0-9a-fA-F]+):((?:\s+[0-9a-fA-F]{8}){1,4})", re.MULTILINE)
 # Lines of the reset report kept back until it says whether the reset was a
 # power-on; the report comes within a few lines of the banner.

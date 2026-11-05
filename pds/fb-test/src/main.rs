@@ -50,9 +50,10 @@ fn run() -> Result<(), FbError> {
     let mut screen = bind(WINDOW, TEST_PATTERN, PixelFormat::Xrgb8888)?;
     let mode = screen.mode();
     debug_println!(
-        "{TAG} the board's framebuffer: {}x{} r5g6b5, {} bytes a row, its window from row {}",
+        "{TAG} the board's framebuffer: {}x{} {}, {} bytes a row, its window from row {}",
         mode.width(),
         mode.height(),
+        mode.format().name(),
         mode.stride(),
         mode.first_row()
     );
@@ -85,16 +86,18 @@ fn run() -> Result<(), FbError> {
     let size = placement.size();
     if back.finish() == written.finish() {
         debug_println!(
-            "{TAG} wrote {}x{} r5g6b5 pixels, hash {:#018x}; read back the same",
+            "{TAG} wrote {}x{} {} pixels, hash {:#018x}; read back the same",
             size.width,
             size.height,
+            mode.format().name(),
             written.finish()
         );
     } else {
         debug_println!(
-            "{TAG} wrote {}x{} r5g6b5 pixels, hash {:#018x}; read back {:#018x}, which differs",
+            "{TAG} wrote {}x{} {} pixels, hash {:#018x}; read back {:#018x}, which differs",
             size.width,
             size.height,
+            mode.format().name(),
             written.finish(),
             back.finish()
         );

@@ -11,8 +11,8 @@
 //! role and every button variant. [`failures`] gives each pair below WCAG
 //! 2's minimum - 4.5:1 for text (success criterion 1.4.3, for text
 //! of every size), 3:1 for the rest (1.4.11) - both as
-//! the theme specifies it and as the screen shows it after `r5g6b5`, the
-//! 16-bit format of the Pi 5's framebuffer and of QEMU's
+//! the theme specifies it - what a 32-bit screen shows, as the Pi 5's and
+//! QEMU's do - and as a 16-bit screen shows it, after `r5g6b5`
 //! ([`as_shown`]).
 //!
 //! A surface's own edge is not checked: it groups content, and no control
@@ -152,9 +152,8 @@ pub fn ratio(a: Rgb888, b: Rgb888) -> f64 {
     (light + 0.05) / (dark + 0.05)
 }
 
-/// A colour as the screen shows it: in `r5g6b5`, the 16-bit format of the
-/// Pi 5's framebuffer and of QEMU's, widened back to 8 bits as a display
-/// does.
+/// A colour as a 16-bit screen shows it: in `r5g6b5`, widened back to 8
+/// bits as a display does. A 32-bit screen shows the colour itself.
 #[must_use]
 pub fn as_shown(colour: Rgb888) -> Rgb888 {
     Rgb888::from(Rgb565::from(colour))

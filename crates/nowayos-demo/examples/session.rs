@@ -5,9 +5,8 @@
 //!
 //! Each frame is drawn as the UI PD draws it on the Pi 5 and in QEMU:
 //! the Pi 5's 1920 x 1080 window at device scale 2, into a frame
-//! in the monitor's own format, r5g6b5 (`RawFramebuffer`), so a golden
-//! image holds exactly the colours the monitor shows - each channel back
-//! from 5 or 6 bits to 8 as `PixelFormat::decode` gives it.
+//! in the monitor's own format, x8r8g8b8 (`RawFramebuffer`), so a golden
+//! image holds exactly the colours the monitor shows, 8 bits a channel.
 //!
 //! On a mismatch the actual frame is written beside the golden one as
 //! `NN-STEP.actual.png`, and the run fails. After an intended change,
@@ -23,10 +22,10 @@ use nowayos_display::{FramebufferLayout, PixelFormat};
 use nowayos_render_eg::{RawFramebuffer, Theme, render};
 use nowayos_testkit::{Framebuffer, check_snapshot};
 
-/// The demo's tree drawn into an r5g6b5 frame of the screen's size, as the
-/// UI PD draws it, and read back as 8 bits a channel.
+/// The demo's tree drawn into an x8r8g8b8 frame of the screen's size, as
+/// the UI PD draws it, and read back as 8 bits a channel.
 fn draw(demo: &Demo, theme: &Theme<Rgb888>) -> Option<Framebuffer> {
-    let layout = FramebufferLayout::packed(WIDTH, HEIGHT, PixelFormat::Rgb565).ok()?;
+    let layout = FramebufferLayout::packed(WIDTH, HEIGHT, PixelFormat::Xrgb8888).ok()?;
     let mut bytes = vec![0_u8; layout.byte_len()];
     let mut target = RawFramebuffer::new(layout, &mut bytes[..]).ok()?;
     if let Err(error) = render(demo.tree(), &mut target, theme) {

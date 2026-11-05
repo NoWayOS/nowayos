@@ -279,7 +279,7 @@ FRAMEBUFFER_KEYS = {"width", "height", "stride", "format", "first_row"}
 FRAMEBUFFER_OPTIONAL_KEYS = {"reserved"}
 FRAMEBUFFER_COMPATIBLE = "simple-framebuffer"
 # Each format the facts can carry: its code in device-NAME.bin, and bytes a pixel.
-FRAMEBUFFER_FORMATS = {"r5g6b5": (1, 2)}
+FRAMEBUFFER_FORMATS = {"r5g6b5": (1, 2), "x8r8g8b8": (2, 4)}
 # A devicetree compatible string as a board file gives it, and as a device's
 # facts carry it to a driver (device-DEVICE.bin): printable ASCII.
 COMPATIBLE = re.compile(r"[\x21-\x7e]{1,64}")

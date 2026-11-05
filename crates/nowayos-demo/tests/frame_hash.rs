@@ -4,7 +4,10 @@
 //! `systems/ui-demo.expect` says which hash each must be. This test computes
 //! them from the approved golden images of the session's steps, so the
 //! chain is closed: a changed golden image fails here, and a frame drawn
-//! differently in QEMU fails `make qemu-test SYSTEM=ui-demo`.
+//! differently in QEMU fails `make qemu-test SYSTEM=ui-demo`. After the
+//! golden images change on purpose, `NOWAYOS_UPDATE_SNAPSHOTS=1` writes the
+//! hashes they give into the expect files and the QMP script; review the
+//! diff.
 
 #![allow(
     clippy::unwrap_used,
@@ -21,14 +24,14 @@ use nowayos_display::{FrameHash, FramebufferLayout, PixelFormat};
 use nowayos_testkit::Framebuffer;
 
 /// The frame the UI PD draws for golden image `name`: the Pi 5's window,
-/// 1920 x 1080, in the display's format, r5g6b5, packed. The
-/// golden image holds the colours r5g6b5 gives back, so each converts to
+/// 1920 x 1080, in the display's format, x8r8g8b8, packed. The
+/// golden image holds the colours x8r8g8b8 gives back, so each converts to
 /// exactly the bytes the UI stored.
 fn frame(root: &Path, name: &str) -> Vec<u8> {
     let golden =
         Framebuffer::from_png(&std::fs::read(root.join("session").join(name)).unwrap()).unwrap();
     assert_eq!((golden.width(), golden.height()), (WIDTH, HEIGHT), "{name}");
-    let layout = FramebufferLayout::packed(WIDTH, HEIGHT, PixelFormat::Rgb565).unwrap();
+    let layout = FramebufferLayout::packed(WIDTH, HEIGHT, PixelFormat::Xrgb8888).unwrap();
     let mut frame = vec![0_u8; layout.byte_len()];
     for y in 0..layout.height() {
         for x in 0..layout.width() {
@@ -36,9 +39,9 @@ fn frame(root: &Path, name: &str) -> Vec<u8> {
             assert!(layout.write_pixel(&mut frame, x, y, (pixel.r(), pixel.g(), pixel.b())));
             let at = layout.pixel_offset(x, y).unwrap();
             assert_eq!(
-                PixelFormat::Rgb565.decode(&frame[at..]),
+                PixelFormat::Xrgb8888.decode(&frame[at..]),
                 Some((pixel.r(), pixel.g(), pixel.b())),
-                "{name}: ({x}, {y}) is not a colour r5g6b5 gives back"
+                "{name}: ({x}, {y}) is not a colour x8r8g8b8 gives back"
             );
         }
     }
@@ -52,26 +55,52 @@ fn golden_hash(root: &Path, name: &str) -> u64 {
 
 /// The hash of what the Pi 5's framebuffer window holds once the display
 /// PD has shown golden image `name`: the frame at the
-/// monitor's own pixels, 1080 rows of 3840 bytes from the window's first
+/// monitor's own pixels, 1080 rows of 7680 bytes from the window's first
 /// byte - screen row 0 - which the display PD reads back and hashes.
 fn scan_out_hash(root: &Path, name: &str) -> u64 {
     let frame = frame(root, name);
     let mut hash = FrameHash::new();
-    for row in frame.chunks_exact(3840) {
+    for row in frame.chunks_exact(7680) {
         hash.update(row);
     }
     hash.finish()
 }
 
+/// With `NOWAYOS_UPDATE_SNAPSHOTS` set, replaces the lines of `path` that
+/// `chosen` picks, in order, with `lines`; otherwise leaves it alone.
+fn update(path: &Path, chosen: impl Fn(&str) -> bool, lines: &[String]) {
+    if std::env::var_os("NOWAYOS_UPDATE_SNAPSHOTS").is_none() {
+        return;
+    }
+    let text = std::fs::read_to_string(path).unwrap();
+    let mut fresh = lines.iter();
+    let mut out = String::new();
+    for line in text.lines() {
+        match chosen(line).then(|| fresh.next()).flatten() {
+            Some(new) => out.push_str(new),
+            None => out.push_str(line),
+        }
+        out.push('\n');
+    }
+    std::fs::write(path, out).unwrap();
+}
+
 #[test]
 fn the_ui_demo_on_the_pi_expects_the_scan_out_hash_of_every_golden_step() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let expect =
-        std::fs::read_to_string(root.join("../../systems/rpi5b_2gb/ui-demo.expect")).unwrap();
-    let frames: Vec<&str> = expect
-        .lines()
-        .filter(|line| line.contains(" on the framebuffer, scan-out hash "))
+    let path = root.join("../../systems/rpi5b_2gb/ui-demo.expect");
+    let chosen = |line: &str| line.contains(" on the framebuffer, scan-out hash ");
+    let hashes: Vec<String> = SESSION
+        .iter()
+        .enumerate()
+        .map(|(number, step)| {
+            let hash = scan_out_hash(&root, &format!("{number:02}-{}.png", step.name));
+            format!("NOWAYOS: display-stub: frame {number} on the framebuffer, scan-out hash {hash:#018x}")
+        })
         .collect();
+    update(&path, chosen, &hashes);
+    let expect = std::fs::read_to_string(&path).unwrap();
+    let frames: Vec<&str> = expect.lines().filter(|line| chosen(line)).collect();
     assert_eq!(frames.len(), SESSION.len(), "one frame per step");
     for (number, (step, line)) in SESSION.iter().zip(frames).enumerate() {
         let hash = scan_out_hash(&root, &format!("{number:02}-{}.png", step.name));
@@ -89,11 +118,27 @@ fn the_ui_demo_on_the_pi_expects_the_scan_out_hash_of_every_golden_step() {
 #[test]
 fn the_ui_demo_expects_the_hash_of_every_golden_step() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let expect = std::fs::read_to_string(root.join("../../systems/ui-demo.expect")).unwrap();
-    let frames: Vec<&str> = expect
-        .lines()
-        .filter(|line| line.starts_with("NOWAYOS: display-stub: frame "))
+    let path = root.join("../../systems/ui-demo.expect");
+    // The Pi 5's expect file holds these lines too, with its scan-out ones.
+    let chosen = |line: &str| {
+        line.starts_with("NOWAYOS: display-stub: frame ") && !line.contains(" on the framebuffer, ")
+    };
+    let hashes: Vec<String> = SESSION
+        .iter()
+        .enumerate()
+        .map(|(number, step)| {
+            let hash = golden_hash(&root, &format!("{number:02}-{}.png", step.name));
+            format!("NOWAYOS: display-stub: frame {number} hash {hash:#018x}")
+        })
         .collect();
+    update(&path, chosen, &hashes);
+    update(
+        &root.join("../../systems/rpi5b_2gb/ui-demo.expect"),
+        chosen,
+        &hashes,
+    );
+    let expect = std::fs::read_to_string(&path).unwrap();
+    let frames: Vec<&str> = expect.lines().filter(|line| chosen(line)).collect();
     assert_eq!(frames.len(), SESSION.len(), "one frame per step");
     for (number, (step, line)) in SESSION.iter().zip(frames).enumerate() {
         let hash = golden_hash(&root, &format!("{number:02}-{}.png", step.name));
@@ -114,7 +159,37 @@ fn the_ui_demo_expects_the_hash_of_every_golden_step() {
 #[test]
 fn the_interactive_demo_waits_for_and_compares_every_golden_step() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let script = std::fs::read_to_string(root.join("../../systems/ui-interactive.qmp")).unwrap();
+    let path = root.join("../../systems/ui-interactive.qmp");
+    let waits: Vec<String> = SESSION
+        .iter()
+        .enumerate()
+        .map(|(number, step)| {
+            let hash = golden_hash(&root, &format!("{number:02}-{}.png", step.name));
+            format!("wait NOWAYOS: display: showing {hash:#018x}")
+        })
+        .collect();
+    update(
+        &path,
+        |line| line.starts_with("wait NOWAYOS: display: showing "),
+        &waits,
+    );
+    // ui-interactive.expect: each frame the display shows, once - a step
+    // that changes nothing shows no new frame.
+    let mut shown: Vec<String> = waits
+        .iter()
+        .map(|wait| wait.trim_start_matches("wait ").to_owned())
+        .collect();
+    shown.dedup();
+    let expect_path = root.join("../../systems/ui-interactive.expect");
+    let showing = |line: &str| line.starts_with("NOWAYOS: display: showing 0x");
+    update(&expect_path, showing, &shown);
+    let expect = std::fs::read_to_string(&expect_path).unwrap();
+    let lines: Vec<&str> = expect.lines().filter(|line| showing(line)).collect();
+    assert_eq!(
+        lines, shown,
+        "systems/ui-interactive.expect: each frame shown, in order"
+    );
+    let script = std::fs::read_to_string(&path).unwrap();
     let steps: Vec<&str> = script
         .lines()
         .filter(|line| line.starts_with("wait ") || line.starts_with("screen "))

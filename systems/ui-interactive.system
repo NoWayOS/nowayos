@@ -48,7 +48,7 @@
     <memory_region name="present_control" size="0x1000" />
     <memory_region name="display_messages" size="0x1000" />
     <memory_region name="display_control" size="0x1000" />
-    <memory_region name="framebuffer" size="0x400000" />
+    <memory_region name="framebuffer" size="0x800000" />
     <memory_region name="input_messages" size="0x1000" />
     <memory_region name="input_control" size="0x1000" />
     <memory_region name="fw_cfg_regs" size="@fw_cfg" phys_addr="@fw_cfg" />

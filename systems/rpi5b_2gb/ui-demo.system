@@ -5,7 +5,7 @@
     HDMI monitor shows (firmware_fb in platforms/rpi5b_2gb.toml) - and the
     board's facts about it. The same programs: the display PD
     (nowayos-display-stub) asks the UI for frames the size of the
-    framebuffer's window, 1920x1080 r5g6b5 at scale 2, hashes each frame as
+    framebuffer's window, 1920x1080 x8r8g8b8 at scale 2, hashes each frame as
     in QEMU, and, having a framebuffer, also shows the rectangles each
     Present names there, at the monitor's own pixels, every row,
     and prints the hash of what the window then holds. ui-demo.expect holds
@@ -27,7 +27,7 @@
     <memory_region name="present_control" size="0x1000" />
     <memory_region name="display_messages" size="0x1000" />
     <memory_region name="display_control" size="0x1000" />
-    <memory_region name="framebuffer" size="0x400000" />
+    <memory_region name="framebuffer" size="0x800000" />
     <memory_region name="input_messages" size="0x1000" />
     <memory_region name="input_control" size="0x1000" />
     <memory_region name="firmware_fb" size="@firmware_fb" phys_addr="@firmware_fb" />

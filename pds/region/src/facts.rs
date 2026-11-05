@@ -23,7 +23,7 @@
 //! A framebuffer the firmware set up has a record of version
 //! [`FACTS_VERSION_FRAMEBUFFER`]: the same, with the compatible string
 //! zero-padded to [`COMPATIBLE_MAX`] bytes, then its mode in five more
-//! words - width, height, stride, format (1: `r5g6b5`) and the screen row
+//! words - width, height, stride, format (1: `r5g6b5`, 2: `x8r8g8b8`) and the screen row
 //! its window starts at - and its "registers" are the window's bytes of
 //! pixels, rows `first_row` to `height - 1` ([`FramebufferMode`]).
 //!
@@ -94,6 +94,9 @@ pub enum FramebufferFormat {
     /// `r5g6b5`: a 16-bit little-endian pixel, red in bits 15 to 11, green
     /// in 10 to 5, blue in 4 to 0. Code 1.
     R5g6b5,
+    /// `x8r8g8b8`: a 32-bit little-endian pixel, red in bits 23 to 16,
+    /// green in 15 to 8, blue in 7 to 0, the top byte unused. Code 2.
+    X8r8g8b8,
 }
 
 impl FramebufferFormat {
@@ -102,6 +105,17 @@ impl FramebufferFormat {
     pub const fn bytes_per_pixel(self) -> u32 {
         match self {
             Self::R5g6b5 => 2,
+            Self::X8r8g8b8 => 4,
+        }
+    }
+
+    /// The devicetree simple-framebuffer binding's name for it, as board
+    /// files and the console give it.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::R5g6b5 => "r5g6b5",
+            Self::X8r8g8b8 => "x8r8g8b8",
         }
     }
 }
@@ -347,6 +361,7 @@ fn mode_in(words: &[u32], registers: u32) -> Result<FramebufferMode, RegionError
     };
     let format = match format {
         1 => FramebufferFormat::R5g6b5,
+        2 => FramebufferFormat::X8r8g8b8,
         _ => return bad("a framebuffer format this PD does not read"),
     };
     let mode = match FramebufferMode::checked(width, height, stride, format, first_row) {
@@ -559,6 +574,22 @@ mod tests {
             (1920, 1080, 3840, FramebufferFormat::R5g6b5, 0)
         );
         assert_eq!(mode.format().bytes_per_pixel(), 2);
+        assert_eq!(mode.format().name(), "r5g6b5");
+        // The same screen at 32 bits a pixel.
+        fill(
+            page,
+            &framebuffer_record(0x7E_9000, [1920, 1080, 7680, 2, 0]),
+        );
+        let mode = read(page).unwrap().framebuffer().unwrap();
+        assert_eq!(
+            (
+                mode.stride(),
+                mode.format(),
+                mode.format().bytes_per_pixel()
+            ),
+            (7680, FramebufferFormat::X8r8g8b8, 4)
+        );
+        assert_eq!(mode.format().name(), "x8r8g8b8");
         // A version 1 record has no mode, whatever follows it.
         let mut uart = record(FACTS_VERSION, 0x200, b"arm,pl011-axi");
         uart.resize(12 + COMPATIBLE_MAX, 0);
@@ -574,8 +605,13 @@ mod tests {
         for (registers, mode, reason) in [
             (
                 3840,
-                [1920, 1, 3840, 2, 0],
+                [1920, 1, 3840, 3, 0],
                 "a framebuffer format this PD does not read",
+            ),
+            (
+                3840,
+                [1920, 1, 3840, 2, 0],
+                "a framebuffer's stride shorter than its row",
             ),
             (3840, [0, 1, 3840, 1, 0], "a framebuffer with no pixels"),
             (3840, [1920, 0, 3840, 1, 0], "a framebuffer with no pixels"),
