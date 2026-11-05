@@ -83,6 +83,8 @@ pub struct Tree<const N: usize, const T: usize = 0> {
     pub(crate) selected: Option<NodeId>,
     /// The keyboard's layout and state: what keys type (#10081).
     pub(crate) keymap: nowayos_input::keymap::Keymap,
+    /// What the pointer hovers, cursors and context actions (#10082).
+    pub(crate) mouse: crate::mouse::Mouse,
 }
 
 /// A touch that may scroll a scroll view.
@@ -143,6 +145,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
             motion: crate::motion::Motion::new(),
             clipboard: crate::clipboard::Clipboard::new(),
             keymap: nowayos_input::keymap::Keymap::new(nowayos_input::keymap::Layout::Us),
+            mouse: crate::mouse::Mouse::new(),
             selected: None,
         }
     }
@@ -172,6 +175,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
         self.clipboard.wipe();
         self.selected = None;
         self.keymap.cancel();
+        self.mouse.clear();
         self.dirty.mark_all();
     }
 
@@ -1667,10 +1671,11 @@ impl<const N: usize, const T: usize> Tree<N, T> {
         self.close_all();
         self.motion.clear();
         // What was copied leaves nothing behind for the next person, nor
-        // does an accent waiting for its letter.
+        // does an accent waiting for its letter, nor what was hovered.
         self.clipboard.wipe();
         self.selected = None;
         self.keymap.cancel();
+        self.mouse.forget();
         self.drop_hidden_focus();
         self.dirty.mark_all();
     }

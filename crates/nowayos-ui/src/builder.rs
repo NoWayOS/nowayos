@@ -156,6 +156,10 @@
 //! Contract v24 adds [`TextStyle::selectable`](crate::TextStyle::selectable):
 //! text a press selects, for Ctrl+C to copy (CSS's `userSelect: "text"`).
 //!
+//! Contract v25 adds [`UiBuilder::context_action`] - an action a right
+//! click or a long press reports (React's `onContextMenu`) - and
+//! [`UiBuilder::cursor`], the pointer's shape over a node (CSS's `cursor`).
+//!
 //! Provisional: tracks Screen Compiler's contract; both sides change together.
 
 use crate::{ContainerKind, LayerKind, Length, NodeId, NodeKind, Style, Tree, UiError};
@@ -165,6 +169,8 @@ pub use crate::icons;
 /// Motion a screen declares (contract v23): how a node comes into view,
 /// and an animation of its own.
 pub use crate::motion::{Animation, Easing, Property, Repeat, Transition};
+/// The pointer's shape over a node (contract v25).
+pub use crate::mouse::Cursor;
 /// How a picture fills its box (contract v15).
 pub use crate::pictures::{Fit, Picture};
 /// A run of a rich text (contract v21).
@@ -631,6 +637,24 @@ pub trait UiBuilder {
         text: &'static str,
     ) -> Result<Self::Node, Self::Error>;
 
+    /// Gives `node` a context action (contract v25; React's
+    /// `onContextMenu`): reported on a right click on it, or a long press;
+    /// a menu or popover for it opened in answer opens at the point
+    /// pressed.
+    ///
+    /// # Errors
+    ///
+    /// The builder's error: for example when too many nodes have one.
+    fn context_action(&mut self, node: Self::Node, action: ActionId) -> Result<(), Self::Error>;
+
+    /// Gives `node` the pointer's shape over it and what it holds
+    /// (contract v25; CSS's `cursor`).
+    ///
+    /// # Errors
+    ///
+    /// The builder's error: for example when too many nodes have one.
+    fn cursor(&mut self, node: Self::Node, cursor: Cursor) -> Result<(), Self::Error>;
+
     /// One choice of `options` bound to `field`, in a list `picker` shapes
     /// (contract v10).
     ///
@@ -1062,6 +1086,14 @@ impl<const N: usize, const T: usize> UiBuilder for Tree<N, T> {
     fn tooltip(&mut self, anchor: NodeId, text: &'static str) -> Result<NodeId, UiError> {
         let line = self.add(NodeKind::Text(text), Style::DEFAULT)?;
         Tree::add_layer(self, LayerKind::Tooltip, None, Some(anchor), line)
+    }
+
+    fn context_action(&mut self, node: NodeId, action: ActionId) -> Result<(), UiError> {
+        self.set_context_action(node, action)
+    }
+
+    fn cursor(&mut self, node: NodeId, cursor: Cursor) -> Result<(), UiError> {
+        self.set_cursor(node, cursor)
     }
 
     fn slot(&mut self, slot: SlotId) -> Result<NodeId, UiError> {

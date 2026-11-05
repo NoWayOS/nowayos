@@ -21,15 +21,15 @@ NOWAYOS: display-stub: frame 1 on the framebuffer, scan-out hash 0x0ee912d0f2a56
 NOWAYOS: display-stub: frame 2 hash 0x0ee912d0f2a5615f
 NOWAYOS: display-stub: frame 2 on the framebuffer, scan-out hash 0x0ee912d0f2a5615f
 NOWAYOS: ui: input record rejected: invalid value in field `tag`
-NOWAYOS: display-stub: frame 3 hash 0x9c6b90335b57b2af
-NOWAYOS: display-stub: frame 3 on the framebuffer, scan-out hash 0x9c6b90335b57b2af
+NOWAYOS: display-stub: frame 3 hash 0x6c594f280b8b355a
+NOWAYOS: display-stub: frame 3 on the framebuffer, scan-out hash 0x6c594f280b8b355a
 NOWAYOS: display-stub: frame 4 hash 0xde044e2bc9b442f8
 NOWAYOS: display-stub: frame 4 on the framebuffer, scan-out hash 0xde044e2bc9b442f8
 NOWAYOS: display-stub: frame 5 hash 0xb16f3bea36c04c2f
 NOWAYOS: display-stub: frame 5 on the framebuffer, scan-out hash 0xb16f3bea36c04c2f
 NOWAYOS: ui: action Help
-NOWAYOS: display-stub: frame 6 hash 0x5b0cb5a6eb42e495
-NOWAYOS: display-stub: frame 6 on the framebuffer, scan-out hash 0x5b0cb5a6eb42e495
+NOWAYOS: display-stub: frame 6 hash 0xa1939e18dfb0c8c9
+NOWAYOS: display-stub: frame 6 on the framebuffer, scan-out hash 0xa1939e18dfb0c8c9
 NOWAYOS: ui: action Continue
 NOWAYOS: display-stub: frame 7 hash 0xd4775af2d7df6ca4
 NOWAYOS: display-stub: frame 7 on the framebuffer, scan-out hash 0xd4775af2d7df6ca4

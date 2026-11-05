@@ -21,10 +21,10 @@ key q ret
 wait NOWAYOS: display: showing 0x0ee912d0f2a5615f
 screen ../crates/nowayos-demo/session/02-keys-unfocused.png
 
-# 03 tap-name: focus the name.
+# 03 click-name: focus the name; the pointer rests on it, hovering it.
 click 400 260
-wait NOWAYOS: display: showing 0x9c6b90335b57b2af
-screen ../crates/nowayos-demo/session/03-tap-name.png
+wait NOWAYOS: display: showing 0x6c594f280b8b355a
+screen ../crates/nowayos-demo/session/03-click-name.png
 
 # 04 type-name: "Ada", the A with shift held.
 hold shift
@@ -41,7 +41,7 @@ screen ../crates/nowayos-demo/session/05-type-into-full.png
 
 # 06 click-help.
 click 120 970
-wait NOWAYOS: display: showing 0x5b0cb5a6eb42e495
+wait NOWAYOS: display: showing 0xa1939e18dfb0c8c9
 screen ../crates/nowayos-demo/session/06-click-help.png
 
 # 07 click-continue.

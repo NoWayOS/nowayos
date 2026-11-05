@@ -356,15 +356,64 @@ fn on_ground(theme: &Theme<Rgb888>, on: Option<Surface>) -> [Option<Pair>; 24] {
     ]
 }
 
+/// What the pointer hovers, drawn on `on` (#10082): each button
+/// variant's label on its hover fill, an option's label and mark on the
+/// hover tint, and a list picker's row on the tint over the input's fill.
+fn hovered(theme: &Theme<Rgb888>, on: Option<Surface>) -> [Pair; 6] {
+    let tint = theme.hover_over(theme.ground(on));
+    let button = |what, variant| {
+        let colours = theme.button_on(on, variant);
+        Pair {
+            what,
+            on,
+            need: Need::Text,
+            fore: colours.label,
+            back: colours.hover,
+        }
+    };
+    [
+        button("a hovered primary button's label", ButtonVariant::Primary),
+        button(
+            "a hovered secondary button's label",
+            ButtonVariant::Secondary,
+        ),
+        button("a hovered quiet button's label", ButtonVariant::Quiet),
+        Pair {
+            what: "a hovered checkbox's or radio option's label",
+            on,
+            need: Need::Text,
+            fore: theme.ink_on(on),
+            back: tint,
+        },
+        Pair {
+            what: "a hovered checkbox's box, radio option's ring",
+            on,
+            need: Need::Graphic,
+            fore: theme.ink_on(on),
+            back: tint,
+        },
+        Pair {
+            what: "a hovered list picker row's text",
+            on,
+            need: Need::Text,
+            fore: theme.text,
+            back: theme.hover_over(theme.input),
+        },
+    ]
+}
+
 /// Every pair of `theme`'s colours the renderer draws together: a text
 /// input's and the error marker's, then those on the background and on
-/// each surface.
+/// each surface, at rest and hovered.
 pub fn pairs(theme: &Theme<Rgb888>) -> impl Iterator<Item = Pair> + '_ {
-    fields(theme).into_iter().chain(
-        GROUNDS
-            .into_iter()
-            .flat_map(move |on| on_ground(theme, on).into_iter().flatten()),
-    )
+    fields(theme)
+        .into_iter()
+        .chain(GROUNDS.into_iter().flat_map(move |on| {
+            on_ground(theme, on)
+                .into_iter()
+                .flatten()
+                .chain(hovered(theme, on))
+        }))
 }
 
 /// Every pair of `theme` below its minimum, as specified and after

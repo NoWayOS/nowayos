@@ -246,6 +246,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
                 let moved = self.pointer != Point::new(x, y);
                 self.pointer = Point::new(x, y);
                 self.pointer_shown = true;
+                self.update_hover();
                 self.thumb_to();
                 // A text input held by the mouse selects as it moves.
                 if moved
@@ -274,10 +275,17 @@ impl<const N: usize, const T: usize> Tree<N, T> {
                     self.release()
                 }
             }
+            // A right click: a context action (#10082).
+            InputEvent::PointerButton {
+                button: 1,
+                down: true,
+            } => self.context_click(),
             InputEvent::Touch { id: 0, x, y, phase } => {
                 self.pointer = Point::new(x, y);
-                // A finger needs no pointer drawn under it.
+                // A finger needs no pointer drawn under it, and hovers
+                // nothing.
                 self.pointer_shown = false;
+                self.update_hover();
                 match phase {
                     TouchPhase::Start => {
                         self.fling = None;
@@ -287,17 +295,23 @@ impl<const N: usize, const T: usize> Tree<N, T> {
                         }
                         let event = self.press();
                         self.start_drag();
+                        // It may rest, for a context action.
+                        self.touch_started();
                         event
                     }
                     TouchPhase::End => {
                         if self.thumb.take().is_some() {
                             return None;
                         }
+                        if let Some(context) = self.touch_ended() {
+                            return Some(context);
+                        }
                         self.fling_on();
                         self.drag = None;
                         self.release()
                     }
                     TouchPhase::Move => {
+                        self.touch_moved();
                         if self.thumb.is_some() {
                             self.thumb_to();
                         } else {
@@ -306,6 +320,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
                         None
                     }
                     TouchPhase::Cancel => {
+                        self.mouse.forget();
                         self.drag = None;
                         self.thumb = None;
                         self.set_pressed(None);
@@ -372,6 +387,11 @@ impl<const N: usize, const T: usize> Tree<N, T> {
     fn press(&mut self) -> Option<UiEvent> {
         // A press of the pointer or a touch hides the focus ring.
         self.set_focus_visible(false);
+        // With nothing open over the screen, a menu opened later opens
+        // beside its control, not where a context action was (#10082).
+        if self.layers.open.is_empty() {
+            self.mouse.context_at = None;
+        }
         // A key of the on-screen keyboard is held without taking focus
         // from the input it types into.
         if let Some((board, key)) = self.key_under_pointer() {
@@ -884,7 +904,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
 
     /// The on-screen keyboard's key under the pointer, if a text input has
     /// focus for it to type into.
-    fn key_under_pointer(&self) -> Option<(NodeId, u8)> {
+    pub(crate) fn key_under_pointer(&self) -> Option<(NodeId, u8)> {
         self.typing_target()?;
         let board = self.hit_test(self.pointer)?;
         let key = self.get(board)?.key_at(self.pointer)?;
@@ -1399,7 +1419,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
         }
     }
 
-    fn set_pressed(&mut self, to: Option<NodeId>) {
+    pub(crate) fn set_pressed(&mut self, to: Option<NodeId>) {
         if to != self.pressed {
             // A key of the on-screen keyboard is repainted alone.
             match (self.pressed, self.pressed_key.take()) {

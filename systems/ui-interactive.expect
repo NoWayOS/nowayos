@@ -12,11 +12,11 @@ NOWAYOS: input-broker: starting; 2 sources, screen 1920x1080, each source 64 eve
 NOWAYOS: ui: starting
 NOWAYOS: ui: the display is 1920x1080 Xrgb8888 at scale 2
 NOWAYOS: display: showing 0x0ee912d0f2a5615f
-NOWAYOS: display: showing 0x9c6b90335b57b2af
+NOWAYOS: display: showing 0x6c594f280b8b355a
 NOWAYOS: display: showing 0xde044e2bc9b442f8
 NOWAYOS: display: showing 0xb16f3bea36c04c2f
 NOWAYOS: ui: action Help
-NOWAYOS: display: showing 0x5b0cb5a6eb42e495
+NOWAYOS: display: showing 0xa1939e18dfb0c8c9
 NOWAYOS: ui: action Continue
 NOWAYOS: display: showing 0xd4775af2d7df6ca4
 NOWAYOS: ui: action Start again

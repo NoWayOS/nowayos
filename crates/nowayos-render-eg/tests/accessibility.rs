@@ -47,9 +47,10 @@ fn every_theme_meets_the_contrast_minimums_for_every_pair_drawn_together() {
     // roles, the choice controls' label and marks, the error, the focus
     // ring, a progress bar's fill, a scrollbar's thumb and three button
     // variants' four pairs - less a quiet button's boundary, which it has
-    // none of.
+    // none of - and six hovered (#10082): three buttons' labels, an
+    // option's label and mark, a list row's text.
     for (name, theme) in Theme::<Rgb888>::all() {
-        assert_eq!(contrast::pairs(&theme).count(), 8 + 6 * 23, "{name}");
+        assert_eq!(contrast::pairs(&theme).count(), 8 + 6 * (23 + 6), "{name}");
     }
 }
 

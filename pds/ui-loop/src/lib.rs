@@ -59,7 +59,7 @@ use nowayos_render_eg::{
     Glyphs, RawFramebuffer, RawFramebufferError, Theme, pointer_area, render, render_dirty,
     render_pointer, to_eg,
 };
-use nowayos_ui::{TextMetrics, Tree};
+use nowayos_ui::{Cursor, TextMetrics, Tree};
 
 /// Slots in each ring: one `Present` is in flight at a time, so a few are
 /// plenty.
@@ -120,8 +120,9 @@ pub struct UiLoop {
     theme: Theme<Rgb888>,
     /// Whether the mouse pointer is drawn.
     pointer: bool,
-    /// The area the pointer was last drawn in, while it shows.
-    pointer_drawn: Option<Rect>,
+    /// The area the pointer was last drawn in, and its shape, while it
+    /// shows.
+    pointer_drawn: Option<(Rect, Cursor)>,
 }
 
 impl UiLoop {
@@ -153,16 +154,18 @@ impl UiLoop {
         self
     }
 
-    /// Where the pointer is drawn for `tree`, if it is: its tip and area.
+    /// Where the pointer is drawn for `tree`, if it is: its hot spot, its
+    /// shape - what a press there will do (#10082) - and its area.
     fn pointer_for<const N: usize, const T: usize>(
         &self,
         tree: &Tree<N, T>,
-    ) -> Option<(Point, Rect)> {
+    ) -> Option<(Point, Cursor, Rect)> {
         if !self.pointer {
             return None;
         }
         let at = tree.pointer_shown()?;
-        Some((at, pointer_area(at, tree.scale())))
+        let cursor = tree.cursor();
+        Some((at, cursor, pointer_area(at, cursor, tree.scale())))
     }
 
     /// The theme, whose metrics the screens are laid out with.
@@ -252,14 +255,14 @@ impl UiLoop {
             Err(never) => match never {},
         }
         let pointer = self.pointer_for(tree);
-        if let Some((at, _)) = pointer {
-            match render_pointer(&mut target, at, tree.scale(), layout.bounds()) {
+        if let Some((at, cursor, _)) = pointer {
+            match render_pointer(&mut target, at, cursor, tree.scale(), layout.bounds()) {
                 Ok(()) => {}
                 Err(never) => match never {},
             }
         }
         let present = self.end.present(&[layout.bounds()])?;
-        self.pointer_drawn = pointer.map(|(_, area)| area);
+        self.pointer_drawn = pointer.map(|(_, cursor, area)| (area, cursor));
         Ok(present)
     }
 
@@ -309,12 +312,12 @@ impl UiLoop {
         if !self.end.can_draw() {
             return Err(ContractError::PresentInFlight.into());
         }
-        // A pointer that moved, showed or hid: its old area repainted
-        // without it, its new one with it.
+        // A pointer that moved, showed, hid or changed shape: its old
+        // area repainted without it, its new one with it.
         let pointer = self.pointer_for(tree);
-        let area = pointer.map(|(_, area)| area);
-        if area != self.pointer_drawn {
-            for moved in [self.pointer_drawn, area].into_iter().flatten() {
+        let drawn = pointer.map(|(_, cursor, area)| (area, cursor));
+        if drawn != self.pointer_drawn {
+            for (moved, _) in [self.pointer_drawn, drawn].into_iter().flatten() {
                 tree.mark_area_dirty(moved);
             }
         }
@@ -333,7 +336,7 @@ impl UiLoop {
             }
             if let Some(drawn) = self
                 .pointer_drawn
-                .and_then(|drawn| drawn.intersection(&made.area))
+                .and_then(|(drawn, _)| drawn.intersection(&made.area))
             {
                 tree.mark_area_dirty(drawn);
                 tree.mark_area_dirty(Rect::from_edges(
@@ -350,9 +353,9 @@ impl UiLoop {
         }
         // Each repainted area covers the pointer's pixels there: draw it
         // again, over the tree.
-        if let Some((at, _)) = pointer {
+        if let Some((at, cursor, _)) = pointer {
             for &rect in tree.dirty_rects() {
-                match render_pointer(&mut target, at, tree.scale(), rect) {
+                match render_pointer(&mut target, at, cursor, tree.scale(), rect) {
                     Ok(()) => {}
                     Err(never) => match never {},
                 }
@@ -370,7 +373,7 @@ impl UiLoop {
         }
         let present = self.end.present(damage.rects())?;
         tree.clear_dirty();
-        self.pointer_drawn = area;
+        self.pointer_drawn = drawn;
         Ok(present)
     }
 }
