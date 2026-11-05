@@ -59,7 +59,7 @@ use nowayos_render_eg::{
     Glyphs, RawFramebuffer, RawFramebufferError, Theme, pointer_area, render, render_dirty,
     render_pointer, to_eg,
 };
-use nowayos_ui::{Cursor, TextMetrics, Tree};
+use nowayos_ui::{Cursor, TextMetrics, Tree, Zoom};
 
 /// Slots in each ring: one `Present` is in flight at a time, so a few are
 /// plenty.
@@ -123,6 +123,8 @@ pub struct UiLoop {
     /// The area the pointer was last drawn in, and its shape, while it
     /// shows.
     pointer_drawn: Option<(Rect, Cursor)>,
+    /// The scale the person zoomed to (#10083), when not the display's.
+    zoom: Option<DeviceScale>,
 }
 
 impl UiLoop {
@@ -142,6 +144,7 @@ impl UiLoop {
             theme,
             pointer: false,
             pointer_drawn: None,
+            zoom: None,
         }
     }
 
@@ -207,12 +210,40 @@ impl UiLoop {
     }
 
     /// The metrics to lay screens out with: the theme's at the display's
-    /// scale ([`Theme::metrics_at`]), or at scale 1 before the display has
+    /// scale ([`Theme::metrics_at`]) - or the one zoomed to
+    /// ([`zoom`](Self::zoom)) - or at scale 1 before the display has
     /// announced its layout. The loop draws at the same scale.
     #[must_use]
     pub fn metrics(&self) -> TextMetrics {
         self.theme
-            .metrics_at(self.end.scale().unwrap_or(DeviceScale::ONE))
+            .metrics_at(self.zoom.or(self.end.scale()).unwrap_or(DeviceScale::ONE))
+    }
+
+    /// Steps the scale the screens are laid out and drawn at by `zoom`
+    /// (#10083; Ctrl and plus, minus or zero, [`UiEvent::Zoom`]): a quarter
+    /// larger or smaller, within 1 to 4, or back to the display's own. The
+    /// new scale if it changed - then, for each screen, keep its scroll
+    /// views' places (`Tree::rescale`) and lay it out again with
+    /// [`metrics`](Self::metrics), which keeps focus, and draw it whole;
+    /// `None` if it did not, or before the display has announced its
+    /// layout.
+    ///
+    /// [`UiEvent::Zoom`]: nowayos_ui::UiEvent::Zoom
+    pub fn zoom(&mut self, zoom: Zoom) -> Option<DeviceScale> {
+        let base = self.end.scale()?;
+        let now = self.zoom.unwrap_or(base);
+        let next = zoom.apply(now, base);
+        if next == now {
+            return None;
+        }
+        self.zoom = (next != base).then_some(next);
+        Some(next)
+    }
+
+    /// Sets the scale the screens are laid out and drawn at, as the
+    /// application asks (#10083): `None` for the display's own.
+    pub const fn set_zoom(&mut self, scale: Option<DeviceScale>) {
+        self.zoom = scale;
     }
 
     /// Whether the UI may draw: configured, and no `Present` in flight.
@@ -616,6 +647,33 @@ mod tests {
             .unwrap();
         with_glyphs(|glyphs| fresh.draw_all(&tree, &mut whole[..], glyphs)).unwrap();
         assert_eq!(memory, whole);
+    }
+
+    /// Zoom (#10083) steps the scale the screens are laid out at a quarter
+    /// at a time, within 1 to 4, and back to the display's own.
+    #[test]
+    fn zoom_steps_the_scale_by_quarters_and_back() {
+        let layout = FramebufferLayout::packed(64, 32, PixelFormat::Rgb565).unwrap();
+        let mut ui = UiLoop::new(layout.byte_len());
+        assert_eq!(
+            ui.zoom(Zoom::In),
+            None,
+            "nothing to zoom before the display"
+        );
+        let display = DisplayEnd::scaled(layout, DeviceScale::TWO).unwrap();
+        ui.receive(&record(&display.configure())).unwrap();
+        assert_eq!(ui.zoom(Zoom::In), DeviceScale::from_quarters(9));
+        assert_eq!(ui.metrics().scale(), DeviceScale::from_quarters(9).unwrap());
+        assert_eq!(ui.zoom(Zoom::Reset), Some(DeviceScale::TWO));
+        assert_eq!(ui.zoom(Zoom::Reset), None);
+        for _ in 0..4 {
+            ui.zoom(Zoom::Out);
+        }
+        assert_eq!(ui.metrics().scale(), DeviceScale::ONE);
+        assert_eq!(ui.zoom(Zoom::Out), None, "1 is the least");
+        ui.set_zoom(Some(DeviceScale::MAX));
+        assert_eq!(ui.zoom(Zoom::In), None, "4 is the most");
+        assert_eq!(ui.scale(), Some(DeviceScale::TWO), "the display's own");
     }
 
     /// Draws what changed, as the display shows it, and returns the damage.

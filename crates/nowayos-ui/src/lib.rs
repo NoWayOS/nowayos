@@ -120,7 +120,7 @@ pub mod text;
 mod tree;
 
 pub use error::UiError;
-pub use interact::UiEvent;
+pub use interact::{UiEvent, Zoom};
 pub use layer::{LayerId, LayerKind};
 pub use layout::{MAX_VIEWPORT_OFFSET, MAX_VIEWPORT_SIZE, TextMetrics};
 pub use mouse::{Cursor, Hover};

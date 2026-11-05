@@ -406,6 +406,30 @@ impl<const N: usize, const T: usize> Tree<N, T> {
             .unwrap_or(false)
     }
 
+    /// Before the tree is laid out again at scale `to` - zoomed (#10083) -
+    /// moves each scroll view's offset from the scale it was laid out at to
+    /// `to`, in proportion, so it shows the same place; the layout then
+    /// keeps it in range. Laid out at the same scale, nothing changes.
+    pub fn rescale(&mut self, to: nowayos_display::DeviceScale) {
+        if self.metrics.is_none() || to == self.scale {
+            return;
+        }
+        let (from, to) = (u64::from(self.scale.quarters()), u64::from(to.quarters()));
+        let scaled = |offset: &mut u32| {
+            *offset = u64::from(*offset)
+                .saturating_mul(to)
+                .checked_div(from)
+                .and_then(|scaled| u32::try_from(scaled).ok())
+                .unwrap_or(u32::MAX);
+        };
+        for node in self.nodes.as_mut_slice() {
+            if let crate::NodeKind::Scroll { x, y, .. } = &mut node.kind {
+                scaled(x);
+                scaled(y);
+            }
+        }
+    }
+
     /// Lets `elapsed` milliseconds pass on the runtime's clock: a touch
     /// moving its view is measured for speed, and a fling moves its view on
     /// and slows. Whether a fling is still moving - so the loop calls again
