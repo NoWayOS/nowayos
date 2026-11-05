@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: OFL-1.1
 //! NoWayOS's glyph atlases: every character the UI draws, rasterised in
 //! advance from the signed-off font at every size the themes use, so the
-//! device draws proportional text without ever parsing a font file.
+//! device draws proportional text without ever parsing a font file. And
+//! each face's outlines ([`Face`], [`Outline`]), from the same tool, which
+//! `nowayos-raster` draws on the device at any size (ADR-0026, proposed).
 //!
 //! **Provisional**: `nowayos-ui` lays text out with these metrics,
 //! and `nowayos-render-eg` draws text from these glyphs, anti-aliased;
@@ -63,8 +65,11 @@
 
 #[rustfmt::skip]
 mod atlas;
+mod outline;
 
 pub use atlas::*;
+pub use outline::{Face, Outline, Path};
+pub(crate) use outline::{lay_out_outlines, outlines_fit};
 
 /// No glyph: the character is outside the atlas's set. It never says which
 /// character, so text a person typed cannot leak through it.

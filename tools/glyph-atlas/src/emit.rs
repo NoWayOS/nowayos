@@ -151,6 +151,7 @@ pub fn files(spec: &Spec, faces: &[(&Face, &PinnedFile, FaceAtlas)]) -> Result<A
     let mut files = Vec::new();
     let mut statics = Vec::new();
     let mut kerning_modules = Vec::new();
+    let mut outline_statics = Vec::new();
     let mut atlas_entries = String::new();
     let mut coverage_bytes = 0_usize;
     let mut glyph_count = Vec::new();
@@ -161,6 +162,12 @@ pub fn files(spec: &Spec, faces: &[(&Face, &PinnedFile, FaceAtlas)]) -> Result<A
             kerning_rs(spec, face, file, atlas, chars)?.into_bytes(),
         ));
         kerning_modules.push(kerning.clone());
+        let outline = format!("{}_outline", face.name);
+        files.push((
+            format!("{outline}.rs"),
+            outline_rs(spec, face, file, atlas, &kerning)?.into_bytes(),
+        ));
+        outline_statics.push((outline, face.name.to_uppercase()));
         glyph_count.push(chars.len());
         for size in &atlas.sizes {
             let name = module(face, size.size);
@@ -194,7 +201,7 @@ pub fn files(spec: &Spec, faces: &[(&Face, &PinnedFile, FaceAtlas)]) -> Result<A
     }
     files.push((
         "mod.rs".into(),
-        mod_rs(spec, &fonts, &statics, &kerning_modules).into_bytes(),
+        mod_rs(spec, &fonts, &statics, &kerning_modules, &outline_statics).into_bytes(),
     ));
     files.push((
         "manifest.toml".into(),
@@ -291,6 +298,122 @@ fn kerning_rs(
     }
 }
 
+/// A face's outlines, in font units, as a Rust module: what the device
+/// draws the face from at any size (`nowayos-raster`).
+fn outline_rs(
+    spec: &Spec,
+    face: &Face,
+    file: &PinnedFile,
+    atlas: &FaceAtlas,
+    kerning: &str,
+) -> Result<String, Error> {
+    let too_big = |what: &str| Error::Format {
+        file: file.path.clone(),
+        message: format!(
+            "the {} face's {what} does not fit the outline format",
+            face.name
+        ),
+    };
+    let unit = |value: i64| i16::try_from(value).map_err(|_| too_big("outline points"));
+    let mut text = header("//", spec, &[(face, file)]);
+    let verbs: Vec<u8> = atlas
+        .outlines
+        .iter()
+        .flat_map(|outline| outline.verbs.iter().copied())
+        .collect();
+    let points: usize = atlas
+        .outlines
+        .iter()
+        .map(|outline| outline.points.len())
+        .sum();
+    let _ = write!(
+        text,
+        "//\n// The {style} face's outlines, y up: advances in font units, points in half font units. Drawn at\n\
+         // any size on the device by nowayos-raster.\n\n\
+         use super::{kerning}::{{CHARS, KERNING, UPEM}};\n\
+         use crate::{{Face, Outline, lay_out_outlines, outlines_fit}};\n\n\
+         /// Every glyph's steps, glyph after glyph in the order of `GLYPHS`: `M` moves, `L` draws a line, `Q`\n\
+         /// a quadratic curve, `C` a cubic one and `Z` closes the contour.\n\
+         static VERBS: &[u8; {verb_count}] = b\"",
+        style = face.style,
+        verb_count = verbs.len(),
+    );
+    for chunk in verbs.chunks(96) {
+        text.push_str("\\\n");
+        text.push_str(&String::from_utf8_lossy(chunk));
+    }
+    let _ = write!(
+        text,
+        "\";\n\n\
+         /// The points the steps take, glyph after glyph: x then y, in half font units - one point for `M`\n\
+         /// and `L`, two for `Q`, three for `C`.\n\
+         static POINTS: [i16; {points}] = [",
+    );
+    let mut column = 0_usize;
+    for outline in &atlas.outlines {
+        for &value in &outline.points {
+            if column.checked_rem(16) == Some(0) {
+                text.push_str("\n    ");
+            } else {
+                text.push(' ');
+            }
+            let _ = write!(text, "{},", unit(value)?);
+            column = column.saturating_add(1);
+        }
+    }
+    let _ = write!(
+        text,
+        "\n];\n\n\
+         /// An outline: its character; its advance in font units; the box its points lie in - left, bottom,\n\
+         /// right and top - in half font units; and how many steps and points it takes from `VERBS` and `POINTS`, in the\n\
+         /// order of `GLYPHS`: `lay_out_outlines` gives them.\n\
+         #[allow(clippy::too_many_arguments, reason = \"one row a glyph keeps the generated table readable\")]\n\
+         const fn o(\n    ch: char,\n    advance: i32,\n    left: i16,\n    bottom: i16,\n    right: i16,\n    top: i16,\n    \
+         steps: u16,\n    points: u16,\n) -> Outline {{\n    \
+         Outline::new(ch, advance, [left, bottom, right, top], steps, points)\n}}\n\n\
+         static GLYPHS: [Outline; {count}] = lay_out_outlines(VERBS, &POINTS, [\n",
+        count = atlas.outlines.len(),
+    );
+    for outline in &atlas.outlines {
+        let steps = u16::try_from(outline.verbs.len()).map_err(|_| too_big("steps"))?;
+        let points = u16::try_from(outline.points.len().checked_div(2).unwrap_or(0))
+            .map_err(|_| too_big("points"))?;
+        let advance = i32::try_from(outline.advance).map_err(|_| too_big("advances"))?;
+        let _ = writeln!(
+            text,
+            "    o({}, {advance}, {}, {}, {}, {}, {steps}, {points}),",
+            char_literal(outline.ch),
+            unit(outline.min.0)?,
+            unit(outline.min.1)?,
+            unit(outline.max.0)?,
+            unit(outline.max.1)?,
+        );
+    }
+    let line: Vec<String> = atlas.line_units.iter().map(ToString::to_string).collect();
+    let _ = write!(
+        text,
+        "]);\n\n\
+         /// The {style} face as outlines, which it is drawn from at any size.\n\
+         pub static {upper}: Face = Face::new(UPEM, [{line}], &GLYPHS, &KERNING);\n\n\
+         // Checked when this module compiles: the outlines exactly the face's characters, in order;\n\
+         // every outline's steps taking exactly its points, the outlines taking all of VERBS and\n\
+         // POINTS; every step a known one and every point inside its outline's box. The values are\n\
+         // checked by `make atlases-check`, which makes them again and compares them byte for byte.\n\
+         const _: () = assert!(outlines_fit(&GLYPHS, &CHARS, VERBS.len(), POINTS.len()));\n",
+        style = face.style,
+        upper = face.name.to_uppercase(),
+        line = line.join(", "),
+    );
+    if text.is_ascii() {
+        Ok(text)
+    } else {
+        Err(Error::Spec(format!(
+            "{}'s text must be ASCII, for the generated Rust: the family's name and copyright line",
+            crate::SPEC_FILE
+        )))
+    }
+}
+
 /// One face at one size, as a Rust module.
 fn size_module(
     spec: &Spec,
@@ -368,6 +491,7 @@ fn mod_rs(
     fonts: &[(&Face, &PinnedFile)],
     statics: &[(String, String, String, u16)],
     kerning_modules: &[String],
+    outlines: &[(String, String)],
 ) -> String {
     let mut text = header("//", spec, fonts);
     text.push('\n');
@@ -375,6 +499,7 @@ fn mod_rs(
         .iter()
         .map(|(module, _, _, _)| module.as_str())
         .chain(kerning_modules.iter().map(String::as_str))
+        .chain(outlines.iter().map(|(module, _)| module.as_str()))
         .collect();
     modules.sort_unstable();
     for module in modules {
@@ -382,6 +507,9 @@ fn mod_rs(
     }
     text.push('\n');
     for (module, upper, _, _) in statics {
+        let _ = writeln!(text, "pub use {module}::{upper};");
+    }
+    for (module, upper) in outlines {
         let _ = writeln!(text, "pub use {module}::{upper};");
     }
     let names: Vec<String> = statics

@@ -67,6 +67,7 @@ system descriptions (`<program_image path="NAME.elf"/>`).
 | PD crate | System | What it does |
 | --- | --- | --- |
 | `hello` (`nowayos-hello`) | `hello` | Prints `NOWAYOS: rust pd starting` and `NOWAYOS: hello from rust` on the debug console, then waits (see "Provenance" below) |
+| `glyph-bench` (`nowayos-glyph-bench`) | `glyph-bench` | Times `nowayos-raster` drawing the themes' type scale from the glyph outlines (`nowayos-glyphs`) at device scales 1, 1.25, 1.5, 2, 3 and 4 by the CPU's counter, printing each scale's glyphs, coverage bytes and time, then `NOWAYOS: glyph-bench: done`. Its rasteriser and buffer live in `init`'s frame: a `stack_size` of 0x400000. No `unsafe` code |
 | `ipc-producer` (`nowayos-ipc-producer`) | `ipc-demo` | Sends a fixed synthetic sequence of `InputEvent`s (one deliberately malformed) through a shared-memory ring, notifying the consumer; continues when the consumer has drained the ring |
 | `ipc-consumer` (`nowayos-ipc-consumer`) | `ipc-demo` | Maps the ring's messages read-only; copies each record out, validates, decodes and reports it; rejects the malformed one and carries on |
 | `isolation-parent` (`nowayos-isolation-parent`) | `isolation-test`, `ui-isolation`, `ui-isolation-widened`, `input-isolation`, `net-isolation` | Parent of the probes, picking its test by PD name: receives their faults, reads each one's label before parsing it, stops them, reports the decoded fault, checks the bystander still answers |

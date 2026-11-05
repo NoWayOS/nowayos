@@ -1,0 +1,12 @@
+# Lines tools/qemu-test must see, in this order, as whole serial lines. The
+# times between them are printed, not checked.
+NOWAYOS: glyph-bench: starting
+NOWAYOS: glyph-bench: done
+
+# Output that fails the test at once if it appears anywhere (substring
+# match): a glyph the rasteriser refused, a fault reported by the Microkit
+# monitor, a kernel error message, or a panic.
+!glyph-bench: failed
+!MON|ERROR
+!seL4(CPU
+!panicked

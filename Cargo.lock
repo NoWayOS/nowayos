@@ -688,6 +688,7 @@ dependencies = [
 name = "nowayos-glyphs"
 version = "0.1.0"
 dependencies = [
+ "nowayos-raster",
  "proptest",
 ]
 
@@ -731,6 +732,13 @@ dependencies = [
 
 [[package]]
 name = "nowayos-net"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+]
+
+[[package]]
+name = "nowayos-raster"
 version = "0.1.0"
 dependencies = [
  "proptest",

@@ -31,6 +31,7 @@ nowayos-input = { path = "crates/nowayos-input" }
 nowayos-ip = { path = "crates/nowayos-ip" }
 nowayos-ipc = { path = "crates/nowayos-ipc" }
 nowayos-net = { path = "crates/nowayos-net" }
+nowayos-raster = { path = "crates/nowayos-raster" }
 nowayos-render-eg = { path = "crates/nowayos-render-eg" }
 nowayos-seed = { path = "crates/nowayos-seed" }
 nowayos-signing = { path = "crates/nowayos-signing" }
