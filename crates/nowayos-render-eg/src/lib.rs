@@ -899,7 +899,7 @@ impl<C: RgbColor + From<Rgb888>> Theme<C> {
                 label: brand,
                 pressed: brand,
                 pressed_label: on_brand,
-                hover: text::blend(brand, on_brand, HOVER_TINT),
+                hover: hover_tint(brand, on_brand, brand),
             },
             ButtonVariant::Secondary => ButtonColours {
                 fill: Some(self.button_secondary),
@@ -907,7 +907,7 @@ impl<C: RgbColor + From<Rgb888>> Theme<C> {
                 label: brand,
                 pressed: brand,
                 pressed_label: on_brand,
-                hover: text::blend(brand, self.button_secondary, HOVER_TINT),
+                hover: hover_tint(brand, self.button_secondary, brand),
             },
             ButtonVariant::Quiet => ButtonColours {
                 fill: None,
@@ -915,7 +915,7 @@ impl<C: RgbColor + From<Rgb888>> Theme<C> {
                 label: brand,
                 pressed: brand,
                 pressed_label: on_brand,
-                hover: text::blend(brand, self.ground(on), HOVER_TINT),
+                hover: hover_tint(brand, self.ground(on), brand),
             },
         }
     }
@@ -3180,8 +3180,43 @@ const FOCUS_GAP: u32 = 1;
 const INPUT_BORDER: u32 = 1;
 
 /// How much of the button colour tints what the pointer hovers (#10082),
-/// in 255ths: a secondary or quiet button, an option, a list row.
+/// in 255ths: an option, a list row; a secondary or quiet button as much as
+/// its label's contrast allows ([`hover_tint`]).
 const HOVER_TINT: u8 = 24;
+
+/// A secondary or quiet button's hover fill: `brand` over `base` as
+/// strongly as keeps `label` at 4.5:1 on it - as specified, and as a 16-bit
+/// screen shows it - [`HOVER_TINT`], 16 or 8 255ths; `base` itself if none
+/// does, for a theme whose label only just meets the minimum there.
+fn hover_tint<C: RgbColor + From<Rgb888>>(brand: C, base: C, label: C) -> C {
+    let label = eight_bit(label);
+    for tint in [HOVER_TINT, 16, 8] {
+        let fill = text::blend(brand, base, tint);
+        let shown = eight_bit(fill);
+        if contrast::ratio(label, shown) >= 4.5
+            && contrast::ratio(contrast::as_shown(label), contrast::as_shown(shown)) >= 4.5
+        {
+            return fill;
+        }
+    }
+    base
+}
+
+/// `colour` at 8 bits a channel, to weigh its contrast.
+fn eight_bit<C: RgbColor>(colour: C) -> Rgb888 {
+    let widen = |value: u8, max: u8| {
+        u16::from(value)
+            .saturating_mul(255)
+            .checked_div(u16::from(max))
+            .and_then(|wide| u8::try_from(wide).ok())
+            .unwrap_or(u8::MAX)
+    };
+    Rgb888::new(
+        widen(colour.r(), C::MAX_R),
+        widen(colour.g(), C::MAX_G),
+        widen(colour.b(), C::MAX_B),
+    )
+}
 
 /// The corner radius, in layout units, of a key of the on-screen keyboard.
 const KEY_RADIUS: u32 = 6;
