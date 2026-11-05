@@ -86,6 +86,7 @@ extern crate self as nowayos_render_eg;
 pub mod contrast;
 mod framebuffer;
 mod glyphs;
+mod picture;
 mod pointer;
 mod shape;
 mod text;
@@ -108,6 +109,7 @@ use nowayos_display::DeviceScale;
 use nowayos_display::{Insets, Rect};
 use nowayos_glyphs::{BOLD, DISPLAY, Face, REGULAR};
 use nowayos_ui::keyboard::KeyAction;
+use nowayos_ui::pictures::{Fit, Picture};
 use nowayos_ui::text::{fit_end, fit_start, wrap};
 use nowayos_ui::{
     ButtonVariant, Colour, InputMode, Look, MIN_TARGET, Node, NodeId, NodeKind, Spacing, Surface,
@@ -1024,6 +1026,7 @@ where
             NodeKind::Group { .. } | NodeKind::Switch { .. } | NodeKind::Spacer => Ok(()),
             NodeKind::Progress { permille, .. } => self.progress(content, *permille),
             NodeKind::Icon(icon) => self.icon(content, icon),
+            NodeKind::Image { picture, fit, .. } => self.picture(content, picture, *fit),
             NodeKind::Text(text) => self.text_lines(text, node, content),
             NodeKind::Slot {
                 text,
@@ -1711,6 +1714,45 @@ where
             })
         });
         self.target.draw_iter(pixels)
+    }
+
+    /// A picture in `rect`: fitted by `fit`, sampled from the pixels it was
+    /// made with nearest its drawn size ([`Picture::best`]), each blended
+    /// by its alpha over what lies beneath, clipped to `rect`.
+    fn picture(&mut self, rect: Rect, picture: &Picture, fit: Fit) -> Result<(), D::Error> {
+        let natural = (self.px(picture.width()), self.px(picture.height()));
+        let placed = fit.place(natural, (rect.size.width, rect.size.height));
+        let left = rect.left().saturating_add(placed.left);
+        let top = rect.top().saturating_add(placed.top);
+        let drawn = Rect::from_edges(
+            left,
+            top,
+            left.saturating_add(i64::from(placed.width)),
+            top.saturating_add(i64::from(placed.height)),
+        );
+        let Some(visible) = drawn
+            .intersection(&rect)
+            .and_then(|drawn| drawn.intersection(&self.clip))
+        else {
+            return Ok(());
+        };
+        let pixels = picture.best(placed.width, placed.height);
+        let ground = self.ground;
+        let offset = |from: i64, to: i64| u32::try_from(from.saturating_sub(to)).unwrap_or(0);
+        let (dx, dy) = (offset(visible.left(), left), offset(visible.top(), top));
+        let (width, height) = (visible.size.width, visible.size.height);
+        let colours = (0..height).flat_map(move |y| {
+            (0..width).map(move |x| {
+                let rgba = pixels.sample(
+                    dx.saturating_add(x),
+                    dy.saturating_add(y),
+                    placed.width,
+                    placed.height,
+                );
+                picture::over(rgba, ground)
+            })
+        });
+        self.target.fill_contiguous(&to_eg(visible), colours)
     }
 
     /// A progress bar in `rect`: a rounded track, and over it, from

@@ -52,6 +52,20 @@ ATLAS_RUN = $(CARGO) run --locked --quiet --manifest-path $(ATLAS_TOOL)/Cargo.to
 # ICONS_OUT and compares.
 ICONS_CRATE := crates/nowayos-icons
 ICONS_OUT := build/icon-masks
+# The pictures: tools/pictures, a host tool in a Cargo workspace of its own,
+# converts the PNG and JPEG files each crate in PICTURE_CRATES pins in its
+# pictures.toml into the module folder it names, where they are checked in;
+# make atlases writes them, and make atlases-check makes them again into
+# PICTURES_OUT and compares. The JPEG decoder, JPEG_CRATES, is in that
+# workspace's Cargo.lock alone, and the PNG decoder, png, besides only in
+# the root workspace's host-only test kit, never the PDs' or the fuzz
+# harness's: atlases-check fails if cargo tree finds one elsewhere.
+PICTURE_TOOL := tools/pictures
+PICTURE_CRATES := crates/nowayos-pictures
+PICTURES_OUT := build/pictures
+JPEG_CRATES := zune-jpeg zune-core
+PICTURE_TARGET_DIR = $(if $(CARGO_TARGET_DIR),$(CARGO_TARGET_DIR)-pictures,$(CURDIR)/$(PICTURE_TOOL)/target)
+PICTURE_RUN = $(CARGO) run --locked --quiet --manifest-path $(PICTURE_TOOL)/Cargo.toml --target-dir $(PICTURE_TARGET_DIR) --
 
 -include tools/make/container.mk
 -include tools/make/system.mk
@@ -73,8 +87,9 @@ help:
 	@echo "  make demo              the demo's scripted session, every frame checked"
 	@echo "                         (NOWAYOS_UPDATE_SNAPSHOTS=1 rewrites its golden images)"
 	@echo "  make atlases           the glyph atlases, made again from the pinned font into $(GLYPHS_CRATE)/src/atlas/,"
-	@echo "                         and the icons' masks, from the pinned Lucide icons into $(ICONS_CRATE)/src/masks/"
-	@echo "                         ($(ATLAS_TOOL)); review the change and commit it"
+	@echo "                         the icons' masks, from the pinned Lucide icons into $(ICONS_CRATE)/src/masks/,"
+	@echo "                         and the pictures of $(PICTURE_CRATES), from the files each pictures.toml pins"
+	@echo "                         ($(ATLAS_TOOL), $(PICTURE_TOOL)); review the change and commit it"
 	@echo "  make clean             remove the target directory (the container's, or the host's with IN=host)"
 	@echo ""
 	@echo "In the dev container only (these start it themselves; ENGINE=podman|docker):"
@@ -83,15 +98,16 @@ help:
 	@echo "  make nostd             build every crate but $(HOST_ONLY_CRATES) for $(NOSTD_TARGET)"
 	@echo "  make deny              licences, sources, bans and advisories (cargo-deny)"
 	@echo "  make sbom              a CycloneDX SBOM for each workspace: $(SBOM_DIR)/nowayos.cdx.json, nowayos-pds.cdx.json,"
-	@echo "                         nowayos-fuzz.cdx.json and nowayos-glyph-atlas.cdx.json"
+	@echo "                         nowayos-fuzz.cdx.json, nowayos-glyph-atlas.cdx.json and nowayos-pictures-tool.cdx.json"
 	@echo "  make secrets           scan the tree and every commit for keys and credentials, offline"
 	@echo "                         (tools/secrets-scan; reviewed false positives in secrets-allow.toml)"
 	@echo "  make kani              Kani's proofs of the record decoders, the network queues' checks and the fault"
 	@echo "                         policy's rule (src/proofs.rs in each crate of KANI_CRATES), then mutants each"
 	@echo "                         with a check removed, which must fail (KANI_MUTATIONS=NAME for some)"
 	@echo "  make atlases-check     the atlas tool's rustfmt, clippy and tests; the atlases made again into $(ATLAS_OUT)/"
-	@echo "                         and compared with the checked-in ones; and no rasteriser crate in any other"
-	@echo "                         workspace's cargo tree"
+	@echo "                         and compared with the checked-in ones, the icons' masks and the pictures likewise"
+	@echo "                         (with the picture tool's rustfmt, clippy and tests); and no rasteriser or image"
+	@echo "                         decoder crate in any other workspace's cargo tree"
 	@echo "  make fuzz              the fuzz targets (fuzz/): rustfmt and clippy, then each built with libFuzzer"
 	@echo "                         and run for FUZZ_SECONDS ($(FUZZ_SECONDS)) s; corpus and crashes in $(FUZZ_OUT)/"
 	@echo "                         (FUZZ_TARGETS=NAME for one; FUZZ_INPUT=FILE runs one target on one input)"
@@ -174,6 +190,7 @@ demo:
 atlases:
 	$(ATLAS_RUN) $(GLYPHS_CRATE)
 	python3 tools/icon-masks $(ICONS_CRATE)
+	@for crate in $(PICTURE_CRATES); do $(PICTURE_RUN) $$crate || exit 1; done
 
 clean:
 	$(CARGO) clean
@@ -210,10 +227,11 @@ nostd:
 # root workspace, the fuzz harness's and the atlas tool's (pds/: make
 # pds-deny).
 deny:
-	python3 tools/check-baseline . pds fuzz $(ATLAS_TOOL)
+	python3 tools/check-baseline . pds fuzz $(ATLAS_TOOL) $(PICTURE_TOOL)
 	$(CARGO) deny --locked check
 	$(CARGO) deny --locked --manifest-path fuzz/Cargo.toml --config fuzz/deny.toml check
 	$(CARGO) deny --locked --manifest-path $(ATLAS_TOOL)/Cargo.toml --config $(ATLAS_TOOL)/deny.toml check
+	$(CARGO) deny --locked --manifest-path $(PICTURE_TOOL)/Cargo.toml --config $(PICTURE_TOOL)/deny.toml check
 
 # A CycloneDX SBOM for each workspace (tools/sbom). What a workspace's
 # product is built from is `required`; dev-dependencies, build-time tools,
@@ -236,6 +254,8 @@ sbom:
 		--out $(SBOM_DIR)/nowayos-fuzz.cdx.json
 	python3 tools/sbom --workspace $(ATLAS_TOOL) --name nowayos-glyph-atlas \
 		--out $(SBOM_DIR)/nowayos-glyph-atlas.cdx.json
+	python3 tools/sbom --workspace $(PICTURE_TOOL) --name nowayos-pictures-tool \
+		--out $(SBOM_DIR)/nowayos-pictures-tool.cdx.json
 
 # The fuzz harness (fuzz/): fuzz-run (tools/make/system.mk) runs
 # FUZZ_TARGETS, each for FUZZ_SECONDS seconds; libFuzzer itself is signed off
@@ -369,8 +389,29 @@ atlases-check:
 	@diff -r $(ICONS_CRATE)/src/masks $(ICONS_OUT) || { echo "atlases-check: FAIL - the checked-in icon masks in" \
 		"$(ICONS_CRATE)/src/masks differ from what the pinned icons give (above): run make atlases, review the change" \
 		"and commit it" >&2; exit 1; }
+	cd $(PICTURE_TOOL) && $(CARGO) fmt --all -- --check
+	cd $(PICTURE_TOOL) && $(CARGO) clippy --locked --all-targets --target-dir $(PICTURE_TARGET_DIR) -- -D warnings
+	cd $(PICTURE_TOOL) && $(CARGO) test --locked --target-dir $(PICTURE_TARGET_DIR)
+	@rm -rf $(PICTURES_OUT)
+	@for crate in $(PICTURE_CRATES); do \
+		module=$$(sed -n 's/^module = "\(.*\)"$$/\1/p' $$crate/pictures.toml); \
+		$(PICTURE_RUN) --out $(PICTURES_OUT)/$$crate $$crate || exit 1; \
+		diff -r $$crate/$$module $(PICTURES_OUT)/$$crate || { echo "atlases-check: FAIL - the checked-in pictures in" \
+			"$$crate/$$module differ from what its pinned files give (above): run make atlases, review the change" \
+			"and commit it" >&2; exit 1; }; \
+	done
+	@for workspace in . pds fuzz; do \
+		case $$workspace in pds) cargo="$(CARGO) +$(PDS_TOOLCHAIN)" ;; *) cargo="$(CARGO)" ;; esac; \
+		case $$workspace in .) decoders="$(JPEG_CRATES)" ;; *) decoders="$(JPEG_CRATES) png" ;; esac; \
+		python3 tools/check-crates-absent --what "the cargo tree of $$workspace" \
+			$$(for crate in $$decoders; do printf ' --forbid %s' $$crate; done) \
+			--reason "the image decoders belong to $(PICTURE_TOOL) (and png to the root's test kit) alone, never to a device crate" \
+			-- $$cargo tree --locked --manifest-path $$workspace/Cargo.toml --workspace --target all \
+			--edges normal,build,dev --prefix none --format '{p}' || exit 1; \
+	done
 	@echo "atlases-check: PASS - $(GLYPHS_CRATE)/src/atlas is what the pinned font gives, $(ICONS_CRATE)/src/masks" \
-		"what the pinned icons give, and no workspace but $(ATLAS_TOOL) has the rasteriser in its cargo tree"
+		"what the pinned icons give, $(PICTURE_CRATES)' pictures what their pinned files give, and no workspace but" \
+		"$(ATLAS_TOOL) has the rasteriser in its cargo tree, none but $(PICTURE_TOOL) the JPEG decoder"
 
 # The secrets scan (tools/secrets-scan): the tree, and every
 # version of every file and every commit message on every ref, for keys and

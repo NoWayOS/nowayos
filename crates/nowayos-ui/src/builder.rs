@@ -114,12 +114,19 @@
 //! compiled in (React's `<Text>Hello, {props.name}!</Text>`), the
 //! application setting only its part.
 //!
+//! Contract v15 adds [`UiBuilder::image`]: a picture converted at build
+//! time, by its static from the product's generated module, fitted to its
+//! box by a [`Fit`] and with words saying what it shows (React's
+//! `<img src alt style={{ objectFit }} />`).
+//!
 //! Provisional: tracks Screen Compiler's contract; both sides change together.
 
 use crate::{ContainerKind, Length, NodeId, NodeKind, Style, Tree, UiError};
 
 /// The icons generated screens name (contract v6).
 pub use crate::icons;
+/// How a picture fills its box (contract v15).
+pub use crate::pictures::{Fit, Picture};
 pub use crate::{
     ActionId, Align, ButtonVariant, Colour, FieldId, GroupId, Input, InputMode, Justify, Look,
     MAX_LINES, SLOT_CAPACITY, SlotId, Space, Surface, SwitchId, TEMPLATE_CAPACITY, Template,
@@ -512,6 +519,24 @@ pub trait UiBuilder {
     /// The builder's error, for example when it is full.
     fn icon(&mut self, icon: &'static icons::Icon) -> Result<Self::Node, Self::Error>;
 
+    /// A picture (contract v15): the product's static, so a program links
+    /// only the pictures its screens name, fitted to its box by `fit`, with
+    /// `alt` saying what it shows - empty for decoration. Its own size but
+    /// where `layout` gives a width, a height, a least or a most width (its
+    /// gap, padding, alignment and look are not used).
+    ///
+    /// # Errors
+    ///
+    /// The builder's error, for example when it is full or `alt` cannot be
+    /// shown.
+    fn image(
+        &mut self,
+        picture: &'static Picture,
+        fit: Fit,
+        alt: &'static str,
+        layout: Layout,
+    ) -> Result<Self::Node, Self::Error>;
+
     /// A progress bar bound to `slot` (contract v5): empty until the
     /// application sets how far it shows. Its slot number is distinct from
     /// every slot's.
@@ -796,6 +821,26 @@ impl<const N: usize> UiBuilder for Tree<N> {
 
     fn icon(&mut self, icon: &'static icons::Icon) -> Result<NodeId, UiError> {
         Tree::icon(self, icon)
+    }
+
+    fn image(
+        &mut self,
+        picture: &'static Picture,
+        fit: Fit,
+        alt: &'static str,
+        layout: Layout,
+    ) -> Result<NodeId, UiError> {
+        let node = Tree::image(self, picture, fit, alt)?;
+        // Its size alone.
+        let sized = Layout {
+            width: layout.width,
+            height: layout.height,
+            min_width: layout.min_width,
+            max_width: layout.max_width,
+            ..Layout::new()
+        };
+        self.set_style(node, sized.style())?;
+        Ok(node)
     }
 
     fn progress(&mut self, slot: SlotId) -> Result<NodeId, UiError> {

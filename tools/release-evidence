@@ -32,10 +32,11 @@ Checklist's Per Release items are answered from, into DIR, with an index:
   grants/systems/BOARD/), and inventory.md: each PD's role,
   memory, devices, interrupts, channels, calls and learned addresses, with
   every device's register window on each board;
-* crypto.md - the cryptographic crates in the dependency graphs of all four
+* crypto.md - the cryptographic crates in the dependency graphs of all five
   of NoWayOS's Cargo workspaces (named in tools/crypto-crates.txt, or filed
   under crates.io's cryptography category), each with where it is used:
-  what only the fuzz harness or the glyph atlas tool uses never ships.
+  what only the fuzz harness, the glyph atlas tool or the picture tool uses
+  never ships.
 
 It refuses to run - before anything is built - when nowayos, or the
 screen-compiler clone make ci checks against (--screen-compiler), has uncommitted
@@ -512,12 +513,13 @@ def region_sizes(path):
 
 # NoWayOS's Cargo workspaces - every one `make sbom` writes an SBOM for - each
 # with its SBOM's name and folder, and, for one whose crates never ship, what
-# it is: the fuzz harness and the glyph atlas tool run on the build host only,
-# so their crates are listed as never shipped, whatever their own SBOMs call
-# `required` (the atlas tool's: what the tool itself is built from).
+# it is: the fuzz harness, the glyph atlas tool and the picture tool run on
+# the build host only, so their crates are listed as never shipped, whatever
+# their own SBOMs call `required` (a tool's: what the tool itself is built from).
 WORKSPACES = (("nowayos", ".", None), ("nowayos-pds", "pds", None),
               ("nowayos-fuzz", "fuzz", "test harness"),
-              ("nowayos-glyph-atlas", "tools/glyph-atlas", "build tool"))
+              ("nowayos-glyph-atlas", "tools/glyph-atlas", "build tool"),
+              ("nowayos-pictures-tool", "tools/pictures", "build tool"))
 NEVER_SHIPPED = {name: what for name, _path, what in WORKSPACES if what}
 
 

@@ -333,6 +333,22 @@ impl<const N: usize> Tree<N> {
         self.add(NodeKind::Icon(icon), Style::new())
     }
 
+    /// Creates `picture`, fitted to its box by `fit`, with `alt` saying
+    /// what it shows (empty for decoration): at its own size until a style
+    /// gives it another.
+    ///
+    /// # Errors
+    ///
+    /// [`UiError::TreeFull`]; for `alt`, as [`Tree::text`].
+    pub fn image(
+        &mut self,
+        picture: &'static nowayos_pictures::Picture,
+        fit: nowayos_pictures::Fit,
+        alt: &'static str,
+    ) -> Result<NodeId, UiError> {
+        self.add(NodeKind::Image { picture, fit, alt }, Style::new())
+    }
+
     /// Creates an empty progress bar bound to `slot`, as wide as
     /// its container allows ([`Length::Fill`]).
     ///

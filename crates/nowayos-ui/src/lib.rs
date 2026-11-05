@@ -125,4 +125,6 @@ pub use node::{
 /// The icons a screen may show: Lucide's, as alpha masks.
 pub use nowayos_icons as icons;
 pub use nowayos_input::InputEvent;
+/// The pictures a screen may show: converted at build time, at each scale.
+pub use nowayos_pictures as pictures;
 pub use tree::{Children, MAX_DEPTH, PaintOrder, Tree};

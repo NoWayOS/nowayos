@@ -18,6 +18,8 @@ nowayos-glyphs.workspace = true
 # a crate of its own, which an image's SBOM names with its licence.
 nowayos-icons.workspace = true
 nowayos-input.workspace = true
+# Pictures converted at build time, which an image node shows.
+nowayos-pictures.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true

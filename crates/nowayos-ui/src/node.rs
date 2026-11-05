@@ -1266,6 +1266,19 @@ pub enum NodeKind {
     /// device scale and tinted with the colour of text where it stands,
     /// [`nowayos_icons::SIZE`] units square.
     Icon(&'static nowayos_icons::Icon),
+    /// A picture converted at build time, drawn at the device scale,
+    /// fitted to the node's box by `fit` and blended over what lies beneath
+    /// it. Its own size, in layout units, is its natural size; a fixed or
+    /// filling width or height overrides it.
+    Image {
+        /// The picture: a product's static, from its generated module.
+        picture: &'static nowayos_pictures::Picture,
+        /// How it fills a box of another shape.
+        fit: nowayos_pictures::Fit,
+        /// What it shows, in words, for anyone who cannot see it: empty for
+        /// a picture that is only decoration.
+        alt: &'static str,
+    },
     /// A bar showing how far something has gone - a pump's
     /// fuelling, say - as a fraction in thousandths the application sets,
     /// bound to `slot` like a slot's text ([`Tree::set_progress`](crate::Tree::set_progress)).
@@ -1462,7 +1475,8 @@ impl NodeKind {
             | Self::Switch { .. }
             | Self::Spacer
             | Self::Progress { .. }
-            | Self::Icon(_) => Ok(()),
+            | Self::Icon(_)
+            | Self::Image { .. } => Ok(()),
         }
     }
 
@@ -1505,6 +1519,7 @@ impl NodeKind {
                     .try_for_each(|option| check_printable(option))
             }),
             Self::FieldError { message, .. } => message.map_or(Ok(()), check_printable),
+            Self::Image { alt, .. } => check_printable(alt),
             // Its labels are fixed and printable (`keyboard`'s tests).
             Self::Column
             | Self::Row

@@ -1,0 +1,16 @@
+[package]
+name = "nowayos-pictures"
+description = "Pictures converted at build time into premultiplied pixels at each device scale, and drawing them at any size, for no_std code that must not allocate"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true
