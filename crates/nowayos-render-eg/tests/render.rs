@@ -825,8 +825,9 @@ fn colours(frame: &Framebuffer, area: Rect) -> Vec<(Rgb888, u32)> {
     found
 }
 
-/// Ticked and unticked, chosen and not, are told apart by a mark - more of
-/// the same colours - never by a colour of their own.
+/// Ticked and unticked, chosen and not, are told apart by a mark - more
+/// ink - never by a colour of their own: every colour either way is the
+/// ink, the ground or a blend of the two along an anti-aliased edge.
 #[test]
 fn choice_state_is_shown_by_a_mark_not_colour_alone() {
     for (theme, width, height, _) in choice_themes() {
@@ -856,7 +857,25 @@ fn choice_state_is_shown_by_a_mark_not_colour_alone() {
             let palette = |found: &Vec<(Rgb888, u32)>| -> Vec<Rgb888> {
                 found.iter().map(|(colour, _)| *colour).collect()
             };
-            assert_eq!(palette(on), palette(off), "the same colours either way");
+            // On the line from the ground to the ink, to within rounding.
+            let ground = theme.background;
+            let blend_of_ink = |colour: &Rgb888| {
+                let share = |c: u8, g: u8, t: u8| {
+                    (f64::from(c) - f64::from(g)) / (f64::from(t) - f64::from(g))
+                };
+                let shares = [
+                    share(colour.r(), ground.r(), theme.text.r()),
+                    share(colour.g(), ground.g(), theme.text.g()),
+                    share(colour.b(), ground.b(), theme.text.b()),
+                ];
+                let (low, high) = shares
+                    .iter()
+                    .fold((f64::MAX, f64::MIN), |(l, h), &s| (l.min(s), h.max(s)));
+                high - low < 0.06 && low > -0.03 && high < 1.03
+            };
+            for colour in palette(on).iter().chain(&palette(off)) {
+                assert!(blend_of_ink(colour), "{colour:?} is a colour of its own");
+            }
             let ink = |found: &Vec<(Rgb888, u32)>| {
                 found
                     .iter()

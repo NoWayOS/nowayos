@@ -183,6 +183,20 @@ pub struct Placement {
 }
 
 impl Placement {
+    /// The box `width` by `height` pixels whose top-left corner is `left`
+    /// pixels right of and `top` pixels above an outline's origin: any part
+    /// of an outline can be drawn, edges outside the box still counting for
+    /// the pixels inside it.
+    #[must_use]
+    pub const fn new(left: i32, top: i32, width: u32, height: u32) -> Self {
+        Self {
+            left,
+            top,
+            width,
+            height,
+        }
+    }
+
     /// The ink box at `scale` of an outline whose every point lies within
     /// `min` and `max` font units: the whole pixels it touches. `None` if
     /// `min` is not below and left of `max`, or the box is too large to
@@ -553,7 +567,11 @@ fn steps(bend: i64) -> i64 {
 
 /// Adds `line`'s signed area to the cells of the rows from `band_top` to
 /// `band_bottom` (1/256 pixel from the ink box's top), `stride` cells a
-/// row, its x held within 0 and `edge`.
+/// row, the box `edge` wide. Where the line crosses the box's left or right
+/// side it is split there: the part left of the box counts as an edge
+/// along its left side, the part right of it as one along its right side,
+/// so a box cut from a larger outline gets exactly the coverage the whole
+/// outline gives there.
 fn draw_line(
     cells: &mut [i32],
     line: Line,
@@ -562,6 +580,79 @@ fn draw_line(
     stride: usize,
     edge: i64,
 ) {
+    if line.y0 == line.y1 {
+        return;
+    }
+    let (start, end) = ((line.x0, line.y0), (line.x1, line.y1));
+    // Where it crosses x = 0 and x = edge, nearest the start first.
+    let mut cuts = [None; 2];
+    for (slot, side) in cuts.iter_mut().zip([0, edge]) {
+        let before = start.0.saturating_sub(side);
+        let after = end.0.saturating_sub(side);
+        if (before < 0 && after > 0) || (before > 0 && after < 0) {
+            // The run's sign moved onto the rise, so the division is by a
+            // positive number.
+            let (mut rise, mut run) = (
+                side.saturating_sub(start.0)
+                    .saturating_mul(end.1.saturating_sub(start.1)),
+                end.0.saturating_sub(start.0),
+            );
+            if run < 0 {
+                (rise, run) = (rise.saturating_neg(), run.saturating_neg());
+            }
+            let y = start.1.saturating_add(div_round(rise, run));
+            *slot = Some((side, y));
+        }
+    }
+    if let [Some(a), Some(b)] = cuts
+        && a.0.saturating_sub(start.0).saturating_abs()
+            > b.0.saturating_sub(start.0).saturating_abs()
+    {
+        cuts = [Some(b), Some(a)];
+    }
+    let mut from = start;
+    for to in cuts.into_iter().flatten().chain(core::iter::once(end)) {
+        let middle = from.0.saturating_add(to.0).div_euclid(2);
+        let piece = if middle < 0 {
+            Line {
+                x0: 0,
+                y0: from.1,
+                x1: 0,
+                y1: to.1,
+            }
+        } else if middle > edge {
+            Line {
+                x0: edge,
+                y0: from.1,
+                x1: edge,
+                y1: to.1,
+            }
+        } else {
+            Line {
+                x0: from.0,
+                y0: from.1,
+                x1: to.0,
+                y1: to.1,
+            }
+        };
+        draw_piece(cells, piece, band_top, band_bottom, stride, edge);
+        from = to;
+    }
+}
+
+/// Adds the signed area of `line`, which lies within the box's sides, to
+/// the cells of the rows from `band_top` to `band_bottom`.
+fn draw_piece(
+    cells: &mut [i32],
+    line: Line,
+    band_top: i64,
+    band_bottom: i64,
+    stride: usize,
+    edge: i64,
+) {
+    if line.y0 == line.y1 {
+        return;
+    }
     let (dir, xa, ya, xb, yb) = if line.y0 < line.y1 {
         (1, line.x0, line.y0, line.x1, line.y1)
     } else {
