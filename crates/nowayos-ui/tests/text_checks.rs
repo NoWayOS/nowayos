@@ -71,6 +71,8 @@ fn fixed_text_that_cannot_be_shown_is_refused_when_its_node_is_added() {
                 value: value.clone(),
                 max_len: 64,
                 mode: nowayos_ui::InputMode::Text,
+                caret: 0,
+                anchor: 0,
             },
             NodeKind::Slot {
                 slot: SlotId(1),

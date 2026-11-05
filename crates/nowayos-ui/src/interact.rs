@@ -229,9 +229,20 @@ impl<const N: usize, const T: usize> Tree<N, T> {
     fn respond(&mut self, event: InputEvent) -> Option<UiEvent> {
         match event {
             InputEvent::PointerMove { x, y } => {
+                let moved = self.pointer != Point::new(x, y);
                 self.pointer = Point::new(x, y);
                 self.pointer_shown = true;
                 self.thumb_to();
+                // A text input held by the mouse selects as it moves.
+                if moved
+                    && let Some(held) = self.pressed
+                    && matches!(
+                        self.get(held).map(|node| &node.kind),
+                        Some(NodeKind::TextInput { .. })
+                    )
+                {
+                    self.place_caret(held, false);
+                }
                 None
             }
             InputEvent::PointerButton { button: 0, down } => {
@@ -294,7 +305,9 @@ impl<const N: usize, const T: usize> Tree<N, T> {
                 self.wheel(notches);
                 None
             }
-            InputEvent::KeyDown(key) if key.is_shift() => {
+            InputEvent::KeyDown(key)
+                if key.is_shift() || matches!(key, KeyCode::LEFT_CTRL | KeyCode::RIGHT_CTRL) =>
+            {
                 self.set_shift_key(key, true);
                 None
             }
@@ -303,8 +316,9 @@ impl<const N: usize, const T: usize> Tree<N, T> {
                 None
             }
             InputEvent::KeyDown(key) => {
-                // A key shows the focus ring.
+                // A key shows the focus ring, and ends any double click.
                 self.set_focus_visible(true);
+                self.last_click = None;
                 self.key_down(key)
             }
         }
@@ -315,12 +329,14 @@ impl<const N: usize, const T: usize> Tree<N, T> {
     /// (A Shift release lost upstream — a rate limiter may drop it — leaves
     /// Shift held until that key is pressed and released again.)
     fn set_shift_key(&mut self, key: KeyCode, down: bool) {
-        let index = match key {
-            KeyCode::LEFT_SHIFT => 0,
-            KeyCode::RIGHT_SHIFT => 1,
+        let (keys, index) = match key {
+            KeyCode::LEFT_SHIFT => (&mut self.shift_keys, 0),
+            KeyCode::RIGHT_SHIFT => (&mut self.shift_keys, 1),
+            KeyCode::LEFT_CTRL => (&mut self.ctrl_keys, 0),
+            KeyCode::RIGHT_CTRL => (&mut self.ctrl_keys, 1),
             _ => return,
         };
-        if let Some(held) = self.shift_keys.get_mut(index) {
+        if let Some(held) = keys.get_mut(index) {
             *held = down;
         }
     }
@@ -328,6 +344,11 @@ impl<const N: usize, const T: usize> Tree<N, T> {
     /// Whether either Shift key is held.
     fn shift(&self) -> bool {
         self.shift_keys.contains(&true)
+    }
+
+    /// Whether either Ctrl key is held.
+    fn ctrl(&self) -> bool {
+        self.ctrl_keys.contains(&true)
     }
 
     fn press(&mut self) -> Option<UiEvent> {
@@ -344,6 +365,9 @@ impl<const N: usize, const T: usize> Tree<N, T> {
         }
         let target = self.control_at(self.pointer);
         self.set_pressed(target);
+        if let Some(id) = target {
+            self.place_caret(id, true);
+        }
         match target {
             Some(id) if self.focus != Some(id) => {
                 self.move_focus(Some(id));
@@ -351,6 +375,75 @@ impl<const N: usize, const T: usize> Tree<N, T> {
             }
             _ => None,
         }
+    }
+
+    /// Puts text input `id`'s caret where the pointer is: at a press,
+    /// `pressed`, selecting from where it was if Shift is held and the
+    /// word there at a second press in the same place; as the pointer
+    /// moves with its button down, the selection follows it.
+    fn place_caret(&mut self, id: NodeId, pressed: bool) {
+        let Some(at) = self.caret_at_pointer(id) else {
+            return;
+        };
+        let again = pressed && self.last_click == Some((id, at));
+        let shift = self.shift();
+        let Ok(node) = self.node_mut(id) else {
+            return;
+        };
+        let rect = node.rect;
+        let NodeKind::TextInput {
+            value,
+            caret,
+            anchor,
+            ..
+        } = &mut node.kind
+        else {
+            return;
+        };
+        if again {
+            let (start, end) = crate::edit::word_at(value.as_str(), usize::from(at));
+            *anchor = u8::try_from(start).unwrap_or(0);
+            *caret = u8::try_from(end).unwrap_or(at);
+        } else {
+            *caret = at;
+            if pressed && !shift {
+                *anchor = at;
+            }
+        }
+        if pressed {
+            self.last_click = (!again).then_some((id, at));
+        }
+        self.dirty.add(rect);
+    }
+
+    /// The caret offset in text input `id` nearest the pointer, as the
+    /// input is drawn ([`crate::edit::window`]).
+    fn caret_at_pointer(&self, id: NodeId) -> Option<u8> {
+        let node = self.get(id)?;
+        let NodeKind::TextInput { value, caret, .. } = &node.kind else {
+            return None;
+        };
+        let metrics = self.metrics?.for_style(node.style.text);
+        let content = node.content();
+        let text = value.as_str();
+        let to_caret = metrics.text_width(text.get(..usize::from(*caret)).unwrap_or(text));
+        let shift = crate::edit::window(
+            to_caret,
+            content.size.width,
+            self.scale.px(crate::edit::CARET_ROOM),
+        );
+        let x = i64::from(self.pointer.x)
+            .saturating_sub(content.left())
+            .saturating_add(i64::from(shift));
+        let best = text
+            .char_indices()
+            .map(|(index, _)| index)
+            .chain(core::iter::once(text.len()))
+            .min_by_key(|&index| {
+                let width = i64::from(metrics.text_width(text.get(..index).unwrap_or("")));
+                width.saturating_sub(x).unsigned_abs()
+            })?;
+        u8::try_from(best).ok()
     }
 
     fn release(&mut self) -> Option<UiEvent> {
@@ -414,6 +507,19 @@ impl<const N: usize, const T: usize> Tree<N, T> {
                 _ => {}
             }
         }
+        // In a focused text area, the arrows, Home, End and Enter edit:
+        // Up and Down move between its lines, not between controls.
+        if let Some(focused) = self.focus
+            && matches!(
+                self.get(focused).map(|node| &node.kind),
+                Some(NodeKind::TextArea { .. })
+            )
+            && key != KeyCode::TAB
+            && !matches!(key, KeyCode::PAGE_UP | KeyCode::PAGE_DOWN)
+        {
+            let shift = self.shift();
+            return self.type_area(focused, key, shift);
+        }
         // Page Up and Page Down scroll the scroll view a page, less a line.
         if matches!(key, KeyCode::PAGE_UP | KeyCode::PAGE_DOWN) {
             self.scroll_page(key == KeyCode::PAGE_DOWN);
@@ -451,12 +557,19 @@ impl<const N: usize, const T: usize> Tree<N, T> {
     }
 
     /// Types `key`, Shift held if `shift`, into text input `id`: from a
-    /// keyboard, or a key of the on-screen keyboard. Enter moves to
-    /// the next control and Backspace deletes the last character.
+    /// keyboard, or a key of the on-screen keyboard (#10075). Left and
+    /// Right move the caret a character - a word with Ctrl - and Home and
+    /// End to an end; with Shift they select. Ctrl and A select it all. A
+    /// character replaces what is selected or goes in at the caret;
+    /// Backspace and Delete remove what is selected, or the character
+    /// before or after the caret. Enter moves to the next control.
     fn type_key(&mut self, id: NodeId, key: KeyCode, shift: bool) -> Option<UiEvent> {
+        use crate::edit::{Step, replaced, selection, step};
+        use nowayos_bounded::Wipe;
         if key == KeyCode::ENTER {
             return self.focus_event(Self::focus_next);
         }
+        let ctrl = self.ctrl();
         let node = self.node_mut(id).ok()?;
         let rect = node.rect;
         let NodeKind::TextInput {
@@ -464,34 +577,100 @@ impl<const N: usize, const T: usize> Tree<N, T> {
             value,
             max_len,
             mode,
+            caret,
+            anchor,
             ..
         } = &mut node.kind
         else {
             return None;
         };
         let field = *field;
-        let event = if key == KeyCode::BACKSPACE {
-            value.pop().map(|_| UiEvent::ValueChanged(field))
-        } else {
-            // A key types only a character the glyph atlases draw, as text
-            // set any other way must be one (the US map types no other),
-            // and only one the input's mode takes: any other key is
-            // refused, reporting nothing.
-            let ch = keymap::us_char(key, shift).filter(|&ch| mode.accepts(ch))?;
-            let fits = value
-                .len()
-                .checked_add(ch.len_utf8())
-                .is_some_and(|len| len <= usize::from(*max_len));
-            Some(if fits && value.push(ch).is_ok() {
-                UiEvent::ValueChanged(field)
-            } else {
-                UiEvent::InputFull(field)
-            })
+        let text = value.as_str();
+        let (at, from) = (usize::from(*caret), usize::from(*anchor));
+        let (low, high) = selection(text, at, from);
+        let to_u8 = |offset: usize| u8::try_from(offset).unwrap_or(u8::MAX);
+        let moving = match key {
+            KeyCode::LEFT if ctrl => Some(Step::WordLeft),
+            KeyCode::LEFT => Some(Step::Left),
+            KeyCode::RIGHT if ctrl => Some(Step::WordRight),
+            KeyCode::RIGHT => Some(Step::Right),
+            KeyCode::HOME => Some(Step::Home),
+            KeyCode::END => Some(Step::End),
+            _ => None,
         };
+        if let Some(movement) = moving {
+            // Without Shift, Left and Right first fold a selection to its
+            // near end.
+            let moved = match (shift, movement) {
+                (false, Step::Left) if low != high => low,
+                (false, Step::Right) if low != high => high,
+                _ => step(text, at, movement),
+            };
+            *caret = to_u8(moved);
+            if !shift {
+                *anchor = *caret;
+            }
+            self.dirty.add(rect);
+            return None;
+        }
+        if ctrl && Some(key) == KeyCode::letter('a') {
+            (*anchor, *caret) = (0, to_u8(text.len()));
+            self.dirty.add(rect);
+            return None;
+        }
+        let mut typed = [0_u8; 4];
+        let (range, insert) = match key {
+            KeyCode::BACKSPACE | KeyCode::DELETE if low != high => ((low, high), ""),
+            KeyCode::BACKSPACE => ((step(text, at, Step::Left), at), ""),
+            KeyCode::DELETE => ((at, step(text, at, Step::Right)), ""),
+            _ => {
+                // A key types only a character the glyph atlases draw, as
+                // text set any other way must be one (the US map types no
+                // other), and only one the input's mode takes: any other
+                // key is refused, reporting nothing.
+                let ch = keymap::us_char(key, shift).filter(|&ch| mode.accepts(ch))?;
+                ((low, high), &*ch.encode_utf8(&mut typed))
+            }
+        };
+        if range.0 == range.1 && insert.is_empty() {
+            return None;
+        }
+        let mut made = [0_u8; crate::INPUT_CAPACITY];
+        let event = match replaced(text, range, insert, usize::from(*max_len), &mut made) {
+            Some(len) => {
+                let ok = made
+                    .get(..len)
+                    .and_then(|bytes| core::str::from_utf8(bytes).ok())
+                    .is_some_and(|new| {
+                        value.clear();
+                        value.push_str(new).is_ok()
+                    });
+                let end = to_u8(range.0.saturating_add(insert.len()));
+                (*caret, *anchor) = (end, end);
+                ok.then_some(UiEvent::ValueChanged(field))
+            }
+            None => Some(UiEvent::InputFull(field)),
+        };
+        // What was typed leaves no copy behind.
+        made.wipe();
+        typed.wipe();
         if matches!(event, Some(UiEvent::ValueChanged(_))) {
             self.dirty.add(rect);
         }
         event
+    }
+
+    /// A key of the on-screen keyboard typed into `target`: a text input or
+    /// a text area.
+    fn type_into(&mut self, target: NodeId, key: KeyCode, shift: bool) -> Option<UiEvent> {
+        if matches!(
+            self.get(target).map(|node| &node.kind),
+            Some(NodeKind::TextArea { .. })
+        ) {
+            self.type_area(target, key, shift)
+        } else {
+            self.type_key(target, key, shift)
+        }
     }
 
     /// The on-screen keyboard's key under the pointer, if a text input has
@@ -521,9 +700,9 @@ impl<const N: usize, const T: usize> Tree<N, T> {
                 if shift {
                     self.set_keyboard_shift(board, false);
                 }
-                self.type_key(target, key, shift)
+                self.type_into(target, key, shift)
             }
-            KeyAction::Type { key, shift } => self.type_key(target, key, shift),
+            KeyAction::Type { key, shift } => self.type_into(target, key, shift),
         }
     }
 
@@ -542,6 +721,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
     fn input_mode(&self, id: Option<NodeId>) -> Option<InputMode> {
         match self.get(id?)?.kind {
             NodeKind::TextInput { mode, .. } => Some(mode),
+            NodeKind::TextArea { .. } => Some(InputMode::Text),
             _ => None,
         }
     }

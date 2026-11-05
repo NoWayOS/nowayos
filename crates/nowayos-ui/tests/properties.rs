@@ -95,6 +95,8 @@ fn kind(k: u8, n: usize) -> NodeKind {
             // Every length from 1 up, in each mode.
             max_len: (n % INPUT_CAPACITY + 1) as u8,
             mode: [InputMode::Text, InputMode::Digits, InputMode::Email][n % 3],
+            caret: 0,
+            anchor: 0,
         },
         6 => NodeKind::Slot {
             slot: SlotId(n as u16),

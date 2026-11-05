@@ -133,6 +133,8 @@ fn a_length_outside_one_to_the_capacity_is_refused_when_made() {
         value: BoundedStr::try_from_str(text).unwrap(),
         max_len,
         mode,
+        caret: 0,
+        anchor: 0,
     };
     let mut u: Tree<4> = Tree::new();
     assert!(matches!(

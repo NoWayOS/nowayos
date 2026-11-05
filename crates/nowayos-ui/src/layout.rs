@@ -376,7 +376,9 @@ impl TextMetrics {
             NodeKind::Button { .. } => {
                 Size::new(self.min_target, self.min_target.max(self.button_height))
             }
-            NodeKind::TextInput { .. } => Size::new(self.min_target, self.min_target),
+            NodeKind::TextInput { .. } | NodeKind::TextArea { .. } => {
+                Size::new(self.min_target, self.min_target)
+            }
             // An icon's size, at the scale.
             NodeKind::Icon(_) => {
                 let side = self.scale.px(nowayos_icons::SIZE);
@@ -756,6 +758,15 @@ impl<const N: usize, const T: usize> Tree<N, T> {
                     .chars_width(INPUT_WIDTH_CHARS)
                     .max(metrics.text_width(placeholder)),
                 metrics.line_height,
+            ),
+            // Its rows of lines.
+            NodeKind::TextArea {
+                placeholder, rows, ..
+            } => Size::new(
+                metrics
+                    .chars_width(INPUT_WIDTH_CHARS)
+                    .max(metrics.text_width(placeholder)),
+                metrics.line_height.saturating_mul(u32::from(*rows).max(1)),
             ),
             NodeKind::Spacer
             | NodeKind::Group { .. }

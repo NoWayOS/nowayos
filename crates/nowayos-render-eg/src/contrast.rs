@@ -172,7 +172,7 @@ const GROUNDS: [Option<Surface>; 6] = [
 
 /// The pairs a text input, a field's error marker and a progress bar's
 /// fill and track draw, on the background: those no ground below covers.
-fn fields(theme: &Theme<Rgb888>) -> [Pair; 7] {
+fn fields(theme: &Theme<Rgb888>) -> [Pair; 8] {
     let pair = |what, need, fore, back| Pair {
         what,
         on: None,
@@ -192,6 +192,12 @@ fn fields(theme: &Theme<Rgb888>) -> [Pair; 7] {
             Need::Text,
             theme.placeholder,
             theme.input,
+        ),
+        pair(
+            "a typed value on its selection",
+            Need::Text,
+            theme.text,
+            theme.selection,
         ),
         pair(
             "the error marker's `!` (the background) on the marker",

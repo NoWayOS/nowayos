@@ -50,6 +50,11 @@ pub struct Tree<const N: usize, const T: usize = 0> {
     pub(crate) pointer_shown: bool,
     /// Whether each Shift key is held: left, right.
     pub(crate) shift_keys: [bool; 2],
+    /// Whether each Ctrl key is held: left, right.
+    pub(crate) ctrl_keys: [bool; 2],
+    /// The text input last pressed and where its caret went: a second
+    /// press there, with nothing between, is a double click.
+    pub(crate) last_click: Option<(NodeId, u8)>,
     pub(crate) dirty: DirtyRegion<DIRTY_RECTS>,
     /// The metrics of the last layout: what a slot's new text is
     /// measured with, so that only the part that changed is repainted.
@@ -113,6 +118,8 @@ impl<const N: usize, const T: usize> Tree<N, T> {
             focus_visible: false,
             pointer_shown: false,
             shift_keys: [false; 2],
+            ctrl_keys: [false; 2],
+            last_click: None,
             dirty: DirtyRegion::new(Rect::EMPTY),
             metrics: None,
             drag: None,
@@ -142,6 +149,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
         self.pressed_key = None;
         self.drag = None;
         self.shift_keys = [false; 2];
+        self.ctrl_keys = [false; 2];
         self.dirty.mark_all();
     }
 
@@ -291,6 +299,8 @@ impl<const N: usize, const T: usize> Tree<N, T> {
                 value: BoundedStr::new(),
                 max_len,
                 mode: input.input_mode(),
+                caret: 0,
+                anchor: 0,
             },
             Style::new().insets(INPUT_PADDING),
         )
@@ -847,6 +857,12 @@ impl<const N: usize, const T: usize> Tree<N, T> {
             NodeKind::TextInput {
                 field: f, value, ..
             } if *f == field => Some(value.as_str()),
+            NodeKind::TextArea {
+                field: f,
+                start,
+                len,
+                ..
+            } if *f == field => Some(self.texts.get(*start, *len)),
             _ => None,
         })
     }
@@ -982,13 +998,18 @@ impl<const N: usize, const T: usize> Tree<N, T> {
     /// input's `max_len`; [`UiError::NotInInputMode`] for a character its
     /// mode refuses. The value is unchanged on error.
     pub fn set_value(&mut self, field: FieldId, text: &str) -> Result<(), UiError> {
-        check_printable(text)?;
         let id = self.find_field(field).ok_or(UiError::UnknownField(field))?;
+        if matches!(self.node(id)?.kind, NodeKind::TextArea { .. }) {
+            return self.set_area_value(id, text);
+        }
+        check_printable(text)?;
         let node = self.node_mut(id)?;
         let NodeKind::TextInput {
             value,
             max_len,
             mode,
+            caret,
+            anchor,
             ..
         } = &mut node.kind
         else {
@@ -1006,6 +1027,9 @@ impl<const N: usize, const T: usize> Tree<N, T> {
             return Err(UiError::NotInInputMode);
         }
         *value = BoundedStr::try_from_str(text).map_err(UiError::ValueTooLong)?;
+        // The caret after the new text, nothing selected.
+        let end = u8::try_from(value.len()).unwrap_or(u8::MAX);
+        (*caret, *anchor) = (end, end);
         let rect = node.rect;
         self.dirty.add(rect);
         Ok(())
@@ -1534,9 +1558,29 @@ impl<const N: usize, const T: usize> Tree<N, T> {
     pub fn clear_values(&mut self) {
         for node in self.nodes.iter_mut() {
             let held = match &mut node.kind {
-                NodeKind::TextInput { value, .. } => {
+                NodeKind::TextInput {
+                    value,
+                    caret,
+                    anchor,
+                    ..
+                } => {
                     let held = !value.is_empty();
                     value.clear();
+                    (*caret, *anchor) = (0, 0);
+                    held
+                }
+                NodeKind::TextArea {
+                    start,
+                    capacity,
+                    len,
+                    caret,
+                    anchor,
+                    top,
+                    ..
+                } => {
+                    let held = *len != 0;
+                    let _ = self.texts.put(*start, *capacity, "");
+                    (*len, *caret, *anchor, *top) = (0, 0, 0, 0);
                     held
                 }
                 NodeKind::Checkbox { checked, .. } => core::mem::take(checked),
@@ -1560,6 +1604,16 @@ impl<const N: usize, const T: usize> Tree<N, T> {
     /// ([`Navigator::reset`](crate::Navigator::reset)) starts with this.
     pub fn wipe_session(&mut self) {
         for node in self.nodes.iter_mut() {
+            // A long text's or a text area's bytes, in the text store.
+            if let NodeKind::LongText {
+                start, capacity, ..
+            }
+            | NodeKind::TextArea {
+                start, capacity, ..
+            } = node.kind
+            {
+                let _ = self.texts.put(start, capacity, "");
+            }
             node.wipe();
         }
         self.pressed = None;
@@ -1583,6 +1637,12 @@ impl<const N: usize, const T: usize> Tree<N, T> {
     pub fn is_wiped(&self) -> bool {
         self.nodes.iter().all(|node| match &node.kind {
             NodeKind::TextInput { value, .. } => value.is_zeroed(),
+            NodeKind::TextArea {
+                start,
+                capacity,
+                len,
+                ..
+            } => *len == 0 && self.texts.is_zeroed(*start, *capacity),
             NodeKind::Slot { text, .. } => text.is_zeroed(),
             NodeKind::LongText {
                 start,
@@ -1669,7 +1729,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
     #[must_use]
     pub fn find_field(&self, field: FieldId) -> Option<NodeId> {
         self.nodes.iter().enumerate().find_map(|(index, node)| {
-            matches!(&node.kind, NodeKind::TextInput { field: f, .. } if *f == field)
+            matches!(&node.kind, NodeKind::TextInput { field: f, .. } | NodeKind::TextArea { field: f, .. } if *f == field)
                 .then(|| u16::try_from(index).ok().map(NodeId))
                 .flatten()
         })
@@ -2266,6 +2326,8 @@ mod tests {
             value: typed,
             max_len: 64,
             mode: crate::InputMode::Text,
+            caret: 0,
+            anchor: 0,
         };
         assert_eq!(t.add(input, Style::new()), refused);
         assert!(t.is_empty(), "nothing was created");

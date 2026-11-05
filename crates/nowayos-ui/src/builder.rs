@@ -132,6 +132,10 @@
 //! as the application counts, shown through a pool of rows built once and
 //! rebound as it scrolls ([`ListId`]).
 //!
+//! Contract v19 adds [`UiBuilder::text_area`]: several lines a person
+//! types, kept in the tree's text store (React's `<textarea rows
+//! maxLength>`).
+//!
 //! Provisional: tracks Screen Compiler's contract; both sides change together.
 
 use crate::{ContainerKind, Length, NodeId, NodeKind, Style, Tree, UiError};
@@ -519,6 +523,22 @@ pub trait UiBuilder {
         rows: &[Self::Node],
     ) -> Result<Self::Node, Self::Error>;
 
+    /// A text area (contract v19): several lines a person types into,
+    /// bound to `field`, `rows` lines high, up to `max_len` bytes kept in
+    /// the tree's text store; empty at first, `placeholder` showing.
+    ///
+    /// # Errors
+    ///
+    /// The builder's error: for example when it is full, its text store
+    /// has too few bytes left, or `field` is already bound.
+    fn text_area(
+        &mut self,
+        field: FieldId,
+        rows: u8,
+        max_len: u16,
+        placeholder: &'static str,
+    ) -> Result<Self::Node, Self::Error>;
+
     /// One choice of `options` bound to `field`, in a list `picker` shapes
     /// (contract v10).
     ///
@@ -903,6 +923,19 @@ impl<const N: usize, const T: usize> UiBuilder for Tree<N, T> {
             });
         }
         Ok(view)
+    }
+
+    fn text_area(
+        &mut self,
+        field: FieldId,
+        rows: u8,
+        max_len: u16,
+        placeholder: &'static str,
+    ) -> Result<NodeId, UiError> {
+        if self.find_field(field).is_some() {
+            return Err(UiError::DuplicateField(field));
+        }
+        Tree::text_area(self, field, rows, u32::from(max_len), placeholder)
     }
 
     fn slot(&mut self, slot: SlotId) -> Result<NodeId, UiError> {

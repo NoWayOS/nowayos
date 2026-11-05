@@ -65,6 +65,38 @@ impl<const T: usize> TextStore<T> {
             .is_some_and(|bytes| bytes.iter().all(|&byte| byte == 0))
     }
 
+    /// Replaces bytes `from..to` of the `len` at `start` - of `capacity` -
+    /// with `insert`, in place: the rest moves along, and bytes it leaves
+    /// past the new end are zeroed. The new length, or `None` - nothing
+    /// changed - if it would not fit.
+    pub(crate) fn splice(
+        &mut self,
+        (start, capacity, len): (u32, u32, u32),
+        (from, to): (usize, usize),
+        insert: &[u8],
+    ) -> Option<u32> {
+        let start = usize::try_from(start).ok()?;
+        let capacity = usize::try_from(capacity).ok()?;
+        let len = usize::try_from(len).ok()?;
+        if from > to || to > len {
+            return None;
+        }
+        let new_len = len
+            .checked_sub(to.checked_sub(from)?)?
+            .checked_add(insert.len())?;
+        if new_len > capacity {
+            return None;
+        }
+        let area = self.bytes.get_mut(start..start.checked_add(capacity)?)?;
+        let moved_to = from.checked_add(insert.len())?;
+        area.copy_within(to..len, moved_to);
+        area.get_mut(from..moved_to)?.copy_from_slice(insert);
+        if new_len < len {
+            area.get_mut(new_len..len)?.fill(0);
+        }
+        u32::try_from(new_len).ok()
+    }
+
     /// Every byte given back, zeroed: for a tree cleared to build again.
     pub(crate) fn clear(&mut self) {
         self.bytes.fill(0);
@@ -132,7 +164,8 @@ impl<'t> Iterator for Lines<'t, '_> {
         let mut wrapped = wrap(paragraph, self.width, self.metrics);
         let first = wrapped.next();
         self.current = Some(wrapped);
-        Some(first.unwrap_or(""))
+        // An empty line at the paragraph's own place in the text.
+        Some(first.unwrap_or_else(|| paragraph.get(..0).unwrap_or("")))
     }
 }
 
