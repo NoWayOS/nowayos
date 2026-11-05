@@ -100,6 +100,7 @@
 #![forbid(unsafe_code)]
 #![deny(clippy::indexing_slicing, clippy::arithmetic_side_effects)]
 
+pub mod access;
 pub mod area;
 pub mod builder;
 pub mod clipboard;
