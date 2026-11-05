@@ -367,6 +367,11 @@ impl Default for Input {
     }
 }
 
+/// A picture received at run time, by the application's number for it
+/// (#10084): see [`NodeKind::Live`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
+pub struct LiveId(pub u16);
+
 /// A size along one axis.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum Length {
@@ -1531,6 +1536,23 @@ pub enum NodeKind {
         /// a picture that is only decoration.
         alt: &'static str,
     },
+    /// A picture received at run time (#10084), decoded by the picture
+    /// decoder PD: its pixels are the application's, lent to the renderer
+    /// at each frame by `id` (`nowayos-render-eg`'s `Live`); until there
+    /// are some, nothing is drawn. `width` x `height` layout units unless
+    /// a style gives another size; fitted to the box by `fit`.
+    Live {
+        /// Which picture: the application's number for it.
+        id: LiveId,
+        /// Its size, in layout units.
+        width: u16,
+        /// Its size, in layout units.
+        height: u16,
+        /// How it fills a box of another shape.
+        fit: nowayos_pictures::Fit,
+        /// What it shows, in words.
+        alt: &'static str,
+    },
     /// Paragraphs the application sets at run time (builder contract v16),
     /// bound to `slot` as a slot is, kept in the tree's text store
     /// ([`crate::long_text`]): wrapped onto as many lines as they need at
@@ -1779,7 +1801,8 @@ impl NodeKind {
             | Self::Spacer
             | Self::Progress { .. }
             | Self::Icon(_)
-            | Self::Image { .. } => Ok(()),
+            | Self::Image { .. }
+            | Self::Live { .. } => Ok(()),
         }
     }
 
@@ -1824,7 +1847,7 @@ impl NodeKind {
                     .try_for_each(|option| check_printable(option))
             }),
             Self::FieldError { message, .. } => message.map_or(Ok(()), check_printable),
-            Self::Image { alt, .. } => check_printable(alt),
+            Self::Image { alt, .. } | Self::Live { alt, .. } => check_printable(alt),
             Self::Rich { runs, .. } => runs.iter().try_for_each(|run| check_printable(run.text)),
             // Its labels are fixed and printable (`keyboard`'s tests).
             Self::Column

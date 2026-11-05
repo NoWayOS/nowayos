@@ -144,6 +144,10 @@ members = [
     # The Pi 5's network: systems/rpi5b_2gb/net-stack-test.system, the NIC
     # driver PD for RP1's Cadence GEM MAC, polled
     "gem-net",
+    # In QEMU: systems/picture-decode-test.system, the picture decoder PD
+    # and the test UI that sends it pictures and shows them (#10084)
+    "picture-decoder",
+    "picture-show",
 ]
 
 [workspace.package]
@@ -195,6 +199,11 @@ nowayos-signature = { path = "../crates/nowayos-signature" }
 nowayos-time = { path = "../crates/nowayos-time" }
 nowayos-update = { path = "../crates/nowayos-update" }
 nowayos-ui = { path = "../crates/nowayos-ui" }
+# A picture received at run time, decoded within bounds (#10084): brings
+# zune-png, zune-jpeg, zune-core and zune-inflate (MIT OR Apache-2.0 OR
+# Zlib, MIT taken), no_std with alloc; the records to and from its PD.
+nowayos-picture-decode = { path = "../crates/nowayos-picture-decode" }
+nowayos-picture-wire = { path = "../crates/nowayos-picture-wire" }
 # USB host logic from the public specifications: xHCI's records and
 # contexts, descriptors, enumeration and HID boot reports.
 nowayos-usb = { path = "../crates/nowayos-usb" }

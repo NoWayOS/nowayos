@@ -1,0 +1,22 @@
+# Lines picture-decode-test must print, in order (tools/qemu-test).
+NOWAYOS: picture-decoder: started; heap 3145728 bytes; restart epoch 1; dropped 0 request(s) in flight
+NOWAYOS: picture-show: sent landscape.jpg, 72513 bytes
+NOWAYOS: picture-decoder: picture 0 decoded: 640x400
+NOWAYOS: picture-show: landscape.jpg: decoded, 640 x 400
+NOWAYOS: picture-decoder: picture 1 refused: TooLarge
+NOWAYOS: picture-show: huge.png: refused, too large
+NOWAYOS: picture-decoder: picture 2 refused: Malformed
+NOWAYOS: picture-show: truncated.jpg: refused, malformed
+NOWAYOS: picture-decoder: its heap refused an allocation: it stops
+NOWAYOS: picture-show: the decoder stopped by a fault; restarted it (restart 1)
+NOWAYOS: picture-decoder: restarted; heap 3145728 bytes; restart epoch 2; dropped 0 request(s) in flight
+NOWAYOS: picture-show: big.png: the decoder stopped; restarted
+NOWAYOS: picture-decoder: picture 4 decoded: 192x192
+NOWAYOS: picture-show: badge.png: decoded, 192 x 192
+NOWAYOS: picture-show: every picture done
+
+# Output that fails the test at once if it appears anywhere (substring match).
+!MON|ERROR
+!seL4(CPU
+!gave up
+!cannot restart

@@ -1,0 +1,4 @@
+# QEMU devices picture-decode-test's PDs drive (tools/make/system.mk): the
+# ramfb display, whose screen the test compares with
+# picture-decode-test.screen.png once every line has been seen.
+-device ramfb

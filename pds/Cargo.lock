@@ -1219,6 +1219,54 @@ dependencies = [
 ]
 
 [[package]]
+name = "nowayos-picture-decode"
+version = "0.1.0"
+dependencies = [
+ "nowayos-picture-wire",
+ "zune-core",
+ "zune-jpeg",
+ "zune-png",
+]
+
+[[package]]
+name = "nowayos-picture-decoder"
+version = "0.1.0"
+dependencies = [
+ "nowayos-display",
+ "nowayos-heap",
+ "nowayos-ipc",
+ "nowayos-picture-decode",
+ "nowayos-picture-wire",
+ "nowayos-region",
+ "nowayos-restart",
+ "sel4-microkit",
+]
+
+[[package]]
+name = "nowayos-picture-show"
+version = "0.1.0"
+dependencies = [
+ "nowayos-bounded",
+ "nowayos-display",
+ "nowayos-heap",
+ "nowayos-ipc",
+ "nowayos-picture-wire",
+ "nowayos-region",
+ "nowayos-render-eg",
+ "nowayos-restart",
+ "nowayos-ui",
+ "nowayos-ui-loop",
+ "sel4-microkit",
+]
+
+[[package]]
+name = "nowayos-picture-wire"
+version = "0.1.0"
+dependencies = [
+ "nowayos-ipc",
+]
+
+[[package]]
 name = "nowayos-pictures"
 version = "0.1.0"
 
@@ -2410,6 +2458,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "simd-adler32"
+version = "0.3.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3a219298ac11a56ea9a6d2120044824d6f01aeb034955e7af7bc16858527deea"
+
+[[package]]
 name = "smallvec"
 version = "1.16.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2719,3 +2773,37 @@ name = "zmij"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "29666d0abbfad1e3dc4dcf6144730dd3a3ab225bbbdac83319345b1b44ccfc1b"
+
+[[package]]
+name = "zune-core"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cb8a0807f7c01457d0379ba880ba6322660448ddebc890ce29bb64da71fb40f9"
+
+[[package]]
+name = "zune-inflate"
+version = "0.2.54"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "73ab332fe2f6680068f3582b16a24f90ad7096d5d39b974d1c0aff0125116f02"
+dependencies = [
+ "simd-adler32",
+]
+
+[[package]]
+name = "zune-jpeg"
+version = "0.5.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ec5f41c76397b7da451efd19915684f727d7e1d516384ca6bd0ec43ec94de23c"
+dependencies = [
+ "zune-core",
+]
+
+[[package]]
+name = "zune-png"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5a321146329f7617ba0a5b26982cba45b7ce78163135aba78be25850aefcea80"
+dependencies = [
+ "zune-core",
+ "zune-inflate",
+]

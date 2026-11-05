@@ -56,8 +56,8 @@ use nowayos_region::{
     ring_producer,
 };
 use nowayos_render_eg::{
-    Glyphs, RawFramebuffer, RawFramebufferError, Theme, pointer_area, render, render_dirty,
-    render_pointer, to_eg,
+    Glyphs, Live, NoLive, RawFramebuffer, RawFramebufferError, Theme, pointer_area,
+    render_area_live, render_dirty_live, render_pointer, to_eg,
 };
 use nowayos_ui::{Cursor, TextMetrics, Tree, Zoom};
 
@@ -276,12 +276,35 @@ impl UiLoop {
         frame: M,
         glyphs: &mut Glyphs<'_>,
     ) -> Result<Present, LoopError> {
+        self.draw_all_live(tree, frame, glyphs, &NoLive)
+    }
+
+    /// [`draw_all`](Self::draw_all), the pixels of pictures decoded at run
+    /// time lent by `live` (#10084).
+    ///
+    /// # Errors
+    ///
+    /// As [`draw_all`](Self::draw_all).
+    pub fn draw_all_live<M: FrameMemory, const N: usize, const T: usize>(
+        &mut self,
+        tree: &Tree<N, T>,
+        frame: M,
+        glyphs: &mut Glyphs<'_>,
+        live: &dyn Live,
+    ) -> Result<Present, LoopError> {
         let layout = self.end.layout().ok_or(ContractError::NotConfigured)?;
         if !self.end.can_draw() {
             return Err(ContractError::PresentInFlight.into());
         }
         let mut target = RawFramebuffer::new(layout, frame).map_err(LoopError::Framebuffer)?;
-        match render(tree, &mut target, &self.theme, glyphs) {
+        match render_area_live(
+            tree,
+            &mut target,
+            &self.theme,
+            tree.viewport(),
+            glyphs,
+            live,
+        ) {
             Ok(()) => {}
             Err(never) => match never {},
         }
@@ -326,7 +349,7 @@ impl UiLoop {
     /// them drawn ([`Tree::clear_dirty`]), and returns the `Present`
     /// announcing just those rectangles - none, if nothing changed,
     /// so the display shows the same frame and acknowledges it. The pixels
-    /// are those a whole frame would have ([`render_dirty`]), so long as
+    /// are those a whole frame would have (`render_dirty`), so long as
     /// `frame` holds the last frame drawn: the UI's own framebuffer, which
     /// only it writes.
     ///
@@ -338,6 +361,22 @@ impl UiLoop {
         tree: &mut Tree<N, T>,
         frame: M,
         glyphs: &mut Glyphs<'_>,
+    ) -> Result<Present, LoopError> {
+        self.draw_dirty_live(tree, frame, glyphs, &NoLive)
+    }
+
+    /// [`draw_dirty`](Self::draw_dirty), the pixels of pictures decoded at
+    /// run time lent by `live` (#10084).
+    ///
+    /// # Errors
+    ///
+    /// As [`draw_dirty`](Self::draw_dirty).
+    pub fn draw_dirty_live<M: FrameMemory, const N: usize, const T: usize>(
+        &mut self,
+        tree: &mut Tree<N, T>,
+        frame: M,
+        glyphs: &mut Glyphs<'_>,
+        live: &dyn Live,
     ) -> Result<Present, LoopError> {
         let layout = self.end.layout().ok_or(ContractError::NotConfigured)?;
         if !self.end.can_draw() {
@@ -378,7 +417,7 @@ impl UiLoop {
                 ));
             }
         }
-        match render_dirty(tree, &mut target, &self.theme, glyphs) {
+        match render_dirty_live(tree, &mut target, &self.theme, glyphs, live) {
             Ok(()) => {}
             Err(never) => match never {},
         }

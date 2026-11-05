@@ -116,8 +116,9 @@ use nowayos_ui::pictures::{Fit, Picture};
 use nowayos_ui::rich::Run;
 use nowayos_ui::text::{fit_start, wrap};
 use nowayos_ui::{
-    ButtonVariant, Colour, Elevation, GradientKind, InputMode, Look, MIN_TARGET, Node, NodeId,
-    NodeKind, Spacing, Surface, TextAlign, TextMetrics, TextRole, TextStyle, Tone, Tree, Weight,
+    ButtonVariant, Colour, Elevation, GradientKind, InputMode, LiveId, Look, MIN_TARGET, Node,
+    NodeId, NodeKind, Spacing, Surface, TextAlign, TextMetrics, TextRole, TextStyle, Tone, Tree,
+    Weight,
 };
 
 use crate::shape::{Inside, Paint, Radii, Rounded, fill_polygon};
@@ -975,6 +976,48 @@ pub fn metrics(font: &MonoFont<'_>) -> TextMetrics {
 /// veil, out of 255: half way.
 const VEIL: u8 = 128;
 
+/// The pixels of pictures decoded at run time (#10084), lent to each frame
+/// by the program that holds them, by their [`LiveId`]: copied out of the
+/// region the picture decoder PD wrote, into the program's own memory,
+/// before they are lent.
+pub trait Live {
+    /// Picture `id`'s pixels, if there are any.
+    fn view(&self, id: LiveId) -> Option<nowayos_ui::pictures::View<'_>>;
+}
+
+/// No picture decoded at run time: what [`render`] and its kin lend.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct NoLive;
+
+impl Live for NoLive {
+    fn view(&self, _: LiveId) -> Option<nowayos_ui::pictures::View<'_>> {
+        None
+    }
+}
+
+/// [`render_dirty`], the pixels of pictures decoded at run time lent by
+/// `live` (#10084). Call [`Tree::clear_dirty`] afterwards.
+///
+/// # Errors
+///
+/// Whatever the draw target reports.
+pub fn render_dirty_live<D, const N: usize, const T: usize>(
+    tree: &Tree<N, T>,
+    target: &mut D,
+    theme: &Theme<D::Color>,
+    glyphs: &mut Glyphs<'_>,
+    live: &dyn Live,
+) -> Result<(), D::Error>
+where
+    D: DrawTarget,
+    D::Color: RgbColor + From<Rgb888>,
+{
+    for &area in tree.dirty_rects() {
+        render_area_live(tree, target, theme, area, glyphs, live)?;
+    }
+    Ok(())
+}
+
 /// Paints the tree's whole viewport.
 ///
 /// # Errors
@@ -1038,17 +1081,45 @@ where
     D: DrawTarget,
     D::Color: RgbColor + From<Rgb888>,
 {
+    render_area_live(tree, target, theme, area, glyphs, &NoLive)
+}
+
+/// [`render_area`], the pixels of pictures decoded at run time lent by
+/// `live` (#10084).
+///
+/// # Errors
+///
+/// Whatever the draw target reports.
+pub fn render_area_live<D, const N: usize, const T: usize>(
+    tree: &Tree<N, T>,
+    target: &mut D,
+    theme: &Theme<D::Color>,
+    area: Rect,
+    glyphs: &mut Glyphs<'_>,
+    live: &dyn Live,
+) -> Result<(), D::Error>
+where
+    D: DrawTarget,
+    D::Color: RgbColor + From<Rgb888>,
+{
     let Some(area) = area.intersection(&tree.viewport()) else {
         return Ok(());
     };
     // With a shadow or a see-through node in it, composed tile by tile in
     // a buffer that can be read back (#10079, ADR-0027); else straight.
     if !has_effects(tree, area) {
-        return paint(tree, &mut compose::Straight(target), theme, area, glyphs);
+        return paint(
+            tree,
+            &mut compose::Straight(target),
+            theme,
+            area,
+            glyphs,
+            live,
+        );
     }
     for part in compose::tiles(area) {
         let mut tile = compose::Tile::new(part, theme.background);
-        let Ok(()) = paint(tree, &mut tile, theme, part, glyphs);
+        let Ok(()) = paint(tree, &mut tile, theme, part, glyphs, live);
         target.fill_contiguous(&to_eg(part), tile.pixels())?;
     }
     Ok(())
@@ -1264,6 +1335,7 @@ fn paint<K, const N: usize, const T: usize>(
     theme: &Theme<K::Color>,
     area: Rect,
     glyphs: &mut Glyphs<'_>,
+    live: &dyn Live,
 ) -> Result<(), K::Error>
 where
     K: compose::Canvas,
@@ -1294,6 +1366,7 @@ where
         veil,
         gradient: None,
         visual: Visual::REST,
+        live,
     }
     .fill(area, ground_theme.background)?;
     // The screen, then each layer shown over it, bottom to top.
@@ -1409,6 +1482,7 @@ where
                         gradient_under(tree, node, theme)
                     },
                     visual,
+                    live,
                 }
                 .node(tree, id, node)?;
             }
@@ -1452,6 +1526,7 @@ where
                 veil,
                 gradient: None,
                 visual: Visual::REST,
+                live,
             };
             for bar in [bars.vertical, bars.horizontal].into_iter().flatten() {
                 painter.thumb(bar.thumb)?;
@@ -1639,6 +1714,8 @@ struct Painter<'t, 'th, 'g, 'c, D: DrawTarget> {
     /// How the node is drawn while it moves (#10086): its colours, its
     /// box's scale, an icon's turn, a progress bar's sweep.
     visual: Visual,
+    /// The pixels of pictures decoded at run time (#10084).
+    live: &'th dyn Live,
 }
 
 impl<D> Painter<'_, '_, '_, '_, D>
@@ -1683,6 +1760,12 @@ where
             NodeKind::Progress { permille, .. } => self.progress(content, *permille),
             NodeKind::Icon(icon) => self.icon(content, icon),
             NodeKind::Image { picture, fit, .. } => self.picture(content, picture, *fit),
+            // A picture decoded at run time, if its pixels are lent
+            // (#10084): at its own pixels' size until fitted.
+            NodeKind::Live { id, fit, .. } => match self.live.view(*id) {
+                Some(view) => self.pixels(content, (view.width(), view.height()), view, *fit),
+                None => Ok(()),
+            },
             NodeKind::Text(text) => {
                 self.selected(tree, id, content)?;
                 self.text_lines(text, node, content)
@@ -2138,6 +2221,7 @@ where
                     veil: self.veil,
                     gradient: self.gradient,
                     visual: Visual::REST,
+                    live: self.live,
                 }
                 .text("!", marker, TextAlign::Center, cut_out, on)?;
             }
@@ -2786,6 +2870,21 @@ where
     fn picture(&mut self, rect: Rect, picture: &Picture, fit: Fit) -> Result<(), D::Error> {
         let natural = (self.px(picture.width()), self.px(picture.height()));
         let placed = fit.place(natural, (rect.size.width, rect.size.height));
+        let pixels = picture.best(placed.width, placed.height).view();
+        self.pixels(rect, natural, pixels, fit)
+    }
+
+    /// `pixels`, whose own size at the scale is `natural`, fitted into
+    /// `rect` by `fit`, blended over the ground: a picture, or one decoded
+    /// at run time (#10084).
+    fn pixels(
+        &mut self,
+        rect: Rect,
+        natural: (u32, u32),
+        pixels: nowayos_ui::pictures::View<'_>,
+        fit: Fit,
+    ) -> Result<(), D::Error> {
+        let placed = fit.place(natural, (rect.size.width, rect.size.height));
         let left = rect.left().saturating_add(placed.left);
         let top = rect.top().saturating_add(placed.top);
         let drawn = Rect::from_edges(
@@ -2800,7 +2899,6 @@ where
         else {
             return Ok(());
         };
-        let pixels = picture.best(placed.width, placed.height);
         let (ground, veil) = (self.ground, self.veil);
         let offset = |from: i64, to: i64| u32::try_from(from.saturating_sub(to)).unwrap_or(0);
         let (dx, dy) = (offset(visible.left(), left), offset(visible.top(), top));

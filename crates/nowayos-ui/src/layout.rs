@@ -790,6 +790,10 @@ impl<const N: usize, const T: usize> Tree<N, T> {
                 metrics.scale.px(picture.width()),
                 metrics.scale.px(picture.height()),
             ),
+            NodeKind::Live { width, height, .. } => Size::new(
+                metrics.scale.px(u32::from(*width)),
+                metrics.scale.px(u32::from(*height)),
+            ),
             // A scroll view is measured as a stack of its one child.
             NodeKind::Column | NodeKind::Row | NodeKind::Stack | NodeKind::Scroll { .. } => {
                 let axis = Axis::of(&node.kind);

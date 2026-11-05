@@ -33,6 +33,8 @@ nowayos-ip = { path = "crates/nowayos-ip" }
 nowayos-ipc = { path = "crates/nowayos-ipc" }
 nowayos-net = { path = "crates/nowayos-net" }
 nowayos-pictures = { path = "crates/nowayos-pictures" }
+nowayos-picture-decode = { path = "crates/nowayos-picture-decode" }
+nowayos-picture-wire = { path = "crates/nowayos-picture-wire" }
 nowayos-raster = { path = "crates/nowayos-raster" }
 nowayos-render-eg = { path = "crates/nowayos-render-eg" }
 nowayos-seed = { path = "crates/nowayos-seed" }
