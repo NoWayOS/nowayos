@@ -415,6 +415,7 @@ pub const fn key_code(code: u16) -> Option<KeyCode> {
         56 => 0xE2, // KEY_LEFTALT
         57 => 0x2C, // KEY_SPACE
         58 => 0x39, // KEY_CAPSLOCK
+        86 => 0x64, // KEY_102ND
         // KEY_F1 .. KEY_F10 -> 0x3A .. 0x43
         59..=68 => match code.checked_sub(1) {
             Some(usage) => usage,
