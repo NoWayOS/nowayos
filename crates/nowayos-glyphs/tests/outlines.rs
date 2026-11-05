@@ -15,27 +15,7 @@ use nowayos_raster::Rasteriser;
 
 /// The face each atlas was made from.
 fn face_of(atlas: &Atlas) -> &'static Face {
-    use nowayos_glyphs::*;
-    let regular = [
-        &REGULAR_14,
-        &REGULAR_16,
-        &REGULAR_18,
-        &REGULAR_24,
-        &REGULAR_28,
-        &REGULAR_32,
-        &REGULAR_36,
-        &REGULAR_48,
-    ];
-    if [&DISPLAY_96, &DISPLAY_192]
-        .iter()
-        .any(|a| core::ptr::eq(atlas, *a))
-    {
-        &DISPLAY
-    } else if regular.iter().any(|a| core::ptr::eq(atlas, *a)) {
-        &REGULAR
-    } else {
-        &BOLD
-    }
+    atlas.face()
 }
 
 /// Small enough to build on a test thread's stack: larger glyphs are drawn in bands.

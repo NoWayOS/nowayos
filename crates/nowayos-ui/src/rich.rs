@@ -6,9 +6,9 @@
 //!
 //! Lines break after spaces, never inside a word that runs across runs
 //! (`<strong>bold</strong>,`); a word wider than the line is cut where it
-//! no longer fits. Italics are drawn as the face slanted (an oblique) and
-//! code in the body face on a tint, until italic and monospace faces are
-//! signed off (#10078). A run of a link - or consecutive runs of the same
+//! no longer fits. Italics are drawn in the italic of the run's weight and
+//! code in the monospace face, on a tint (`nowayos_glyphs::styled`), each
+//! measured in its own face. A run of a link - or consecutive runs of the same
 //! link - is one link: each is a tab stop of the text, and Enter, Space or
 //! a press on it reports its action.
 
@@ -96,6 +96,16 @@ impl Run {
             Some(weight) => TextStyle { weight, ..style },
             None => style,
         }
+    }
+
+    /// The metrics its text is measured with, within a text of `style`
+    /// measured by `metrics`: its weight's face, or that face's italic or
+    /// monospace sibling.
+    #[must_use]
+    pub fn metrics_in(&self, style: TextStyle, metrics: &TextMetrics) -> TextMetrics {
+        metrics
+            .for_style(self.style_in(style))
+            .styled(self.italic, self.code)
     }
 }
 
@@ -232,7 +242,7 @@ fn line_end(runs: &[Run], from: At, width: u32, style: TextStyle, metrics: &Text
     let mut at = from;
     let mut ink = false;
     for (index, run) in runs.iter().enumerate().skip(from.run) {
-        let run_metrics = metrics.for_style(run.style_in(style));
+        let run_metrics = run.metrics_in(style, metrics);
         let begin = if index == from.run { from.byte } else { 0 };
         let rest = run.text.get(begin..).unwrap_or("");
         for (offset, ch) in rest.char_indices() {
@@ -282,7 +292,7 @@ pub fn pieces<'r>(
             if text.is_empty() {
                 return None;
             }
-            let width = metrics.for_style(run.style_in(style)).text_width(text);
+            let width = run.metrics_in(style, metrics).text_width(text);
             let piece = Piece {
                 run: index,
                 text,
@@ -302,7 +312,7 @@ pub fn line_width(runs: &[Run], line: (At, At), style: TextStyle, metrics: &Text
             let trimmed = piece.text.trim_end_matches(' ');
             let metrics = runs
                 .get(piece.run)
-                .map(|run| metrics.for_style(run.style_in(style)));
+                .map(|run| run.metrics_in(style, metrics));
             if trimmed.len() == piece.text.len() {
                 piece.x.saturating_add(piece.width)
             } else {
@@ -358,6 +368,33 @@ mod tests {
         // A word across two runs never breaks between them.
         assert_eq!(texts(80)[0], "Press ");
         assert_eq!(texts(80)[1], "Save, or ");
+    }
+
+    #[test]
+    fn italics_and_code_are_measured_in_their_own_faces() {
+        use nowayos_glyphs::{BOLD, CODE, CODEBOLD, ITALIC, REGULAR};
+        let style = TextStyle::default();
+        let with = |face| TextMetrics::new(8, 16).with_face(style, face, 18 * 64);
+        let at = |face| with(face).for_style(style);
+        let m = with(&REGULAR).with_face(style.bold(), &BOLD, 18 * 64);
+        let text = "illicit";
+        let width = |run: Run| run.metrics_in(style, &m).text_width(run.text);
+        assert_eq!(width(Run::new(text)), at(&REGULAR).text_width(text));
+        assert_eq!(width(Run::new(text).italic()), at(&ITALIC).text_width(text));
+        assert_eq!(width(Run::new(text).code()), at(&CODE).text_width(text));
+        assert_eq!(
+            width(Run::new(text).bold().code()),
+            at(&CODEBOLD).text_width(text)
+        );
+        // Code sets each letter in a cell of one width: narrow letters widen.
+        assert!(width(Run::new(text).code()) > width(Run::new(text)));
+        // A line of runs is as wide as its runs, each in its face.
+        let runs = [Run::new("a "), Run::new(text).code()];
+        let line = lines(&runs, 1000, style, &m).next().unwrap();
+        assert_eq!(
+            line_width(&runs, line, style, &m),
+            width(Run::new("a ")) + width(Run::new(text).code())
+        );
     }
 
     #[test]

@@ -121,12 +121,17 @@ impl std::error::Error for Error {}
 pub const USAGE: &str = "usage: glyph-atlas [--out DIR] CRATE\n\
     \n\
     Reads CRATE/glyphs.toml and the font files it pins, and writes the glyph atlases into DIR\n\
-    (default: CRATE/src/atlas), replacing what the tool wrote there before.";
+    (default: CRATE/src/atlas), replacing what the tool wrote there before. Without --out it\n\
+    writes the crate's notice too, every family's copyright line and the licence; with --out\n\
+    it checks that notice instead, and fails if it differs.";
 
 /// The generated files, in memory: (file name, contents), sorted by name.
 pub struct Atlases {
     /// Every file the tool writes, sorted by name.
     pub files: Vec<(String, Vec<u8>)>,
+    /// The crate's notice, its name in the crate's folder and what it must
+    /// hold: every family's copyright line, then the licence's text.
+    pub notice: (String, Vec<u8>),
     /// One line saying what was made.
     pub summary: String,
 }
@@ -140,6 +145,7 @@ pub struct Atlases {
 pub fn generate(crate_dir: &Path) -> Result<Atlases, Error> {
     let spec = spec::Spec::load(crate_dir)?;
     let inputs = spec::check_pins(crate_dir, &spec)?;
+    let notice = (spec.notice.clone(), spec.notice_text(&inputs)?.into_bytes());
     let mut faces = Vec::with_capacity(spec.faces.len());
     for (face, (chars, _)) in spec.faces.iter().zip(&spec.face_sets) {
         let pinned = spec.file(&face.file)?;
@@ -150,7 +156,12 @@ pub fn generate(crate_dir: &Path) -> Result<Atlases, Error> {
             raster::rasterise(&face.file, data, &pinned.version, &spec, chars, &face.sizes)?;
         faces.push((face, pinned, atlas));
     }
-    emit::files(&spec, &faces)
+    let (files, summary) = emit::files(&spec, &faces)?;
+    Ok(Atlases {
+        files,
+        notice,
+        summary,
+    })
 }
 
 /// Writes `atlases` into `out`, creating it if need be: each file whose
@@ -231,8 +242,38 @@ pub fn run(args: &[String]) -> Result<String, Error> {
     }
     let crate_dir =
         crate_dir.ok_or_else(|| Error::Usage("name the atlas crate's folder".into()))?;
-    let out = out.unwrap_or_else(|| crate_dir.join("src").join("atlas"));
     let atlases = generate(&crate_dir)?;
-    write(&atlases, &out)?;
-    Ok(format!("{}; written to {}", atlases.summary, out.display()))
+    let (name, notice) = &atlases.notice;
+    let notice_path = crate_dir.join(name);
+    let current = std::fs::read(&notice_path).ok();
+    match out {
+        // Checking: the notice must already be what the pins make it.
+        Some(out) => {
+            if current.as_ref() != Some(notice) {
+                return Err(Error::Spec(format!(
+                    "{} is not every family's copyright line and then the licence's text, as \
+                     {SPEC_FILE}'s licence files give them: `make atlases` writes it",
+                    notice_path.display()
+                )));
+            }
+            write(&atlases, &out)?;
+            Ok(format!("{}; written to {}", atlases.summary, out.display()))
+        }
+        None => {
+            let out = crate_dir.join("src").join("atlas");
+            write(&atlases, &out)?;
+            if current.as_ref() != Some(notice) {
+                std::fs::write(&notice_path, notice).map_err(|error| Error::Io {
+                    what: format!("write {}", notice_path.display()),
+                    error,
+                })?;
+            }
+            Ok(format!(
+                "{}; written to {}, with {}",
+                atlases.summary,
+                out.display(),
+                notice_path.display()
+            ))
+        }
+    }
 }

@@ -4,35 +4,94 @@
 # any difference. The tool checks every file below against its sha256 first,
 # and fails naming any file in fonts/ that is not listed here.
 
-[family]
+# The notice that goes with every copy of the atlases and beside every
+# image: each family's copyright line, then the licence's text, which each
+# family's licence file below gives word for word after its own copyright
+# line. `make atlases` writes it; `make atlases-check` fails if it differs.
+notice = "OFL.txt"
+
+# The families, each signed off, from the commit named, with the licence
+# file as released there. The atlases are one crate, so all share one
+# licence.
+[[family]]
+id = "next"
 name = "Atkinson Hyperlegible Next"
 licence = "OFL-1.1"
-licence-file = "OFL.txt"
+licence-file = "fonts/AtkinsonHyperlegibleNext-OFL.txt"
 copyright = "Copyright 2020-2024 The Atkinson Hyperlegible Next Project Authors (https://github.com/googlefonts/atkinson-hyperlegible-next)"
 repository = "https://github.com/googlefonts/atkinson-hyperlegible-next"
 commit = "7925f50f649b3813257faf2f4c0b381011f434f1"
-decision = "signed off by the maintainer, 2026-10-04"
+decision = "signed off by the maintainer, 2026-10-04; Italic and Bold Italic 2026-11-05"
 
-# Every file of the family in this crate, as released at that commit, with
+# The monospace sibling, for code.
+[[family]]
+id = "mono"
+name = "Atkinson Hyperlegible Mono"
+licence = "OFL-1.1"
+licence-file = "fonts/AtkinsonHyperlegibleMono-OFL.txt"
+copyright = "Copyright 2020-2024 The Atkinson Hyperlegible Mono Project Authors (https://github.com/googlefonts/atkinson-hyperlegible-next-mono)"
+repository = "https://github.com/googlefonts/atkinson-hyperlegible-next-mono"
+commit = "154d50362016cc3e873eb21d242cd0772384c8f9"
+decision = "signed off by the maintainer, 2026-11-05"
+
+# Every file of each family in this crate, as released at its commit, with
 # its version and sha256. A font's own name table must give the same
 # version.
 [[file]]
+family = "next"
 path = "fonts/AtkinsonHyperlegibleNext-Regular.ttf"
 upstream = "fonts/ttf/AtkinsonHyperlegibleNext-Regular.ttf"
 version = "2.001"
 sha256 = "88ed5c31a71584c7772963b02d04bef1eb7e3d2e9c8b9cb204339b1f82cf432c"
 
 [[file]]
+family = "next"
 path = "fonts/AtkinsonHyperlegibleNext-Bold.ttf"
 upstream = "fonts/ttf/AtkinsonHyperlegibleNext-Bold.ttf"
 version = "2.001"
 sha256 = "994414047df66bb4998d01c1cb1eeb4a2ddc4622d1aa56bbb8adbeca7645b041"
 
 [[file]]
-path = "OFL.txt"
+family = "next"
+path = "fonts/AtkinsonHyperlegibleNext-Italic.ttf"
+upstream = "fonts/ttf/AtkinsonHyperlegibleNext-Italic.ttf"
+version = "2.001"
+sha256 = "b7f8f03ceb28ebadb2de2332b2e869a00e8dbfb5c8e00fdbb06385770c8227e7"
+
+[[file]]
+family = "next"
+path = "fonts/AtkinsonHyperlegibleNext-BoldItalic.ttf"
+upstream = "fonts/ttf/AtkinsonHyperlegibleNext-BoldItalic.ttf"
+version = "2.001"
+sha256 = "c2d3c596b54d1565ca20d383cdfb127b50b18b500b85a774fd07d4d976cd018b"
+
+[[file]]
+family = "next"
+path = "fonts/AtkinsonHyperlegibleNext-OFL.txt"
 upstream = "OFL.txt"
 version = "2.001"
 sha256 = "aca6a428580965d2297d1b718042dd427c2a9443ece3b0d02d758e161e0c4030"
+
+[[file]]
+family = "mono"
+path = "fonts/AtkinsonHyperlegibleMono-Regular.ttf"
+upstream = "fonts/ttf/AtkinsonHyperlegibleMono-Regular.ttf"
+version = "2.001"
+sha256 = "2c9a7b9fabebd5c746a808d8a1ef2f52e618850caad6ec4fd9f5c48f56e1c1af"
+
+[[file]]
+family = "mono"
+path = "fonts/AtkinsonHyperlegibleMono-Bold.ttf"
+upstream = "fonts/ttf/AtkinsonHyperlegibleMono-Bold.ttf"
+version = "2.001"
+sha256 = "51ad68fafd7ec68051f64983c9c23182a7084268b5cdb0a154dbd53ade079da6"
+
+[[file]]
+family = "mono"
+path = "fonts/AtkinsonHyperlegibleMono-OFL.txt"
+upstream = "OFL.txt"
+version = "2.001"
+sha256 = "1ebb31cf7393164f20d10c1d48406cddb5314feff8465531cf1e4ba37e9dd740"
 
 # One face for each weight the type scale's roles need: every size of every theme's roles together, at device scales 1
 # and 2. The light theme: caption 14, label 16, body 18 - each
@@ -64,6 +123,34 @@ style = "Bold"
 file = "fonts/AtkinsonHyperlegibleNext-Bold.ttf"
 sizes = [96, 192]
 ranges = [[0x20, 0x20], [0x23, 0x23], [0x25, 0x25], [0x2B, 0x3A], [0x41, 0x5A], [0xA3, 0xA3]]
+
+# Rich text's italics and code: a run in italics is drawn in the italic of
+# its weight, and code in the monospace face of its weight, from their
+# outlines at the run's size. The atlases at the body's two sizes are for
+# the tests that check the outlines against them.
+[[face]]
+name = "italic"
+style = "Italic"
+file = "fonts/AtkinsonHyperlegibleNext-Italic.ttf"
+sizes = [18, 24]
+
+[[face]]
+name = "bolditalic"
+style = "Bold Italic"
+file = "fonts/AtkinsonHyperlegibleNext-BoldItalic.ttf"
+sizes = [18, 24]
+
+[[face]]
+name = "code"
+style = "Regular"
+file = "fonts/AtkinsonHyperlegibleMono-Regular.ttf"
+sizes = [18, 24]
+
+[[face]]
+name = "codebold"
+style = "Bold"
+file = "fonts/AtkinsonHyperlegibleMono-Bold.ttf"
+sizes = [18, 24]
 
 # The set: printable Latin-1, the 190 characters
 # nowayos_ui::text::is_printable accepts - the space to `~` and the no-break

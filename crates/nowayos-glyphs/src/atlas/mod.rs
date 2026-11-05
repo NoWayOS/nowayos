@@ -4,9 +4,18 @@
 // sha256 88ed5c31a71584c7772963b02d04bef1eb7e3d2e9c8b9cb204339b1f82cf432c.
 // Made from Atkinson Hyperlegible Next 2.001, Bold: fonts/AtkinsonHyperlegibleNext-Bold.ttf,
 // sha256 994414047df66bb4998d01c1cb1eeb4a2ddc4622d1aa56bbb8adbeca7645b041.
+// Made from Atkinson Hyperlegible Next 2.001, Italic: fonts/AtkinsonHyperlegibleNext-Italic.ttf,
+// sha256 b7f8f03ceb28ebadb2de2332b2e869a00e8dbfb5c8e00fdbb06385770c8227e7.
+// Made from Atkinson Hyperlegible Next 2.001, Bold Italic: fonts/AtkinsonHyperlegibleNext-BoldItalic.ttf,
+// sha256 c2d3c596b54d1565ca20d383cdfb127b50b18b500b85a774fd07d4d976cd018b.
+// Made from Atkinson Hyperlegible Mono 2.001, Regular: fonts/AtkinsonHyperlegibleMono-Regular.ttf,
+// sha256 2c9a7b9fabebd5c746a808d8a1ef2f52e618850caad6ec4fd9f5c48f56e1c1af.
+// Made from Atkinson Hyperlegible Mono 2.001, Bold: fonts/AtkinsonHyperlegibleMono-Bold.ttf,
+// sha256 51ad68fafd7ec68051f64983c9c23182a7084268b5cdb0a154dbd53ade079da6.
 // Copyright 2020-2024 The Atkinson Hyperlegible Next Project Authors (https://github.com/googlefonts/atkinson-hyperlegible-next)
+// Copyright 2020-2024 The Atkinson Hyperlegible Mono Project Authors (https://github.com/googlefonts/atkinson-hyperlegible-next-mono)
 // Licensed under the SIL Open Font License, Version 1.1 (OFL-1.1):
-// a Modified Version of the font, made by NoWayOS's glyph atlas tool (tools/glyph-atlas).
+// a Modified Version of the fonts, made by NoWayOS's glyph atlas tool (tools/glyph-atlas).
 // The licence is OFL.txt in this crate's folder.
 
 mod bold_14;
@@ -23,10 +32,26 @@ mod bold_56;
 mod bold_72;
 mod bold_kerning;
 mod bold_outline;
+mod bolditalic_18;
+mod bolditalic_24;
+mod bolditalic_kerning;
+mod bolditalic_outline;
+mod code_18;
+mod code_24;
+mod code_kerning;
+mod code_outline;
+mod codebold_18;
+mod codebold_24;
+mod codebold_kerning;
+mod codebold_outline;
 mod display_192;
 mod display_96;
 mod display_kerning;
 mod display_outline;
+mod italic_18;
+mod italic_24;
+mod italic_kerning;
+mod italic_outline;
 mod regular_14;
 mod regular_16;
 mod regular_18;
@@ -60,14 +85,26 @@ pub use bold_56::BOLD_56;
 pub use bold_72::BOLD_72;
 pub use display_96::DISPLAY_96;
 pub use display_192::DISPLAY_192;
+pub use italic_18::ITALIC_18;
+pub use italic_24::ITALIC_24;
+pub use bolditalic_18::BOLDITALIC_18;
+pub use bolditalic_24::BOLDITALIC_24;
+pub use code_18::CODE_18;
+pub use code_24::CODE_24;
+pub use codebold_18::CODEBOLD_18;
+pub use codebold_24::CODEBOLD_24;
 pub use regular_outline::REGULAR;
 pub use bold_outline::BOLD;
 pub use display_outline::DISPLAY;
+pub use italic_outline::ITALIC;
+pub use bolditalic_outline::BOLDITALIC;
+pub use code_outline::CODE;
+pub use codebold_outline::CODEBOLD;
 
 /// Every atlas: each face in the order glyphs.toml lists them, at each of its sizes, smallest
 /// first.
-pub static ATLASES: [&crate::Atlas; 22] = [&REGULAR_14, &REGULAR_16, &REGULAR_18, &REGULAR_24, &REGULAR_28, &REGULAR_32, &REGULAR_36, &REGULAR_48, &BOLD_14, &BOLD_16, &BOLD_18, &BOLD_20, &BOLD_24, &BOLD_28, &BOLD_32, &BOLD_36, &BOLD_40, &BOLD_48, &BOLD_56, &BOLD_72, &DISPLAY_96, &DISPLAY_192];
+pub static ATLASES: [&crate::Atlas; 30] = [&REGULAR_14, &REGULAR_16, &REGULAR_18, &REGULAR_24, &REGULAR_28, &REGULAR_32, &REGULAR_36, &REGULAR_48, &BOLD_14, &BOLD_16, &BOLD_18, &BOLD_20, &BOLD_24, &BOLD_28, &BOLD_32, &BOLD_36, &BOLD_40, &BOLD_48, &BOLD_56, &BOLD_72, &DISPLAY_96, &DISPLAY_192, &ITALIC_18, &ITALIC_24, &BOLDITALIC_18, &BOLDITALIC_24, &CODE_18, &CODE_24, &CODEBOLD_18, &CODEBOLD_24];
 
-/// The notice every copy of the atlases carries: the font's copyright line, and its licence
+/// The notice every copy of the atlases carries: the fonts' copyright lines, and their licence
 /// (OFL-1.1; the licence's text is OFL.txt in this crate's folder).
-pub const NOTICE: &str = "Copyright 2020-2024 The Atkinson Hyperlegible Next Project Authors (https://github.com/googlefonts/atkinson-hyperlegible-next). This Font Software is licensed under the SIL Open Font License, Version 1.1.";
+pub const NOTICE: &str = "Copyright 2020-2024 The Atkinson Hyperlegible Next Project Authors (https://github.com/googlefonts/atkinson-hyperlegible-next). Copyright 2020-2024 The Atkinson Hyperlegible Mono Project Authors (https://github.com/googlefonts/atkinson-hyperlegible-next-mono). This Font Software is licensed under the SIL Open Font License, Version 1.1.";

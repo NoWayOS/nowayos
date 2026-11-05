@@ -4,9 +4,18 @@
 # sha256 88ed5c31a71584c7772963b02d04bef1eb7e3d2e9c8b9cb204339b1f82cf432c.
 # Made from Atkinson Hyperlegible Next 2.001, Bold: fonts/AtkinsonHyperlegibleNext-Bold.ttf,
 # sha256 994414047df66bb4998d01c1cb1eeb4a2ddc4622d1aa56bbb8adbeca7645b041.
+# Made from Atkinson Hyperlegible Next 2.001, Italic: fonts/AtkinsonHyperlegibleNext-Italic.ttf,
+# sha256 b7f8f03ceb28ebadb2de2332b2e869a00e8dbfb5c8e00fdbb06385770c8227e7.
+# Made from Atkinson Hyperlegible Next 2.001, Bold Italic: fonts/AtkinsonHyperlegibleNext-BoldItalic.ttf,
+# sha256 c2d3c596b54d1565ca20d383cdfb127b50b18b500b85a774fd07d4d976cd018b.
+# Made from Atkinson Hyperlegible Mono 2.001, Regular: fonts/AtkinsonHyperlegibleMono-Regular.ttf,
+# sha256 2c9a7b9fabebd5c746a808d8a1ef2f52e618850caad6ec4fd9f5c48f56e1c1af.
+# Made from Atkinson Hyperlegible Mono 2.001, Bold: fonts/AtkinsonHyperlegibleMono-Bold.ttf,
+# sha256 51ad68fafd7ec68051f64983c9c23182a7084268b5cdb0a154dbd53ade079da6.
 # Copyright 2020-2024 The Atkinson Hyperlegible Next Project Authors (https://github.com/googlefonts/atkinson-hyperlegible-next)
+# Copyright 2020-2024 The Atkinson Hyperlegible Mono Project Authors (https://github.com/googlefonts/atkinson-hyperlegible-next-mono)
 # Licensed under the SIL Open Font License, Version 1.1 (OFL-1.1):
-# a Modified Version of the font, made by NoWayOS's glyph atlas tool (tools/glyph-atlas).
+# a Modified Version of the fonts, made by NoWayOS's glyph atlas tool (tools/glyph-atlas).
 # The licence is OFL.txt in this crate's folder.
 #
 # What the atlases in this folder were made from and hold: tools/image-sbom names the font
@@ -15,7 +24,7 @@
 crate = "nowayos-glyphs"
 licence = "OFL-1.1"
 notice = "OFL.txt"
-copyright = "Copyright 2020-2024 The Atkinson Hyperlegible Next Project Authors (https://github.com/googlefonts/atkinson-hyperlegible-next)"
+copyright = "Copyright 2020-2024 The Atkinson Hyperlegible Next Project Authors (https://github.com/googlefonts/atkinson-hyperlegible-next); Copyright 2020-2024 The Atkinson Hyperlegible Mono Project Authors (https://github.com/googlefonts/atkinson-hyperlegible-next-mono)"
 rasteriser = "swash 0.2.10"
 made = "unhinted, 8-bit coverage, metrics in 1/64 pixel, GPOS pair kerning in font units scaled at each size, no ligatures"
 
@@ -26,7 +35,7 @@ style = "Regular"
 file = "fonts/AtkinsonHyperlegibleNext-Regular.ttf"
 sha256 = "88ed5c31a71584c7772963b02d04bef1eb7e3d2e9c8b9cb204339b1f82cf432c"
 source = "https://github.com/googlefonts/atkinson-hyperlegible-next/blob/7925f50f649b3813257faf2f4c0b381011f434f1/fonts/ttf/AtkinsonHyperlegibleNext-Regular.ttf"
-decision = "signed off by the maintainer, 2026-10-04"
+decision = "signed off by the maintainer, 2026-10-04; Italic and Bold Italic 2026-11-05"
 
 [[font]]
 family = "Atkinson Hyperlegible Next"
@@ -35,7 +44,43 @@ style = "Bold"
 file = "fonts/AtkinsonHyperlegibleNext-Bold.ttf"
 sha256 = "994414047df66bb4998d01c1cb1eeb4a2ddc4622d1aa56bbb8adbeca7645b041"
 source = "https://github.com/googlefonts/atkinson-hyperlegible-next/blob/7925f50f649b3813257faf2f4c0b381011f434f1/fonts/ttf/AtkinsonHyperlegibleNext-Bold.ttf"
-decision = "signed off by the maintainer, 2026-10-04"
+decision = "signed off by the maintainer, 2026-10-04; Italic and Bold Italic 2026-11-05"
+
+[[font]]
+family = "Atkinson Hyperlegible Next"
+version = "2.001"
+style = "Italic"
+file = "fonts/AtkinsonHyperlegibleNext-Italic.ttf"
+sha256 = "b7f8f03ceb28ebadb2de2332b2e869a00e8dbfb5c8e00fdbb06385770c8227e7"
+source = "https://github.com/googlefonts/atkinson-hyperlegible-next/blob/7925f50f649b3813257faf2f4c0b381011f434f1/fonts/ttf/AtkinsonHyperlegibleNext-Italic.ttf"
+decision = "signed off by the maintainer, 2026-10-04; Italic and Bold Italic 2026-11-05"
+
+[[font]]
+family = "Atkinson Hyperlegible Next"
+version = "2.001"
+style = "Bold Italic"
+file = "fonts/AtkinsonHyperlegibleNext-BoldItalic.ttf"
+sha256 = "c2d3c596b54d1565ca20d383cdfb127b50b18b500b85a774fd07d4d976cd018b"
+source = "https://github.com/googlefonts/atkinson-hyperlegible-next/blob/7925f50f649b3813257faf2f4c0b381011f434f1/fonts/ttf/AtkinsonHyperlegibleNext-BoldItalic.ttf"
+decision = "signed off by the maintainer, 2026-10-04; Italic and Bold Italic 2026-11-05"
+
+[[font]]
+family = "Atkinson Hyperlegible Mono"
+version = "2.001"
+style = "Regular"
+file = "fonts/AtkinsonHyperlegibleMono-Regular.ttf"
+sha256 = "2c9a7b9fabebd5c746a808d8a1ef2f52e618850caad6ec4fd9f5c48f56e1c1af"
+source = "https://github.com/googlefonts/atkinson-hyperlegible-next-mono/blob/154d50362016cc3e873eb21d242cd0772384c8f9/fonts/ttf/AtkinsonHyperlegibleMono-Regular.ttf"
+decision = "signed off by the maintainer, 2026-11-05"
+
+[[font]]
+family = "Atkinson Hyperlegible Mono"
+version = "2.001"
+style = "Bold"
+file = "fonts/AtkinsonHyperlegibleMono-Bold.ttf"
+sha256 = "51ad68fafd7ec68051f64983c9c23182a7084268b5cdb0a154dbd53ade079da6"
+source = "https://github.com/googlefonts/atkinson-hyperlegible-next-mono/blob/154d50362016cc3e873eb21d242cd0772384c8f9/fonts/ttf/AtkinsonHyperlegibleMono-Bold.ttf"
+decision = "signed off by the maintainer, 2026-11-05"
 
 [[atlas]]
 static = "REGULAR_14"
@@ -258,6 +303,86 @@ kerning-pairs = 337
 coverage-bytes = 603858
 coverage-sha256 = "8f25affeb450644e4ceb39a0bc7aeb16fda7a4b857e5293331474511d6705182"
 ranges = [[0x20, 0x20], [0x23, 0x23], [0x25, 0x25], [0x2B, 0x3A], [0x41, 0x5A], [0xA3, 0xA3]]
+
+[[atlas]]
+static = "ITALIC_18"
+module = "italic_18"
+font = "fonts/AtkinsonHyperlegibleNext-Italic.ttf"
+size = 18
+glyphs = 190
+kerning-pairs = 7573
+coverage-bytes = 24150
+coverage-sha256 = "b8871da10752778c4b2cbd4ff3acdedfe87bf730e5a5b254df737e256f4bd0a4"
+
+[[atlas]]
+static = "ITALIC_24"
+module = "italic_24"
+font = "fonts/AtkinsonHyperlegibleNext-Italic.ttf"
+size = 24
+glyphs = 190
+kerning-pairs = 7573
+coverage-bytes = 41196
+coverage-sha256 = "991643505ee73b22045fe2795e29c1196db51bb677def2d509a3f6caff00aa9c"
+
+[[atlas]]
+static = "BOLDITALIC_18"
+module = "bolditalic_18"
+font = "fonts/AtkinsonHyperlegibleNext-BoldItalic.ttf"
+size = 18
+glyphs = 190
+kerning-pairs = 7540
+coverage-bytes = 26559
+coverage-sha256 = "a36bfba8978a0547e7fa9f6120e94f8c2bce4151b29d32d4138ac712d0dca8fc"
+
+[[atlas]]
+static = "BOLDITALIC_24"
+module = "bolditalic_24"
+font = "fonts/AtkinsonHyperlegibleNext-BoldItalic.ttf"
+size = 24
+glyphs = 190
+kerning-pairs = 7540
+coverage-bytes = 45710
+coverage-sha256 = "fd6fd3bcd9b1d9418fa33099ca071d953a123316a9aaac025402d06c5b548446"
+
+[[atlas]]
+static = "CODE_18"
+module = "code_18"
+font = "fonts/AtkinsonHyperlegibleMono-Regular.ttf"
+size = 18
+glyphs = 190
+kerning-pairs = 0
+coverage-bytes = 22098
+coverage-sha256 = "c33708d62e2ece8e55967d9e428bb3e4d00b1048b7c488af34e50b0f097e5082"
+
+[[atlas]]
+static = "CODE_24"
+module = "code_24"
+font = "fonts/AtkinsonHyperlegibleMono-Regular.ttf"
+size = 24
+glyphs = 190
+kerning-pairs = 0
+coverage-bytes = 37282
+coverage-sha256 = "fc423075f55f6ec7f99a8b1c682cf83f552531b269e2df968fbb79c23f8633a3"
+
+[[atlas]]
+static = "CODEBOLD_18"
+module = "codebold_18"
+font = "fonts/AtkinsonHyperlegibleMono-Bold.ttf"
+size = 18
+glyphs = 190
+kerning-pairs = 0
+coverage-bytes = 23577
+coverage-sha256 = "19187d1d8cd396d6d0ed751f66afc84dbfcdefe92f6b2fcb97c5c0c7058cf2f8"
+
+[[atlas]]
+static = "CODEBOLD_24"
+module = "codebold_24"
+font = "fonts/AtkinsonHyperlegibleMono-Bold.ttf"
+size = 24
+glyphs = 190
+kerning-pairs = 0
+coverage-bytes = 40167
+coverage-sha256 = "62d8f929c70805f92aece6f3721667f1977ba8ab6b91076c5f84f5972490d0f7"
 
 [characters]
 count = 190
