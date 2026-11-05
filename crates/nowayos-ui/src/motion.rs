@@ -668,7 +668,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
     /// at its next frame.
     #[must_use]
     pub fn is_moving(&self) -> bool {
-        !self.motion.running.is_empty() || self.fling.is_some()
+        !self.motion.running.is_empty() || self.fling.is_some() || self.mouse.resting()
     }
 
     /// Runs `animation` on node `id`, in place of any running there on the

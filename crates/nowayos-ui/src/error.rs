@@ -126,6 +126,9 @@ pub enum UiError {
     /// [`MAX_RUNNING`](crate::motion::MAX_RUNNING) animations are running
     /// already (#10086).
     TooManyAnimations,
+    /// [`MAX_MOUSE_NODES`](crate::mouse::MAX_MOUSE_NODES) nodes have a
+    /// context action, or a cursor, already (#10082).
+    TooManyMouseNodes,
     /// A long text holds from 1 to
     /// [`MAX_LONG_TEXT`](crate::long_text::MAX_LONG_TEXT) bytes.
     LongTextOutOfRange,
@@ -193,6 +196,11 @@ impl fmt::Display for UiError {
             Self::UnknownLayer(layer) => write!(f, "no layer {layer:?}"),
             Self::LayerHidden(layer) => write!(f, "{layer:?} is inside what does not show"),
             Self::DuplicateLayer(layer) => write!(f, "{layer:?} is already in the tree"),
+            Self::TooManyMouseNodes => write!(
+                f,
+                "at most {} nodes have a context action, and {0} a cursor",
+                crate::mouse::MAX_MOUSE_NODES
+            ),
             Self::TooManyAnimations => write!(
                 f,
                 "at most {} animations run at once",

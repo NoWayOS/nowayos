@@ -891,6 +891,7 @@ impl<C: RgbColor + From<Rgb888>> Theme<C> {
                 label: on_brand,
                 pressed,
                 pressed_label: on_brand,
+                hover: text::blend(pressed, brand, 128),
             },
             ButtonVariant::Secondary if on == Some(Surface::Header) => ButtonColours {
                 fill: None,
@@ -898,6 +899,7 @@ impl<C: RgbColor + From<Rgb888>> Theme<C> {
                 label: brand,
                 pressed: brand,
                 pressed_label: on_brand,
+                hover: hover_tint(brand, on_brand, brand),
             },
             ButtonVariant::Secondary => ButtonColours {
                 fill: Some(self.button_secondary),
@@ -905,6 +907,7 @@ impl<C: RgbColor + From<Rgb888>> Theme<C> {
                 label: brand,
                 pressed: brand,
                 pressed_label: on_brand,
+                hover: hover_tint(brand, self.button_secondary, brand),
             },
             ButtonVariant::Quiet => ButtonColours {
                 fill: None,
@@ -912,8 +915,16 @@ impl<C: RgbColor + From<Rgb888>> Theme<C> {
                 label: brand,
                 pressed: brand,
                 pressed_label: on_brand,
+                hover: hover_tint(brand, self.ground(on), brand),
             },
         }
+    }
+
+    /// What a hovered option or list row stands on, over `ground`
+    /// (#10082): the button colour's tint.
+    #[must_use]
+    pub fn hover_over(&self, ground: C) -> C {
+        text::blend(self.button, ground, HOVER_TINT)
     }
 
     /// A progress bar's colours standing on `on`: its fill and its
@@ -1579,6 +1590,10 @@ pub struct ButtonColours<C> {
     pub pressed: C,
     /// Its label while pressed, on that fill.
     pub pressed_label: C,
+    /// Its fill while the pointer hovers it (#10082), its label as at
+    /// rest: a primary button half way to pressed, the others tinted with
+    /// their label's colour.
+    pub hover: C,
 }
 
 /// Converts a NoWayOS rectangle to an `embedded-graphics` one.
@@ -1640,6 +1655,10 @@ where
         // Its box scaled about its centre while it moves (#10086).
         let rect = scaled(node.rect(), self.visual.scale);
         let focused = tree.focused() == Some(id);
+        // What the pointer hovers (#10082): this node, and which part.
+        let hover = tree.hover();
+        let hovered = hover.node == Some(id);
+        let hover_part = hover.part.filter(|_| hovered).map(usize::from);
         // The focus ring only after keyboard use; a text input's
         // caret whenever it has focus.
         let ring = focused && tree.focus_visible();
@@ -1668,7 +1687,10 @@ where
                 self.selected(tree, id, content)?;
                 self.text_lines(text, node, content)
             }
-            NodeKind::Rich { runs, link, .. } => self.rich(runs, *link, node, content, ring),
+            NodeKind::Rich { runs, link, .. } => {
+                let hovered_link = hover_part.and_then(|part| u8::try_from(part).ok());
+                self.rich(runs, (*link, hovered_link), node, content, ring)
+            }
             NodeKind::Slot { text, template, .. } => {
                 self.selected(tree, id, content)?;
                 match template {
@@ -1687,6 +1709,9 @@ where
                 None => Ok(()),
             },
             NodeKind::Checkbox { label, checked, .. } => {
+                if hovered {
+                    self.hovered(rect)?;
+                }
                 if let Some(mark) = self.choice_mark(content) {
                     self.check_box(mark, *checked)?;
                 }
@@ -1703,11 +1728,16 @@ where
                     let Some(row) = node.option_rect(index) else {
                         continue;
                     };
+                    let ground = self.ground;
+                    if hover_part == Some(index) {
+                        self.hovered(row)?;
+                    }
                     if let Some(mark) = self.choice_mark(row) {
                         let chosen = selected.is_some_and(|chosen| usize::from(chosen) == index);
                         self.radio(mark, chosen)?;
                     }
                     self.marked_text(option, row, self.ink())?;
+                    self.ground = ground;
                 }
                 if ring {
                     self.frame(rect, self.px(self.theme.focus_width), self.theme.focus)?;
@@ -1757,11 +1787,15 @@ where
                     else {
                         continue;
                     };
+                    if hover_part == Some(row) {
+                        self.hovered(area)?;
+                    }
                     if let Some(mark) = self.choice_mark(area) {
                         let chosen = selected.is_some_and(|chosen| usize::from(chosen) == option);
                         self.radio(mark, chosen)?;
                     }
                     self.marked_text(label, area, self.theme.text)?;
+                    self.ground = fill;
                     if ring && option == usize::from(*cursor) {
                         self.frame(area, self.px(self.theme.focus_width), self.theme.focus)?;
                     }
@@ -1843,6 +1877,8 @@ where
                 }
                 let (fill, label_colour, outline) = if tree.pressed() == Some(id) {
                     (colours.pressed, colours.pressed_label, None)
+                } else if hovered && look.fill.is_none() && look.text.is_none() {
+                    (colours.hover, colours.label, colours.outline)
                 } else {
                     let fill = look
                         .fill
@@ -1969,6 +2005,11 @@ where
                 // and is only right where the fill is.
                 let (border, colour) = if ring {
                     (self.px(self.theme.focus_width), self.theme.focus)
+                } else if hovered {
+                    (
+                        self.px(INPUT_BORDER.saturating_mul(2)),
+                        self.theme.input_border,
+                    )
                 } else {
                     (self.px(INPUT_BORDER), self.theme.input_border)
                 };
@@ -2294,6 +2335,16 @@ where
         self.fill(content, self.theme.selection)
     }
 
+    /// A hovered option or row (#10082): `area` on the hover tint, what
+    /// is drawn on it next blended over that. The caller puts the ground
+    /// back.
+    fn hovered(&mut self, area: Rect) -> Result<(), D::Error> {
+        let tint = self.theme.hover_over(self.ground);
+        self.fill(area, tint)?;
+        self.ground = tint;
+        Ok(())
+    }
+
     fn text_lines(&mut self, text: &str, node: &Node, content: Rect) -> Result<(), D::Error> {
         let (on, colour) = (self.ground, self.text_colour(node));
         let style = node.style().text;
@@ -2450,6 +2501,11 @@ where
         }
         let (border, colour) = if ring {
             (self.px(self.theme.focus_width), self.theme.focus)
+        } else if tree.hover().node == Some(id) {
+            (
+                self.px(INPUT_BORDER.saturating_mul(2)),
+                self.theme.input_border,
+            )
         } else {
             (self.px(INPUT_BORDER), self.theme.input_border)
         };
@@ -2889,7 +2945,7 @@ where
     fn rich(
         &mut self,
         runs: &[Run],
-        link: u8,
+        (link, hovered): (u8, Option<u8>),
         node: &Node,
         content: Rect,
         ring: bool,
@@ -2941,8 +2997,13 @@ where
                 self.font = theme.type_scale.font(run_style);
                 self.text_slanted(piece.text, rect, TextAlign::Start, colour, on, run.italic)?;
                 if linked.is_some() {
-                    // Underlined, a little below the baseline.
-                    let thick = self.px(1).max(1);
+                    // Underlined, a little below the baseline; twice as
+                    // thick while the pointer hovers it (#10082).
+                    let thick = if linked == hovered {
+                        self.px(2).max(2)
+                    } else {
+                        self.px(1).max(1)
+                    };
                     let below = rect.bottom().saturating_sub(i64::from(self.px(3)));
                     let underline = Rect::from_edges(
                         rect.left(),
@@ -3117,6 +3178,45 @@ const FOCUS_GAP: u32 = 1;
 /// Width, in layout units, of a text input's border when it is not focused,
 /// and of a key's of the on-screen keyboard.
 const INPUT_BORDER: u32 = 1;
+
+/// How much of the button colour tints what the pointer hovers (#10082),
+/// in 255ths: an option, a list row; a secondary or quiet button as much as
+/// its label's contrast allows ([`hover_tint`]).
+const HOVER_TINT: u8 = 24;
+
+/// A secondary or quiet button's hover fill: `brand` over `base` as
+/// strongly as keeps `label` at 4.5:1 on it - as specified, and as a 16-bit
+/// screen shows it - [`HOVER_TINT`], 16 or 8 255ths; `base` itself if none
+/// does, for a theme whose label only just meets the minimum there.
+fn hover_tint<C: RgbColor + From<Rgb888>>(brand: C, base: C, label: C) -> C {
+    let label = eight_bit(label);
+    for tint in [HOVER_TINT, 16, 8] {
+        let fill = text::blend(brand, base, tint);
+        let shown = eight_bit(fill);
+        if contrast::ratio(label, shown) >= 4.5
+            && contrast::ratio(contrast::as_shown(label), contrast::as_shown(shown)) >= 4.5
+        {
+            return fill;
+        }
+    }
+    base
+}
+
+/// `colour` at 8 bits a channel, to weigh its contrast.
+fn eight_bit<C: RgbColor>(colour: C) -> Rgb888 {
+    let widen = |value: u8, max: u8| {
+        u16::from(value)
+            .saturating_mul(255)
+            .checked_div(u16::from(max))
+            .and_then(|wide| u8::try_from(wide).ok())
+            .unwrap_or(u8::MAX)
+    };
+    Rgb888::new(
+        widen(colour.r(), C::MAX_R),
+        widen(colour.g(), C::MAX_G),
+        widen(colour.b(), C::MAX_B),
+    )
+}
 
 /// The corner radius, in layout units, of a key of the on-screen keyboard.
 const KEY_RADIUS: u32 = 6;

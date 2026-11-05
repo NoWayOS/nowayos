@@ -187,6 +187,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
                 break;
             };
             self.mark_layer(id);
+            self.mouse.context_at = None;
             let back = opener.filter(|&opener| {
                 self.is_shown(opener) && self.get(opener).is_some_and(crate::Node::is_focusable)
             });
@@ -581,6 +582,11 @@ impl<const N: usize, const T: usize> Tree<N, T> {
     /// Where control `id` shows: its area, within every scroll view around
     /// it.
     fn anchor_rect(&self, id: NodeId) -> Option<Rect> {
+        // Opened in answer to a context action on it: at the point pressed
+        // (#10082).
+        if let Some(at) = self.context_anchor(id) {
+            return Some(at);
+        }
         let node = self.get(id)?;
         match self.scroll_clip(node) {
             Some(seen) => node.rect.intersection(&seen).or(Some(node.rect)),

@@ -415,6 +415,8 @@ impl<const N: usize, const T: usize> Tree<N, T> {
         // copied ages (#10080).
         let moving = self.step_motion(elapsed);
         self.pass_time(elapsed);
+        // A finger resting on a control is timed (#10082).
+        self.rest_for(elapsed);
         self.advance_fling(elapsed) || moving
     }
 

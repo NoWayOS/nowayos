@@ -111,6 +111,7 @@ pub mod layer;
 mod layout;
 pub mod long_text;
 pub mod motion;
+pub mod mouse;
 pub mod nav;
 mod node;
 pub mod rich;
@@ -122,6 +123,7 @@ pub use error::UiError;
 pub use interact::UiEvent;
 pub use layer::{LayerId, LayerKind};
 pub use layout::{MAX_VIEWPORT_OFFSET, MAX_VIEWPORT_SIZE, TextMetrics};
+pub use mouse::{Cursor, Hover};
 pub use nav::{Navigator, ScreenId};
 pub use node::{
     ActionId, Align, BUTTON_PADDING, ButtonVariant, CHOICE_PADDING, Colour, ContainerKind,

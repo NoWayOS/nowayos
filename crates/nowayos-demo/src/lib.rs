@@ -258,7 +258,9 @@ const UNFOCUSED_KEYS: [InputEvent; 2] = [
     InputEvent::KeyDown(key('q')),
     InputEvent::KeyDown(KeyCode::ENTER),
 ];
-const TAP_NAME: [InputEvent; 2] = tap(400, 260);
+/// The name input clicked, so the mouse rests on it, hovering it (#10082),
+/// as a click in QEMU leaves it.
+const CLICK_NAME: [InputEvent; 3] = click(400, 260);
 const TYPE_NAME: [InputEvent; 5] = [
     InputEvent::KeyDown(KeyCode::LEFT_SHIFT),
     InputEvent::KeyDown(key('a')),
@@ -274,7 +276,7 @@ const CLICK_CONTINUE: [InputEvent; 3] = click(1750, 970);
 const TAP_START_AGAIN: [InputEvent; 2] = tap(180, 970);
 /// The name focused again, and "Zoë Siobhán £5" typed on the demo's UK
 /// [`LAYOUT`]: AltGr+2 is a dead diaeresis, AltGr+a an á, Shift+3 a £.
-const TYPE_ACCENTS: [InputEvent; 27] = {
+const TYPE_ACCENTS: [InputEvent; 28] = {
     const fn down(key: KeyCode) -> InputEvent {
         InputEvent::KeyDown(key)
     }
@@ -296,8 +298,9 @@ const TYPE_ACCENTS: [InputEvent; 27] = {
         None => KeyCode::SPACE,
     };
     [
-        TAP_NAME[0],
-        TAP_NAME[1],
+        CLICK_NAME[0],
+        CLICK_NAME[1],
+        CLICK_NAME[2],
         down(SHIFT),
         down(key('z')),
         up(SHIFT),
@@ -341,8 +344,8 @@ pub const SESSION: &[Step] = &[
         events: &UNFOCUSED_KEYS,
     },
     Step {
-        name: "tap-name",
-        events: &TAP_NAME,
+        name: "click-name",
+        events: &CLICK_NAME,
     },
     Step {
         name: "type-name",
@@ -448,7 +451,7 @@ mod tests {
                 .all(|(x, y)| area.contains(nowayos_display::Point::new(x, y)))
         };
         // Inside the narrower of each control in the two themes.
-        assert!(inside(Rect::new(48, 238, 1824, 35), &TAP_NAME));
+        assert!(inside(Rect::new(48, 238, 1824, 35), &CLICK_NAME));
         assert!(inside(Rect::new(48, 945, 123, 71), &CLICK_HELP));
         assert!(inside(Rect::new(1682, 945, 190, 71), &CLICK_CONTINUE));
         assert!(inside(Rect::new(48, 945, 221, 71), &TAP_START_AGAIN));
