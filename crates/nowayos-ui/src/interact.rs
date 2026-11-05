@@ -9,6 +9,52 @@ use crate::keyboard::KeyAction;
 use crate::tree::MAX_DEPTH;
 use crate::{ActionId, FieldId, InputMode, NodeId, NodeKind, Tree, UiError};
 
+/// A step of zoom (#10083): the whole interface larger, smaller or as it
+/// was, in proportion.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Zoom {
+    /// A quarter of a pixel a unit larger: Ctrl and plus.
+    In,
+    /// A quarter smaller: Ctrl and minus.
+    Out,
+    /// As the display has it: Ctrl and zero.
+    Reset,
+}
+
+impl Zoom {
+    /// The device scale after this step from `now`, the display's own
+    /// being `base`: a quarter up or down, within 1 to 4, or back to
+    /// `base`.
+    #[must_use]
+    pub const fn apply(
+        self,
+        now: nowayos_display::DeviceScale,
+        base: nowayos_display::DeviceScale,
+    ) -> nowayos_display::DeviceScale {
+        let quarters = match self {
+            Self::In => now.quarters().saturating_add(1),
+            Self::Out => now.quarters().saturating_sub(1),
+            Self::Reset => return base,
+        };
+        match nowayos_display::DeviceScale::from_quarters(quarters) {
+            Some(scale) => scale,
+            None => now,
+        }
+    }
+
+    /// The step `key` asks for with Ctrl held: plus (`=` or the keypad's),
+    /// minus or zero.
+    #[must_use]
+    pub const fn of_key(key: KeyCode) -> Option<Self> {
+        match key.usage() {
+            0x2E | 0x57 => Some(Self::In),
+            0x2D | 0x56 => Some(Self::Out),
+            0x27 | 0x62 => Some(Self::Reset),
+            _ => None,
+        }
+    }
+}
+
 /// What the UI reports back to the application after an input event.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum UiEvent {
@@ -48,6 +94,10 @@ pub enum UiEvent {
     /// Escape was pressed in an open dialog (builder contract v20): the
     /// application may close it ([`Tree::close`](crate::Tree::close)).
     Dismissed(crate::LayerId),
+    /// Ctrl and plus, minus or zero (#10083): the person asks for the
+    /// whole interface larger, smaller or as it was. The loop steps its
+    /// scale ([`Zoom::apply`]) and the screen is laid out again.
+    Zoom(Zoom),
 }
 
 /// How far, in layout units, a touch on the scroll view must move before it
@@ -556,6 +606,12 @@ impl<const N: usize, const T: usize> Tree<N, T> {
     }
 
     fn key_down(&mut self, key: KeyCode, typed: Typed) -> Option<UiEvent> {
+        // Ctrl and plus, minus or zero: zoom, wherever focus is (#10083).
+        if self.ctrl()
+            && let Some(zoom) = Zoom::of_key(key)
+        {
+            return Some(UiEvent::Zoom(zoom));
+        }
         // Escape in a layer holding focus: a menu or popover closes, a
         // dialog asks the application to close it (#10076).
         if key == KeyCode::ESCAPE

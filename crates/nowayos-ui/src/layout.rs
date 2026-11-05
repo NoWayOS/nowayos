@@ -595,6 +595,11 @@ impl<const N: usize, const T: usize> Tree<N, T> {
         check_viewport(viewport)?;
         let root = self.root.ok_or(UiError::NoRoot)?;
         let units = Units::of(metrics);
+        // At another scale - zoomed (#10083) - each scroll view keeps its
+        // place: its offset in proportion.
+        if self.metrics.is_some() && units.scale != self.scale {
+            self.rescale_scrolls(self.scale, units.scale);
+        }
         self.measure(root, metrics, 0, viewport.size.width)?;
         // A group at the root is sized by the child it shows.
         let style = match self.present(root)? {
