@@ -104,6 +104,67 @@ impl Pixels {
         self.rgba
     }
 
+    /// Its pixels, borrowed ([`View`]).
+    #[must_use]
+    pub const fn view(&self) -> View<'static> {
+        View {
+            width: self.width as u32,
+            height: self.height as u32,
+            rgba: self.rgba,
+        }
+    }
+
+    /// The pixel at `x`, `y`, premultiplied: `None` outside.
+    #[must_use]
+    pub fn at(&self, x: u32, y: u32) -> Option<[u8; 4]> {
+        self.view().at(x, y)
+    }
+
+    /// Pixel `x`, `y` of the picture drawn `width` x `height` pixels, as
+    /// [`View::sample`].
+    #[must_use]
+    pub fn sample(&self, x: u32, y: u32, width: u32, height: u32) -> [u8; 4] {
+        self.view().sample(x, y, width, height)
+    }
+}
+
+/// Pixels borrowed for drawing: a picture's [`Pixels`], or one decoded at
+/// run time (#10084) and held in memory of the program's own - premultiplied
+/// RGBA, four bytes a pixel, row by row.
+#[derive(Debug, Clone, Copy)]
+pub struct View<'a> {
+    width: u32,
+    height: u32,
+    rgba: &'a [u8],
+}
+
+impl<'a> View<'a> {
+    /// `width` x `height` pixels in `rgba`: `None` unless it holds exactly
+    /// four bytes a pixel and neither side is 0.
+    #[must_use]
+    pub fn new(width: u32, height: u32, rgba: &'a [u8]) -> Option<Self> {
+        let bytes = u64::from(width)
+            .checked_mul(u64::from(height))?
+            .checked_mul(4)?;
+        (width > 0 && height > 0 && u64::try_from(rgba.len()).ok()? == bytes).then_some(Self {
+            width,
+            height,
+            rgba,
+        })
+    }
+
+    /// Its width, in pixels.
+    #[must_use]
+    pub const fn width(&self) -> u32 {
+        self.width
+    }
+
+    /// Its height, in pixels.
+    #[must_use]
+    pub const fn height(&self) -> u32 {
+        self.height
+    }
+
     /// The pixel at `x`, `y`, premultiplied: `None` outside.
     #[must_use]
     pub fn at(&self, x: u32, y: u32) -> Option<[u8; 4]> {
@@ -121,7 +182,7 @@ impl Pixels {
         pixel.try_into().ok()
     }
 
-    /// Pixel `x`, `y` of the picture drawn `width` x `height` pixels,
+    /// Pixel `x`, `y` of the pixels drawn `width` x `height` pixels,
     /// premultiplied: exactly its own pixel when that is its size, else
     /// sampled between the four nearest of its own, each weighted by how
     /// near it lies (bilinear, in integers, so every machine gives the same

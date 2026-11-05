@@ -1,0 +1,22 @@
+[package]
+name = "nowayos-picture-decode"
+description = "Decodes a PNG or JPEG received at run time, within bounds, into premultiplied pixels: the picture decoder PD's work, on a bounded heap"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+nowayos-picture-wire.workspace = true
+# zune-png, zune-jpeg and what they bring (zune-core, zune-inflate):
+# MIT OR Apache-2.0 OR Zlib, MIT taken. no_std with alloc: the PD's heap.
+zune-core = { version = "=0.5.1", default-features = false }
+zune-jpeg = { version = "=0.5.13", default-features = false, features = ["neon"] }
+zune-png = { version = "=0.5.2", default-features = false }
+
+[dev-dependencies]
+proptest.workspace = true
+
+[lints]
+workspace = true

@@ -59,11 +59,16 @@ ICONS_OUT := build/icon-masks
 # PICTURES_OUT and compares. The JPEG decoder, JPEG_CRATES, is in that
 # workspace's Cargo.lock alone, and the PNG decoder, png, besides only in
 # the root workspace's host-only test kit, never the PDs' or the fuzz
-# harness's: atlases-check fails if cargo tree finds one elsewhere.
+# harness's: atlases-check fails if cargo tree finds one elsewhere - but
+# through PICTURE_DECODE, the picture decoder PD's library (#10084).
 PICTURE_TOOL := tools/pictures
 PICTURE_CRATES := crates/nowayos-pictures
 PICTURES_OUT := build/pictures
 JPEG_CRATES := zune-jpeg zune-core
+# The library that decodes pictures received at run time (#10084), in the
+# picture decoder PD alone: the one way the image decoders may reach a device
+# crate's cargo tree.
+PICTURE_DECODE := nowayos-picture-decode
 PICTURE_TARGET_DIR = $(if $(CARGO_TARGET_DIR),$(CARGO_TARGET_DIR)-pictures,$(CURDIR)/$(PICTURE_TOOL)/target)
 PICTURE_RUN = $(CARGO) run --locked --quiet --manifest-path $(PICTURE_TOOL)/Cargo.toml --target-dir $(PICTURE_TARGET_DIR) --
 
@@ -268,7 +273,8 @@ fuzz-skip:
 # src/proofs.rs, compiled only under cfg(kani). They show that the record
 # decoders - nowayos-ipc's header, decode and decode_exact, the input event,
 # the display contract's records, the clock's sample and reading, the socket
-# records, the seed record and the update records - never panic,
+# records, the seed record, the update records and the picture decoder's
+# records (#10084) - never panic,
 # overflow or read out of bounds for any input up to the longest record, and
 # keep their rules: all but the update records every rule; the manifest and a
 # bundle's chunk the rules on their lengths, characters and offset; the
@@ -303,7 +309,7 @@ fuzz-skip:
 # of checking its length (read-bytes-length), DataRegion::buffer's bounds
 # check (data-region-bounds) or dequeue's in-flight check (dequeue-in-flight)
 # - a proof must fail; KANI_MUTATIONS names some, every one by default.
-KANI_CRATES := nowayos-ipc nowayos-input nowayos-display nowayos-fault-policy nowayos-time nowayos-update nowayos-socket nowayos-seed nowayos-net nowayos-signing nowayos-audio nowayos-usb
+KANI_CRATES := nowayos-ipc nowayos-input nowayos-display nowayos-fault-policy nowayos-time nowayos-update nowayos-socket nowayos-seed nowayos-net nowayos-signing nowayos-audio nowayos-usb nowayos-picture-wire
 KANI_MUTATIONS ?=
 KANI_OUT := build/kani
 
@@ -402,16 +408,18 @@ atlases-check:
 	done
 	@for workspace in . pds fuzz; do \
 		case $$workspace in pds) cargo="$(CARGO) +$(PDS_TOOLCHAIN)" ;; *) cargo="$(CARGO)" ;; esac; \
-		case $$workspace in .) decoders="$(JPEG_CRATES)" ;; *) decoders="$(JPEG_CRATES) png" ;; esac; \
+		case $$workspace in .) decoders="$(JPEG_CRATES)"; skip="--exclude $(PICTURE_DECODE)" ;; \
+			*) decoders="$(JPEG_CRATES) png"; skip="--prune $(PICTURE_DECODE)" ;; esac; \
 		python3 tools/check-crates-absent --what "the cargo tree of $$workspace" \
 			$$(for crate in $$decoders; do printf ' --forbid %s' $$crate; done) \
-			--reason "the image decoders belong to $(PICTURE_TOOL) (and png to the root's test kit) alone, never to a device crate" \
-			-- $$cargo tree --locked --manifest-path $$workspace/Cargo.toml --workspace --target all \
+			--reason "the image decoders belong to $(PICTURE_TOOL), $(PICTURE_DECODE) - the picture decoder PD's - (and png to the root's test kit) alone, never to another device crate" \
+			-- $$cargo tree --locked --manifest-path $$workspace/Cargo.toml --workspace $$skip --target all \
 			--edges normal,build,dev --prefix none --format '{p}' || exit 1; \
 	done
 	@echo "atlases-check: PASS - $(GLYPHS_CRATE)/src/atlas is what the pinned font gives, $(ICONS_CRATE)/src/masks" \
 		"what the pinned icons give, $(PICTURE_CRATES)' pictures what their pinned files give, and no workspace but" \
-		"$(ATLAS_TOOL) has the rasteriser in its cargo tree, none but $(PICTURE_TOOL) the JPEG decoder"
+		"$(ATLAS_TOOL) has the rasteriser in its cargo tree, none but $(PICTURE_TOOL) the JPEG decoder - and" \
+		"$(PICTURE_DECODE), the picture decoder PD's, alone where the device has one"
 
 # The secrets scan (tools/secrets-scan): the tree, and every
 # version of every file and every commit message on every ref, for keys and

@@ -5004,14 +5004,15 @@ class RestartImage(unittest.TestCase):
             self.assertEqual(status, 1)
             self.assertIn("a restart would not start it as the Microkit tool did", err)
 
-    def test_the_restart_test_is_the_only_system_with_a_restart_image(self):
-        """Every restartable PD in NoWayOS's systems is in a test system."""
+    def test_only_test_systems_have_a_restart_image(self):
+        """Every restartable PD in NoWayOS's systems is in a test system:
+        the restart test's worker, and the picture decoder (#10084)."""
         found = []
         for path in sorted(glob.glob(os.path.join(HERE, os.pardir, "systems", "*.system"))):
             with open(path, encoding="utf-8") as handle:
                 if "prefill_path=\"restart-" in handle.read():
                     found.append(os.path.basename(path))
-        self.assertEqual(found, ["restart-test.system"])
+        self.assertEqual(found, ["picture-decode-test.system", "restart-test.system"])
 
 
 class BoardSystemBuildTime(unittest.TestCase):

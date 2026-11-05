@@ -1,0 +1,27 @@
+[package]
+name = "nowayos-picture-decoder"
+description = "The picture decoder PD (#10084): decodes PNG and JPEG received at run time, within bounds, on a heap of its own, holding nothing else; restartable"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "nowayos-picture-decoder"
+path = "src/main.rs"
+test = false
+bench = false
+
+[dependencies]
+nowayos-display.workspace = true
+nowayos-heap.workspace = true
+nowayos-ipc.workspace = true
+nowayos-picture-decode.workspace = true
+nowayos-picture-wire.workspace = true
+nowayos-region.workspace = true
+nowayos-restart = { workspace = true, features = ["entry"] }
+sel4-microkit.workspace = true
+
+[lints]
+workspace = true

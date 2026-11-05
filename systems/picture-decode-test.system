@@ -1,0 +1,154 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    pictures received at run time, decoded in a PD of their own (#10084).
+    show, a test UI, sends decoder five pictures one at a time - NoWayOS's
+    sample JPEG, a PNG whose header claims 100000 x 100000 pixels, the JPEG
+    cut in half, a 1024 x 1024 PNG larger than decoder's heap, and the
+    sample PNG - writing each into the encoded region and a request on the
+    request ring. decoder copies the bytes into its own heap, decodes them
+    within bounds, writes the pixels into the pixel region and answers. The
+    huge picture is refused before it is decoded, the cut one as malformed;
+    the large one stops decoder when its heap refuses the pixels, and show,
+    its parent, restarts it from its restart image, never itself. show
+    copies each picture decoded into its own heap and draws it through the
+    UI loop on QEMU's ramfb display; the screen is compared with
+    picture-decode-test.screen.png.
+
+    decoder holds nothing else: no device, interrupt, physical address,
+    child or channel but show's. Its heap is a region of its own, 3 MiB.
+
+    Capabilities: show holds decoder's thread capability and faults (as its
+    parent) and maps decoder's restart image read-only; its ends of the two
+    rings (the request ring's messages and the answer ring's control
+    read-write, the other two read-only), the encoded region read-write and
+    the pixel region read-only; its heap; and the UI's regions, as in
+    ui-demo.system - with an input ring nothing writes into. decoder maps its
+    restart image read-only, its ends of the rings, the encoded region
+    read-only and the pixel region read-write, and its heap. The display, as
+    in ui-interactive.system. Priorities: the display highest, so a frame
+    is shown as soon as it is presented; show above decoder, so it acts on
+    decoder's fault at once.
+
+    Every grant above is also listed in picture-decode-test.grants, which
+    tools/check-system compares with this file and with the kernel objects
+    the Microkit tool generates (make image, make qemu-test).
+-->
+<system>
+    <!-- decoder's restart image: its writable memory as its program is loaded. -->
+    <memory_region name="decoder_restart" size="0x10000" prefill_path="restart-decoder.bin" />
+
+    <!-- The request ring, show to decoder: messages (show's), control (decoder's). -->
+    <memory_region name="requests" size="0x1000" />
+    <memory_region name="requests_control" size="0x1000" />
+    <!-- The answer ring, decoder to show: messages (decoder's), control (show's). -->
+    <memory_region name="answers" size="0x1000" />
+    <memory_region name="answers_control" size="0x1000" />
+    <!-- The encoded picture (1 MiB) and the decoded pixels (4 MiB). -->
+    <memory_region name="encoded" size="0x100000" />
+    <memory_region name="pixels" size="0x400000" />
+    <!-- Each PD's heap. -->
+    <memory_region name="decoder_heap" size="0x300000" />
+    <memory_region name="show_heap" size="0x200000" />
+
+    <!-- The UI's and the display's regions, as in ui-interactive.system. -->
+    <memory_region name="present_messages" size="0x1000" />
+    <memory_region name="present_control" size="0x1000" />
+    <memory_region name="display_messages" size="0x1000" />
+    <memory_region name="display_control" size="0x1000" />
+    <memory_region name="framebuffer" size="0x800000" />
+    <memory_region name="input_messages" size="0x1000" />
+    <memory_region name="input_control" size="0x1000" />
+    <memory_region name="fw_cfg_regs" size="@fw_cfg" phys_addr="@fw_cfg" />
+    <memory_region name="fw_cfg_requests" size="0x1000" />
+    <memory_region name="scan_out" size="0x800000" page_size="0x200000" />
+    <memory_region name="screen" prefill_path="screen-1920x1080.bin" />
+
+    <protection_domain name="display" priority="3" stack_size="0x10000">
+        <program_image path="nowayos-display-ramfb.elf" />
+        <map mr="present_control" vaddr="0x4000_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+        <map mr="present_messages" vaddr="0x4000_1000" perms="r"
+             setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+        <map mr="display_messages" vaddr="0x4000_2000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_1_vaddr" setvar_size="nowayos_rw_region_1_size" />
+        <map mr="display_control" vaddr="0x4000_3000" perms="r"
+             setvar_vaddr="nowayos_ro_region_1_vaddr" setvar_size="nowayos_ro_region_1_size" />
+        <map mr="framebuffer" vaddr="0x5000_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_2_vaddr" setvar_size="nowayos_ro_region_2_size" />
+        <map mr="screen" vaddr="0x5100_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_7_vaddr" setvar_size="nowayos_ro_region_7_size" />
+        <map mr="fw_cfg_regs" vaddr="0x200_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_device_0_vaddr" setvar_size="nowayos_device_0_size" />
+        <map mr="fw_cfg_requests" vaddr="0x300_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_dma_0_vaddr" setvar_size="nowayos_dma_0_size" />
+        <map mr="scan_out" vaddr="0x2000_0000" perms="rw" cached="false"
+             setvar_vaddr="nowayos_dma_1_vaddr" setvar_size="nowayos_dma_1_size" />
+        <setvar symbol="nowayos_dma_0_paddr" region_paddr="fw_cfg_requests" />
+        <setvar symbol="nowayos_dma_1_paddr" region_paddr="scan_out" />
+    </protection_domain>
+
+    <protection_domain name="show" priority="2" stack_size="0x600000">
+        <program_image path="nowayos-picture-show.elf" />
+        <map mr="present_messages" vaddr="0x4000_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+        <map mr="present_control" vaddr="0x4000_1000" perms="r"
+             setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+        <map mr="display_control" vaddr="0x4000_2000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_1_vaddr" setvar_size="nowayos_rw_region_1_size" />
+        <map mr="display_messages" vaddr="0x4000_3000" perms="r"
+             setvar_vaddr="nowayos_ro_region_1_vaddr" setvar_size="nowayos_ro_region_1_size" />
+        <map mr="framebuffer" vaddr="0x5000_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_2_vaddr" setvar_size="nowayos_rw_region_2_size" />
+        <map mr="input_control" vaddr="0x4000_4000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_3_vaddr" setvar_size="nowayos_rw_region_3_size" />
+        <map mr="input_messages" vaddr="0x4000_5000" perms="r"
+             setvar_vaddr="nowayos_ro_region_2_vaddr" setvar_size="nowayos_ro_region_2_size" />
+        <map mr="requests" vaddr="0x4100_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_4_vaddr" setvar_size="nowayos_rw_region_4_size" />
+        <map mr="requests_control" vaddr="0x4100_1000" perms="r"
+             setvar_vaddr="nowayos_ro_region_3_vaddr" setvar_size="nowayos_ro_region_3_size" />
+        <map mr="answers_control" vaddr="0x4100_2000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_5_vaddr" setvar_size="nowayos_rw_region_5_size" />
+        <map mr="answers" vaddr="0x4100_3000" perms="r"
+             setvar_vaddr="nowayos_ro_region_4_vaddr" setvar_size="nowayos_ro_region_4_size" />
+        <map mr="encoded" vaddr="0x4200_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_6_vaddr" setvar_size="nowayos_rw_region_6_size" />
+        <map mr="pixels" vaddr="0x4400_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_5_vaddr" setvar_size="nowayos_ro_region_5_size" />
+        <map mr="decoder_restart" vaddr="0x4800_0000" perms="r"
+             setvar_vaddr="nowayos_ro_region_6_vaddr" setvar_size="nowayos_ro_region_6_size" />
+        <map mr="show_heap" vaddr="0x6000_0000" perms="rw"
+             setvar_vaddr="nowayos_heap_region_vaddr" setvar_size="nowayos_heap_region_size" />
+
+        <protection_domain name="decoder" id="0" priority="1" stack_size="0x40000">
+            <program_image path="nowayos-picture-decoder.elf" />
+            <map mr="decoder_restart" vaddr="0x4800_0000" perms="r"
+                 setvar_vaddr="nowayos_restart_image_vaddr" setvar_size="nowayos_restart_image_size" />
+            <map mr="requests_control" vaddr="0x4000_0000" perms="rw"
+                 setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+            <map mr="requests" vaddr="0x4000_1000" perms="r"
+                 setvar_vaddr="nowayos_ro_region_0_vaddr" setvar_size="nowayos_ro_region_0_size" />
+            <map mr="answers" vaddr="0x4000_2000" perms="rw"
+                 setvar_vaddr="nowayos_rw_region_1_vaddr" setvar_size="nowayos_rw_region_1_size" />
+            <map mr="answers_control" vaddr="0x4000_3000" perms="r"
+                 setvar_vaddr="nowayos_ro_region_1_vaddr" setvar_size="nowayos_ro_region_1_size" />
+            <map mr="encoded" vaddr="0x4200_0000" perms="r"
+                 setvar_vaddr="nowayos_ro_region_2_vaddr" setvar_size="nowayos_ro_region_2_size" />
+            <map mr="pixels" vaddr="0x4400_0000" perms="rw"
+                 setvar_vaddr="nowayos_rw_region_2_vaddr" setvar_size="nowayos_rw_region_2_size" />
+            <map mr="decoder_heap" vaddr="0x6000_0000" perms="rw"
+                 setvar_vaddr="nowayos_heap_region_vaddr" setvar_size="nowayos_heap_region_size" />
+        </protection_domain>
+    </protection_domain>
+
+    <!-- "Records waiting", both ways, with the display. -->
+    <channel>
+        <end pd="show" id="0" />
+        <end pd="display" id="0" />
+    </channel>
+    <!-- Requests waiting, and answers waiting, between show and decoder. -->
+    <channel>
+        <end pd="show" id="1" />
+        <end pd="decoder" id="0" />
+    </channel>
+</system>

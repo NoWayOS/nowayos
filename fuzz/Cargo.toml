@@ -37,6 +37,9 @@ nowayos-time = { path = "../crates/nowayos-time" }
 nowayos-tls-crypto = { path = "../crates/nowayos-tls-crypto" }
 nowayos-update = { path = "../crates/nowayos-update" }
 nowayos-usb = { path = "../crates/nowayos-usb" }
+# Pictures received at run time (#10084): the decoder and its PD's records.
+nowayos-picture-decode = { path = "../crates/nowayos-picture-decode" }
+nowayos-picture-wire = { path = "../crates/nowayos-picture-wire" }
 # The libFuzzer runtime, compiled from the C++ sources the crate bundles:
 # development and CI fuzzing only (its licence: deny.toml).
 libfuzzer-sys = "=0.4.13"
@@ -257,3 +260,15 @@ panic = "abort"
 overflow-checks = true
 panic = "abort"
 debug = "line-tables-only"
+
+[[bin]]
+name = "picture_records"
+path = "fuzz_targets/picture_records.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "picture_decode"
+path = "fuzz_targets/picture_decode.rs"
+test = false
+doc = false

@@ -395,6 +395,49 @@ impl<const N: usize, const T: usize> Tree<N, T> {
         self.add(NodeKind::Icon(icon), Style::new())
     }
 
+    /// Creates a picture received at run time (#10084): `id`'s pixels,
+    /// lent at each frame, `width` x `height` layout units until a style
+    /// gives another size, fitted by `fit`, `alt` saying what it shows.
+    /// After new pixels for `id`, mark it with
+    /// [`live_changed`](Self::live_changed).
+    ///
+    /// # Errors
+    ///
+    /// [`UiError::TreeFull`]; for `alt`, as [`Tree::text`].
+    pub fn live_picture(
+        &mut self,
+        id: crate::LiveId,
+        (width, height): (u16, u16),
+        fit: nowayos_pictures::Fit,
+        alt: &'static str,
+    ) -> Result<NodeId, UiError> {
+        self.add(
+            NodeKind::Live {
+                id,
+                width,
+                height,
+                fit,
+                alt,
+            },
+            Style::new(),
+        )
+    }
+
+    /// Marks every node showing picture `id` for repainting: its pixels
+    /// changed, or it has some now, or none.
+    pub fn live_changed(&mut self, id: crate::LiveId) {
+        for index in 0..self.nodes.len() {
+            match self.nodes.get(index) {
+                Some(node) if matches!(node.kind, NodeKind::Live { id: shown, .. } if shown == id) =>
+                {
+                    let rect = node.rect;
+                    self.dirty.add(rect);
+                }
+                _ => {}
+            }
+        }
+    }
+
     /// Creates `picture`, fitted to its box by `fit`, with `alt` saying
     /// what it shows (empty for decoration): at its own size until a style
     /// gives it another.

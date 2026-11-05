@@ -170,3 +170,46 @@ fn at_its_own_scale_a_picture_is_copied_and_its_alpha_shows_the_ground() {
     // Its middle is opaque white, the tick.
     assert!(frame.pixel(left + 18, top + 28).unwrap().r() > 200);
 }
+
+/// A picture decoded at run time (#10084): drawn from the pixels its
+/// program lends by its id, fitted to its box; nothing without them.
+#[test]
+fn a_live_picture_is_drawn_from_the_pixels_lent_by_its_id() {
+    use nowayos_render_eg::{Live, render_area_live};
+    use nowayos_ui::LiveId;
+    use nowayos_ui::pictures::View;
+
+    /// One picture: 2 x 2 pixels, opaque red, green, blue and white.
+    struct Lent;
+    const RGBA: [u8; 16] = [
+        255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255,
+    ];
+    impl Live for Lent {
+        fn view(&self, id: LiveId) -> Option<View<'_>> {
+            (id == LiveId(7)).then(|| View::new(2, 2, &RGBA)).flatten()
+        }
+    }
+
+    let theme = Theme::<Rgb888>::light();
+    let mut tree: Tree<4> = Tree::new();
+    let picture = tree
+        .live_picture(LiveId(7), (20, 20), Fit::Fill, "Four colours")
+        .unwrap();
+    tree.set_root(picture).unwrap();
+    tree.layout(Rect::new(0, 0, 20, 20), &theme.metrics())
+        .unwrap();
+    let draw = |live: &dyn Live| {
+        let mut fb = Framebuffer::new(20, 20).unwrap();
+        nowayos_testkit::glyph_store!(glyphs__);
+        render_area_live(&tree, &mut fb, &theme, tree.viewport(), &mut glyphs__, live).unwrap();
+        fb
+    };
+    let drawn = draw(&Lent);
+    // Each quarter its pixel's colour, away from the blended middle.
+    assert_eq!(drawn.pixel(1, 1), Some(Rgb888::new(255, 0, 0)));
+    assert_eq!(drawn.pixel(18, 1), Some(Rgb888::new(0, 255, 0)));
+    assert_eq!(drawn.pixel(1, 18), Some(Rgb888::new(0, 0, 255)));
+    // Nothing lent: the background shows.
+    let none = draw(&nowayos_render_eg::NoLive);
+    assert_eq!(none.pixel(1, 1), Some(theme.background));
+}

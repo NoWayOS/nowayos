@@ -1,0 +1,74 @@
+# Everything systems/picture-decode-test.system grants, one fact per line.
+# tools/check-system fails the build if the system description grants anything
+# not listed here, or lists anything it does not grant, and checks the map
+# rights again in the kernel objects the Microkit tool generates (format: see
+# tools/check-system). A change here is a security change: call it out in the
+# pull request.
+
+# A test system: restarting one PD on its own is for test systems only
+# (tools/check-system rule 13). show is a test instrument; decoder is the
+# picture decoder PD, here a test instrument too until a product system
+# gives it a role of its own.
+system test
+role display display
+role show test
+role decoder test
+
+# The display highest, so a frame is shown as soon as it is presented; show
+# above decoder, so it acts on decoder's fault at once.
+pd display priority=3 budget=1000 period=1000
+pd show priority=2 budget=1000 period=1000
+pd decoder priority=1 budget=1000 period=1000
+
+# The screen's size, configuration, read-only.
+map display screen r
+
+# show: decoder's parent, and with decoder's restart image it can restart
+# decoder on its own.
+child show decoder
+restart show decoder
+map show decoder_restart r
+
+# show's UI regions, as in ui-demo.system, and its channel to the display.
+map show present_messages rw
+map show present_control r
+map show display_messages r
+map show display_control rw
+map show framebuffer rw
+map show input_messages r
+map show input_control rw
+channel display show
+
+# show's ends of the rings, the encoded picture it writes, the pixels it
+# reads, and its heap; its channel to decoder.
+map show requests rw
+map show requests_control r
+map show answers_control rw
+map show answers r
+map show encoded rw
+map show pixels r
+map show show_heap rw
+channel decoder show
+
+# decoder: its restart image, its ends of the rings, the encoded picture it
+# reads, the pixels it writes, and its heap. Nothing else.
+map decoder decoder_restart r
+map decoder requests_control rw
+map decoder requests r
+map decoder answers rw
+map decoder answers_control r
+map decoder encoded r
+map decoder pixels rw
+map decoder decoder_heap rw
+
+# The display, as in ui-interactive.system.
+map display present_messages r
+map display present_control rw
+map display display_messages rw
+map display display_control r
+map display framebuffer r
+device display fw_cfg rw
+map display fw_cfg_requests rw
+paddr display fw_cfg_requests
+map display scan_out rw
+paddr display scan_out
