@@ -52,7 +52,11 @@ fn drawn(
     tree.layout(Rect::new(0, 0, WIDTH, HEIGHT), &theme.metrics())
         .unwrap();
     let mut frame = Framebuffer::new(WIDTH, HEIGHT).unwrap();
-    render(&tree, &mut frame, theme).unwrap();
+    {
+        nowayos_testkit::glyph_store!(glyphs__);
+        render(&tree, &mut frame, theme, &mut glyphs__)
+    }
+    .unwrap();
     frame
 }
 

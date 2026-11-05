@@ -28,7 +28,10 @@ fn draw(demo: &Demo, theme: &Theme<Rgb888>) -> Option<Framebuffer> {
     let layout = FramebufferLayout::packed(WIDTH, HEIGHT, PixelFormat::Xrgb8888).ok()?;
     let mut bytes = vec![0_u8; layout.byte_len()];
     let mut target = RawFramebuffer::new(layout, &mut bytes[..]).ok()?;
-    if let Err(error) = render(demo.tree(), &mut target, theme) {
+    if let Err(error) = {
+        nowayos_testkit::glyph_store!(glyphs__);
+        render(demo.tree(), &mut target, theme, &mut glyphs__)
+    } {
         match error {}
     }
     let mut pixels = Vec::new();

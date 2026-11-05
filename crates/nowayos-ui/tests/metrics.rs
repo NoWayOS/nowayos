@@ -16,7 +16,7 @@
 )]
 
 use nowayos_display::Rect;
-use nowayos_glyphs::{ATLASES, Atlas, REGULAR_18, REGULAR_24, REGULAR_36, REGULAR_48};
+use nowayos_glyphs::{ATLASES, REGULAR_18, REGULAR_24, REGULAR_36, REGULAR_48};
 use nowayos_ui::text::{fit_end, fit_start, is_printable};
 use nowayos_ui::{ActionId, Align, FieldId, Length, NodeId, SlotId, Style, TextMetrics, Tree};
 use proptest::prelude::*;
@@ -116,22 +116,25 @@ fn each_atlas_gives_its_own_size_and_monospace_keeps_its_own() {
         );
         assert_eq!(metrics.line_height(), line, "{} px", atlas.size());
         assert_eq!(metrics.char_width(), ch, "{} px", atlas.size());
-        assert!(core::ptr::eq(metrics.atlas().unwrap(), atlas));
+        assert_eq!(
+            metrics.face().map(|(face, size64)| (face.id(), size64)),
+            Some((atlas.face().id(), u32::from(atlas.size()) * 64))
+        );
     }
     for (mono, welcome) in [
         (TextMetrics::new(6, 10), 42),
         (TextMetrics::new(10, 20), 70),
     ] {
         assert_eq!(mono.text_width("Welcome"), welcome);
-        assert_eq!(mono.atlas().map(Atlas::size), None);
+        assert!(mono.face().is_none());
     }
-    // Metrics name their atlas by identity, and a theme's minimum target
-    // size is kept apart from it.
+    // Metrics name their face by identity and size, and a theme's minimum
+    // target size is kept apart from it.
     assert_eq!(TextMetrics::from_atlas(&REGULAR_24), BODY);
     assert_ne!(TextMetrics::from_atlas(&REGULAR_36), BODY);
     assert_ne!(BODY.with_min_target(40), BODY);
     assert_eq!(BODY.with_min_target(40).min_target(), 40);
-    assert!(std::format!("{BODY:?}").contains("Atlas(24 px)"));
+    assert!(std::format!("{BODY:?}").contains(", 24 px)"));
 }
 
 /// A label too wide for its node is cut on a character boundary, keeping
@@ -188,7 +191,13 @@ fn any_text() -> impl Strategy<Value = String> {
 /// adds nothing and is kerned with neither neighbour. A monospace font's
 /// characters each take its advance.
 fn expected_width(text: &str, metrics: &TextMetrics) -> u32 {
-    let Some(atlas) = metrics.atlas() else {
+    // The atlas of the face and size the metrics measure with.
+    let atlas = metrics.face().and_then(|(face, size64)| {
+        nowayos_glyphs::ATLASES.into_iter().find(|atlas| {
+            core::ptr::eq(atlas.face(), face) && u32::from(atlas.size()) * 64 == size64
+        })
+    });
+    let Some(atlas) = atlas else {
         return u32::try_from(text.chars().count() * metrics.char_width() as usize)
             .unwrap_or(u32::MAX);
     };

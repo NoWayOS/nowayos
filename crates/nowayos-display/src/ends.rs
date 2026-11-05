@@ -12,7 +12,7 @@ use crate::contract::{
     CONFIGURE_KIND, Configure, ContractError, MAX_DAMAGE_RECTS, PRESENT_DONE_KIND, PRESENT_KIND,
     Present, PresentDone,
 };
-use crate::{FramebufferLayout, Rect};
+use crate::{DeviceScale, FramebufferLayout, Rect};
 
 /// What the UI end accepted from a display record.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -71,7 +71,7 @@ pub struct UiEnd {
     region_len: usize,
     state: UiState,
     /// The display's device scale, once its layout is accepted.
-    scale: u32,
+    scale: DeviceScale,
     next_sequence: u32,
 }
 
@@ -83,7 +83,7 @@ impl UiEnd {
         Self {
             region_len,
             state: UiState::Unconfigured,
-            scale: 0,
+            scale: DeviceScale::ONE,
             next_sequence: 0,
         }
     }
@@ -162,11 +162,11 @@ impl UiEnd {
     }
 
     /// The display's device scale - its pixels each way for each layout
-    /// unit, 1 to [`MAX_SCALE`](crate::MAX_SCALE) - once its layout is
-    /// accepted. The UI lays its screens out in the layout's size
-    /// divided by it, and draws them at the layout's own pixels.
+    /// unit, 1 to 4 in quarter steps - once its layout is accepted. The UI
+    /// lays its screens out in the layout's size divided by it, and draws
+    /// them at the layout's own pixels.
     #[must_use]
-    pub const fn scale(&self) -> Option<u32> {
+    pub const fn scale(&self) -> Option<DeviceScale> {
         match self.state {
             UiState::Unconfigured => None,
             UiState::Ready(_) | UiState::Presenting { .. } => Some(self.scale),
@@ -235,7 +235,7 @@ impl DisplayEnd {
     ///
     /// As for [`Configure::new`].
     pub const fn new(layout: FramebufferLayout) -> Result<Self, ContractError> {
-        Self::scaled(layout, 1)
+        Self::scaled(layout, DeviceScale::ONE)
     }
 
     /// The display's end, showing `layout` at device scale `scale`: what
@@ -244,7 +244,10 @@ impl DisplayEnd {
     /// # Errors
     ///
     /// As for [`Configure::scaled`].
-    pub const fn scaled(layout: FramebufferLayout, scale: u32) -> Result<Self, ContractError> {
+    pub const fn scaled(
+        layout: FramebufferLayout,
+        scale: DeviceScale,
+    ) -> Result<Self, ContractError> {
         match Configure::scaled(layout, scale) {
             Ok(configure) => Ok(Self {
                 configure,
@@ -268,7 +271,7 @@ impl DisplayEnd {
 
     /// The device scale announced.
     #[must_use]
-    pub const fn scale(&self) -> u32 {
+    pub const fn scale(&self) -> DeviceScale {
         self.configure.scale()
     }
 
@@ -636,25 +639,22 @@ mod tests {
 
     #[test]
     fn the_ui_end_learns_the_displays_scale_with_its_layout() {
-        let display = DisplayEnd::scaled(layout(), 2).unwrap();
-        assert_eq!(display.scale(), 2);
+        let two = DeviceScale::TWO;
+        let display = DisplayEnd::scaled(layout(), two).unwrap();
+        assert_eq!(display.scale(), two);
         let mut ui = UiEnd::new(layout().byte_len());
         assert_eq!(ui.scale(), None, "no scale before a layout");
         assert_eq!(
             ui.receive(&record(&display.configure())),
             Ok(UiEvent::Configured(layout()))
         );
-        assert_eq!(ui.scale(), Some(2));
+        assert_eq!(ui.scale(), Some(two));
         assert_eq!(ui.present(&[]).unwrap().sequence(), 0);
-        assert_eq!(ui.scale(), Some(2), "kept while a Present is in flight");
+        assert_eq!(ui.scale(), Some(two), "kept while a Present is in flight");
         // A refused layout leaves no scale behind.
         let mut small = UiEnd::new(layout().byte_len() - 1);
         assert!(small.receive(&record(&display.configure())).is_err());
         assert_eq!(small.scale(), None);
-        assert_eq!(
-            DisplayEnd::scaled(layout(), 3),
-            Err(ContractError::BadScale { scale: 3 })
-        );
     }
 
     #[test]

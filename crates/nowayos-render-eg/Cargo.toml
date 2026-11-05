@@ -9,11 +9,14 @@ publish = false
 
 [dependencies]
 nowayos-display.workspace = true
-# The glyph atlases every product theme draws its text from, whose
+# The glyph outlines every product theme draws its text from, whose
 # advances and kerning layout measures with too. OFL-1.1, the signed-off
 # font's licence, in a crate of its own, which an image's SBOM
 # names with the font.
 nowayos-glyphs.workspace = true
+# Our own: draws each glyph from its outline at the size and scale the
+# text needs (ADR-0026, proposed).
+nowayos-raster.workspace = true
 nowayos-ui.workspace = true
 embedded-graphics.workspace = true
 

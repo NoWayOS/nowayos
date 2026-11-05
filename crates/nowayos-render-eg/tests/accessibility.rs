@@ -219,67 +219,54 @@ fn a_theme_below_the_minimum_target_size_fails_naming_each_control_and_its_size(
     );
 }
 
-/// Every theme draws its text from glyph atlases, each role at its type
-/// scale's size - the light theme display 96, title 28, heading 20, body
-/// 18, label 16 and caption 14; the large-text theme no text below 24 px -
-/// and from the atlas twice that size at device scale 2. The bitmap fonts are for bring-up
-/// and debug screens only.
+/// Every theme draws each text role from the signed-off font's outlines,
+/// at the type scale's size times the device scale, at every scale from 1
+/// to 4 in quarter steps, and layout measures with the same face at the
+/// same size; the large-text theme never falls below 24 px a unit. The
+/// bitmap fonts are for bring-up and debug screens only.
 #[test]
-fn every_theme_draws_each_role_from_an_atlas_at_its_size_at_every_scale() {
+fn every_theme_draws_each_role_from_outlines_at_its_size_at_every_scale() {
+    use nowayos_display::DeviceScale;
     use nowayos_ui::{TextRole, TextStyle};
-    let sizes = |theme: &Theme<Rgb888>| -> Vec<(u16, u16)> {
+    let sizes = |theme: &Theme<Rgb888>| -> Vec<u16> {
         TextRole::ALL
             .iter()
-            .map(|&role| {
-                let font = theme.type_scale.font(TextStyle::new(role));
-                match (font, font.atlas(1), font.atlas(2)) {
-                    (Font::Atlas(_), Some(one), Some(two)) => (one.size(), two.size()),
-                    _ => panic!("{role:?}: a bitmap font, or no atlas at scale 1 or 2"),
-                }
+            .map(|&role| match theme.type_scale.font(TextStyle::new(role)) {
+                Font::Outline(_, size) => size,
+                Font::Mono(_) => panic!("{role:?}: a bitmap font"),
             })
             .collect()
     };
     let [(_, light), (_, large)] = Theme::<Rgb888>::all();
-    assert_eq!(
-        sizes(&light),
-        [(96, 192), (28, 56), (20, 40), (18, 36), (16, 32), (14, 28)]
-    );
-    assert_eq!(
-        sizes(&large),
-        [(96, 192), (36, 72), (28, 56), (24, 48), (24, 48), (24, 48)]
-    );
-    // Every scale the display contract allows draws each role at its own
-    // size, from the atlas rasterised at it - so the large-text theme never
-    // falls below 24 px a unit - and layout measures with that atlas; the
-    // scale past it is refused.
+    assert_eq!(sizes(&light), [96, 28, 20, 18, 16, 14]);
+    assert_eq!(sizes(&large), [96, 36, 28, 24, 24, 24]);
     for (name, theme) in Theme::<Rgb888>::all() {
         for (style, font) in theme.type_scale.styles() {
-            let one = font.atlas(1).unwrap().size();
+            let Font::Outline(face, size) = font else {
+                panic!("{name}: {style:?} in a bitmap font");
+            };
             if name == "high contrast" {
-                assert!(one >= 24, "{style:?} below 24 px");
+                assert!(size >= 24, "{style:?} below 24 px");
             }
-            for scale in 1..=nowayos_display::MAX_SCALE {
-                let atlas = font.atlas(scale).unwrap();
-                assert_eq!(
-                    u32::from(atlas.size()),
-                    u32::from(one) * scale,
-                    "{name}: {style:?} at {scale}x"
-                );
+            for scale in (4..=16).filter_map(DeviceScale::from_quarters) {
                 let metrics = theme.metrics_at(scale).for_style(style);
+                let (measured, size64) = metrics.face().unwrap();
                 assert!(
-                    core::ptr::eq(metrics.atlas().unwrap(), atlas),
-                    "{name}: {style:?} at {scale}x measured from another atlas"
+                    core::ptr::eq(measured, face),
+                    "{name}: {style:?} at {scale} measured from another face"
+                );
+                assert_eq!(
+                    size64,
+                    u32::from(size) * 16 * scale.quarters(),
+                    "{name}: {style:?} at {scale}"
                 );
             }
         }
-        for scale in 1..=nowayos_display::MAX_SCALE {
-            assert!(theme.draws_at(scale), "{name} at {scale}x");
+        for scale in (4..=16).filter_map(DeviceScale::from_quarters) {
             let metrics = theme.metrics_at(scale);
             assert_eq!(metrics.scale(), scale, "{name}");
-            assert_eq!(metrics.min_target(), theme.min_target * scale, "{name}");
+            assert_eq!(metrics.min_target(), scale.px(theme.min_target), "{name}");
         }
-        assert!(!theme.draws_at(0), "{name}");
-        assert!(!theme.draws_at(nowayos_display::MAX_SCALE + 1), "{name}");
     }
 }
 
@@ -291,8 +278,11 @@ fn every_focusable_control_meets_the_minimum_target_size_at_scale_2() {
     for (name, theme) in Theme::<Rgb888>::all() {
         for row in [false, true] {
             let mut tree = every_control(&theme, row, Rect::new(0, 0, 1600, 800));
-            tree.layout(Rect::new(0, 0, 3200, 1600), &theme.metrics_at(2))
-                .unwrap();
+            tree.layout(
+                Rect::new(0, 0, 3200, 1600),
+                &theme.metrics_at(nowayos_display::DeviceScale::TWO),
+            )
+            .unwrap();
             for (_, node) in tree.paint_order().filter(|(_, n)| n.is_focusable()) {
                 let size = node.rect().size;
                 if size.width < 2 * MIN_TARGET || size.height < 2 * MIN_TARGET {
@@ -332,7 +322,7 @@ fn a_faint_surface_or_outline_fails_naming_each() {
 fn every_theme_makes_buttons_at_least_48_units_high() {
     for (name, theme) in Theme::<Rgb888>::all() {
         assert!(theme.shape.button_height >= 48, "{name}");
-        for scale in 1..=nowayos_display::MAX_SCALE {
+        for scale in 1..=4_u32 {
             let mut tree: Tree<4> = Tree::new();
             let root = tree.column(Style::new().align(Align::Start)).unwrap();
             tree.set_root(root).unwrap();
@@ -340,7 +330,7 @@ fn every_theme_makes_buttons_at_least_48_units_high() {
             tree.append(root, button).unwrap();
             tree.layout(
                 Rect::new(0, 0, 400 * scale, 400 * scale),
-                &theme.metrics_at(scale),
+                &theme.metrics_at(nowayos_display::DeviceScale::whole(scale).unwrap()),
             )
             .unwrap();
             let height = tree.get(button).unwrap().rect().size.height;

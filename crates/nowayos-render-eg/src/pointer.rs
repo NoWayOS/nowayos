@@ -3,12 +3,14 @@
 //! shows on any ground, drawn over the screen by the UI loop and never part
 //! of a tree - so never in a golden image.
 //!
-//! The arrow is a mask in layout units, its tip at the top left; at device
-//! scale 2 each unit is 2 x 2 pixels, as the theme's sizes are.
+//! The arrow is a mask in layout units, its tip at the top left; at a
+//! device scale each unit's edges fall on the nearest whole pixels, as the
+//! theme's sizes do: at scale 2 each unit is 2 x 2 pixels, at 1.5 the units
+//! are 1 and 2 pixels in turn.
 
 use embedded_graphics::draw_target::DrawTarget;
 use embedded_graphics::pixelcolor::{Rgb888, RgbColor};
-use nowayos_display::{Point, Rect};
+use nowayos_display::{DeviceScale, Point, Rect};
 
 use crate::to_eg;
 
@@ -43,16 +45,14 @@ const ARROW: [&[u8; POINTER_WIDTH as usize]; POINTER_HEIGHT as usize] = [
 ];
 
 /// The pixels the pointer covers with its tip at `at`, at device scale
-/// `scale` (0 is taken as 1). Saturating: near `i32::MAX` it is cut short,
-/// never wrapped.
+/// `scale`. Saturating: near `i32::MAX` it is cut short, never wrapped.
 #[must_use]
-pub fn pointer_area(at: Point, scale: u32) -> Rect {
-    let scale = scale.max(1);
+pub fn pointer_area(at: Point, scale: DeviceScale) -> Rect {
     Rect::from_edges(
         i64::from(at.x),
         i64::from(at.y),
-        i64::from(at.x).saturating_add(i64::from(POINTER_WIDTH.saturating_mul(scale))),
-        i64::from(at.y).saturating_add(i64::from(POINTER_HEIGHT.saturating_mul(scale))),
+        i64::from(at.x).saturating_add(i64::from(scale.px(POINTER_WIDTH))),
+        i64::from(at.y).saturating_add(i64::from(scale.px(POINTER_HEIGHT))),
     )
 }
 
@@ -63,18 +63,23 @@ pub fn pointer_area(at: Point, scale: u32) -> Rect {
 /// # Errors
 ///
 /// Whatever the draw target reports.
-pub fn render_pointer<D>(target: &mut D, at: Point, scale: u32, clip: Rect) -> Result<(), D::Error>
+pub fn render_pointer<D>(
+    target: &mut D,
+    at: Point,
+    scale: DeviceScale,
+    clip: Rect,
+) -> Result<(), D::Error>
 where
     D: DrawTarget,
     D::Color: From<Rgb888>,
 {
-    let scale = scale.max(1);
     if !pointer_area(at, scale).intersects(&clip) {
         return Ok(());
     }
-    let scale = i64::from(scale);
-    let mut top = i64::from(at.y);
-    for row in ARROW {
+    // Unit `n`'s edge, `n` units from the tip, in pixels.
+    let edge = |from: i32, units: i64| i64::from(from).saturating_add(scale.px_signed(units));
+    for (row, units) in ARROW.iter().zip(0_i64..) {
+        let (top, bottom) = (edge(at.y, units), edge(at.y, units.saturating_add(1)));
         let mut column: i64 = 0;
         for run in row.chunk_by(|a, b| a == b) {
             let width = i64::try_from(run.len()).unwrap_or(0);
@@ -84,12 +89,11 @@ where
                 _ => None,
             };
             if let Some(color) = color {
-                let left = i64::from(at.x).saturating_add(column.saturating_mul(scale));
                 let run = Rect::from_edges(
-                    left,
+                    edge(at.x, column),
                     top,
-                    left.saturating_add(width.saturating_mul(scale)),
-                    top.saturating_add(scale),
+                    edge(at.x, column.saturating_add(width)),
+                    bottom,
                 );
                 if let Some(shown) = run.intersection(&clip) {
                     target.fill_solid(&to_eg(shown), color.into())?;
@@ -97,7 +101,6 @@ where
             }
             column = column.saturating_add(width);
         }
-        top = top.saturating_add(scale);
     }
     Ok(())
 }
@@ -116,7 +119,8 @@ mod tests {
 
     const GROUND: Rgb888 = Rgb888::new(0x20, 0x80, 0x40);
 
-    fn drawn(at: Point, scale: u32, clip: Rect) -> Framebuffer {
+    fn drawn(at: Point, quarters: u32, clip: Rect) -> Framebuffer {
+        let scale = DeviceScale::from_quarters(quarters).unwrap();
         let mut fb = Framebuffer::filled(64, 64, GROUND).unwrap();
         render_pointer(&mut fb, at, scale, clip).unwrap();
         fb
@@ -131,7 +135,7 @@ mod tests {
 
     #[test]
     fn the_tip_is_at_the_point_and_each_unit_is_scale_pixels() {
-        let fb = drawn(Point::new(10, 5), 2, Rect::new(0, 0, 64, 64));
+        let fb = drawn(Point::new(10, 5), 8, Rect::new(0, 0, 64, 64));
         // The tip: outline, two pixels each way at scale 2.
         for (x, y) in [(10, 5), (11, 5), (10, 6), (11, 6)] {
             assert_eq!(fb.pixel(x, y), Some(Rgb888::BLACK));
@@ -143,14 +147,17 @@ mod tests {
         assert_eq!(fb.pixel(12, 11), Some(Rgb888::WHITE));
         assert_eq!(fb.pixel(13, 12), Some(Rgb888::WHITE));
         // The area: 24 x 38 pixels at scale 2.
-        assert_eq!(pointer_area(Point::new(10, 5), 2), Rect::new(10, 5, 24, 38));
+        assert_eq!(
+            pointer_area(Point::new(10, 5), DeviceScale::TWO),
+            Rect::new(10, 5, 24, 38)
+        );
     }
 
     #[test]
     fn nothing_outside_the_area_is_touched() {
         let at = Point::new(7, 3);
-        let fb = drawn(at, 1, Rect::new(0, 0, 64, 64));
-        let area = pointer_area(at, 1);
+        let fb = drawn(at, 4, Rect::new(0, 0, 64, 64));
+        let area = pointer_area(at, DeviceScale::ONE);
         for y in 0..64 {
             for x in 0..64 {
                 if !area.contains(Point::new(x, y)) {
@@ -166,7 +173,7 @@ mod tests {
         // pointer into each repainted area alone.
         #[test]
         fn a_clipped_draw_is_the_full_draw_inside_the_clip(
-            x in -30..70_i32, y in -40..70_i32, scale in 1..4_u32,
+            x in -30..70_i32, y in -40..70_i32, scale in 4..=16_u32,
             cx in 0..64_i32, cy in 0..64_i32, cw in 0..64_u32, ch in 0..64_u32,
         ) {
             let at = Point::new(x, y);
@@ -188,10 +195,10 @@ mod tests {
         // Anywhere, at any scale: no panic, no overflow.
         #[test]
         fn any_point_and_scale_draws_without_panicking(
-            x in any::<i32>(), y in any::<i32>(), scale in any::<u32>(),
+            x in any::<i32>(), y in any::<i32>(), scale in 4..=16_u32,
         ) {
             let _ = drawn(Point::new(x, y), scale, Rect::new(0, 0, 64, 64));
-            let _ = pointer_area(Point::new(x, y), scale);
+            let _ = pointer_area(Point::new(x, y), DeviceScale::from_quarters(scale).unwrap());
         }
     }
 }

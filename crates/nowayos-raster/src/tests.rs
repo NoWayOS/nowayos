@@ -229,7 +229,8 @@ fn scale_matches_the_atlas_rounding() {
 
 #[test]
 fn the_cache_draws_each_glyph_once() {
-    let mut cache: Box<GlyphCache<64, 8>> = Box::default();
+    let (mut pixels, mut slots) = (vec![0; 64], vec![Slot::EMPTY; 8]);
+    let mut cache = GlyphCache::new(&mut pixels, &mut slots);
     let key = GlyphKey {
         face: 1,
         size64: 1152,
@@ -253,7 +254,8 @@ fn the_cache_draws_each_glyph_once() {
 
 #[test]
 fn a_full_cache_empties_and_starts_again() {
-    let mut cache: Box<GlyphCache<10, 64>> = Box::default();
+    let (mut pixels, mut slots) = (vec![0; 10], vec![Slot::EMPTY; 64]);
+    let mut cache = GlyphCache::new(&mut pixels, &mut slots);
     let placement = Placement::of(Point::new(0, 0), Point::new(512, 512), fine()).unwrap();
     for ch in ['a', 'b', 'c'] {
         let key = GlyphKey {
@@ -286,7 +288,8 @@ fn a_full_cache_empties_and_starts_again() {
 
 #[test]
 fn a_crowded_table_empties_before_it_fills() {
-    let mut cache: Box<GlyphCache<4096, 8>> = Box::default();
+    let (mut pixels, mut slots) = (vec![0; 4096], vec![Slot::EMPTY; 8]);
+    let mut cache = GlyphCache::new(&mut pixels, &mut slots);
     let placement = Placement::of(Point::new(0, 0), Point::new(256, 256), fine()).unwrap();
     for (i, ch) in ('a'..='z').enumerate() {
         let key = GlyphKey {

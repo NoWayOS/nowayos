@@ -71,7 +71,11 @@ fn screen(theme: &Theme<Rgb888>, width: u32) -> (Tree<16>, [NodeId; 4]) {
 fn frame(tree: &Tree<16>, theme: &Theme<Rgb888>) -> Framebuffer {
     let size = tree.viewport().size;
     let mut fb = Framebuffer::new(size.width, size.height).unwrap();
-    render(tree, &mut fb, theme).unwrap();
+    {
+        nowayos_testkit::glyph_store!(glyphs__);
+        render(tree, &mut fb, theme, &mut glyphs__)
+    }
+    .unwrap();
     fb
 }
 

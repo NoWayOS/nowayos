@@ -42,10 +42,11 @@ import xml.etree.ElementTree as ElementTree
 EXIT_OK = 0
 EXIT_ERROR = 2
 
-# The icons' size in layout units, and the device scales they are drawn at:
-# nowayos_display::MAX_SCALE's.
+# The icons' size in layout units, and the device scales they are drawn at,
+# in quarters: every quarter step from 1 to 4, as nowayos_display::DeviceScale
+# allows. 24 units is a whole number of pixels at each: 6 a quarter.
 UNITS = 24
-SCALES = (1, 2)
+QUARTERS = tuple(range(4, 17))
 # Half the stroke width, in view box units.
 HALF_STROKE = 1.0
 # Samples each way in a pixel.
@@ -352,10 +353,11 @@ def distance(px, py, segment):
     return math.sqrt(x * x + y * y)
 
 
-def mask(segments, scale):
-    """The coverage of an icon at `scale`: (UNITS * scale) ** 2 bytes."""
-    size = UNITS * scale
-    pixel = 1 / scale
+def mask(segments, quarters):
+    """The coverage of an icon at a device scale of `quarters` quarter pixels
+    a unit: (UNITS * quarters / 4) ** 2 bytes."""
+    size = UNITS * quarters // 4
+    pixel = 4 / quarters
     # Half a pixel's diagonal, in view box units: a pixel whose centre lies
     # this much further from every stroke than half the stroke is empty; this
     # much nearer, full.
@@ -425,10 +427,10 @@ def generate(crate):
         except (InputError, UnicodeDecodeError, ValueError) as err:
             raise InputError(f"{name}.svg: {err}") from err
         masks = []
-        for scale in SCALES:
-            size = UNITS * scale
+        for quarters in QUARTERS:
+            size = UNITS * quarters // 4
             file_name = f"{name.replace('-', '_')}_{size}.coverage"
-            files[file_name] = mask(segments, scale)
+            files[file_name] = mask(segments, quarters)
             masks.append(f"Mask::new({size}, include_bytes!(\"{file_name}\"))")
         statics.append((name, masks))
     lines = [

@@ -40,7 +40,7 @@ fn screen(theme: &Theme<Rgb888>, width: u32, height: u32, scale: u32) -> Tree<8>
     tree.append(card, on_card).unwrap();
     tree.layout(
         Rect::new(0, 0, width * scale, height * scale),
-        &theme.metrics_at(scale),
+        &theme.metrics_at(nowayos_display::DeviceScale::whole(scale).unwrap()),
     )
     .unwrap();
     tree
@@ -55,7 +55,11 @@ fn golden(name: &str) -> PathBuf {
 fn full_frame(tree: &Tree<8>, theme: &Theme<Rgb888>) -> Framebuffer {
     let size = tree.viewport().size;
     let mut fb = Framebuffer::new(size.width, size.height).unwrap();
-    render(tree, &mut fb, theme).unwrap();
+    {
+        nowayos_testkit::glyph_store!(glyphs__);
+        render(tree, &mut fb, theme, &mut glyphs__)
+    }
+    .unwrap();
     fb
 }
 
@@ -95,7 +99,11 @@ fn moving_the_fill_repaints_only_between_its_ends() {
             // side, not the whole bar.
             assert!(rect.size.width <= bar.size.width / 40 + 2 * bar.size.height + 1);
         }
-        render_dirty(&tree, &mut incremental, &theme).unwrap();
+        {
+            nowayos_testkit::glyph_store!(glyphs__);
+            render_dirty(&tree, &mut incremental, &theme, &mut glyphs__)
+        }
+        .unwrap();
         tree.clear_dirty();
         assert_eq!(
             incremental.diff(&full_frame(&tree, &theme)),

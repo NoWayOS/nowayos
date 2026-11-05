@@ -21,7 +21,7 @@
 
 use nowayos_ipc::{HEADER_LEN, Header, Message, decode, decode_exact, encode, encoded_len};
 
-use crate::{Configure, MAX_DAMAGE_RECTS, MAX_RECORD_LEN, MAX_SCALE, Present, PresentDone};
+use crate::{Configure, MAX_DAMAGE_RECTS, MAX_RECORD_LEN, Present, PresentDone};
 
 /// Any byte string of at most `MAX_RECORD_LEN + 1` bytes: every record of
 /// the contract, short of it, and one byte past the longest.
@@ -79,21 +79,18 @@ fn configure_any_input() {
 
 /// A configuration accepted from the display PD describes a real,
 /// addressable framebuffer: neither side zero, rows long enough; and a
-/// device scale of 1 to `MAX_SCALE` that divides it into whole layout
-/// units.
+/// device scale of 4 to 16 quarter pixels a layout unit, 1 to 4.
 #[kani::proof]
 #[kani::unwind(10)]
 fn configure_any_payload() {
     any_payload_keeps_rules::<Configure>(|configure| {
         let layout = configure.layout();
-        let scale = configure.scale();
+        let quarters = configure.scale().quarters();
         layout.width() > 0
             && layout.height() > 0
             && u64::from(layout.stride())
                 >= u64::from(layout.width()) * u64::from(layout.format().bytes_per_pixel())
-            && (1..=MAX_SCALE).contains(&scale)
-            && layout.width() % scale == 0
-            && layout.height() % scale == 0
+            && (4..=16).contains(&quarters)
     });
 }
 

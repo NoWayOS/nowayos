@@ -53,7 +53,11 @@ fn the_header_shows_the_placeholder_then_the_choice() {
             .unwrap();
         let draw = |tree: &Tree<8>| {
             let mut fb = Framebuffer::new(360, 300).unwrap();
-            render(tree, &mut fb, &theme).unwrap();
+            {
+                nowayos_testkit::glyph_store!(glyphs__);
+                render(tree, &mut fb, &theme, &mut glyphs__)
+            }
+            .unwrap();
             fb
         };
         let header = tree.get(picker).unwrap().list_row(0).unwrap();

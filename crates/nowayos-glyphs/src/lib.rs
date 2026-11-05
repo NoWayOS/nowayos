@@ -264,6 +264,7 @@ pub struct Atlas {
     glyphs: &'static [Glyph],
     kerning: &'static [KernPair],
     upem: u16,
+    face: &'static Face,
 }
 
 impl Atlas {
@@ -273,6 +274,7 @@ impl Atlas {
         glyphs: &'static [Glyph],
         kerning: &'static [KernPair],
         upem: u16,
+        face: &'static Face,
     ) -> Self {
         Self {
             size,
@@ -280,7 +282,15 @@ impl Atlas {
             glyphs,
             kerning,
             upem,
+            face,
         }
+    }
+
+    /// The face it was drawn from, as outlines: what draws the same text
+    /// at any size.
+    #[must_use]
+    pub const fn face(&self) -> &'static Face {
+        self.face
     }
 
     /// The size, in pixels per em.

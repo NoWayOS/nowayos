@@ -1196,8 +1196,8 @@ static GLYPHS: [Outline; 190] = lay_out_outlines(VERBS, &POINTS, [
     o('\u{ff}', 449, 20, -324, 878, 1396, 37, 56),
 ]);
 
-/// The Regular face as outlines, which it is drawn from at any size.
-pub static REGULAR: Face = Face::new(UPEM, [984, 316, 0], &GLYPHS, &KERNING);
+/// The Regular face as outlines, which it is drawn from at any size: face 1.
+pub static REGULAR: Face = Face::new(1, UPEM, [984, 316, 0], &GLYPHS, &KERNING);
 
 // Checked when this module compiles: the outlines exactly the face's characters, in order;
 // every outline's steps taking exactly its points, the outlines taking all of VERBS and

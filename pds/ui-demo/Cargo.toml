@@ -17,6 +17,7 @@ bench = false
 nowayos-demo.workspace = true
 nowayos-display.workspace = true
 nowayos-hw.workspace = true
+nowayos-render-eg.workspace = true
 nowayos-ui-loop.workspace = true
 sel4-microkit.workspace = true
 

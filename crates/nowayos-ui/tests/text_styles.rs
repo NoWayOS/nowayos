@@ -24,11 +24,11 @@ use nowayos_ui::{
 /// gives it.
 fn metrics() -> TextMetrics {
     TextMetrics::from_atlas(&REGULAR_18)
-        .with_face(TextStyle::BODY, &REGULAR_18)
-        .with_face(TextStyle::BODY.bold(), &BOLD_18)
-        .with_face(TextStyle::new(TextRole::Title), &BOLD_28)
-        .with_face(TextStyle::new(TextRole::Caption), &REGULAR_14)
-        .with_face(TextStyle::new(TextRole::Display), &DISPLAY_96)
+        .with_atlas(TextStyle::BODY, &REGULAR_18)
+        .with_atlas(TextStyle::BODY.bold(), &BOLD_18)
+        .with_atlas(TextStyle::new(TextRole::Title), &BOLD_28)
+        .with_atlas(TextStyle::new(TextRole::Caption), &REGULAR_14)
+        .with_atlas(TextStyle::new(TextRole::Display), &DISPLAY_96)
 }
 
 #[test]
@@ -94,11 +94,12 @@ fn each_node_is_measured_in_its_own_style() {
         (title.scale(), title.min_target()),
         (m.scale(), m.min_target())
     );
-    assert!(core::ptr::eq(title.atlas().unwrap(), &BOLD_28));
-    assert!(core::ptr::eq(
-        title.for_style(TextStyle::BODY).atlas().unwrap(),
-        &REGULAR_18
-    ));
+    let face_of = |metrics: &TextMetrics| metrics.face().map(|(face, size64)| (face.id(), size64));
+    assert_eq!(face_of(&title), Some((BOLD_28.face().id(), 28 * 64)));
+    assert_eq!(
+        face_of(&title.for_style(TextStyle::BODY)),
+        Some((REGULAR_18.face().id(), 18 * 64))
+    );
 }
 
 /// Display text holds digits, capitals and a few signs: anything else is

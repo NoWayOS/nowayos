@@ -5,15 +5,18 @@
 //! it - without ever parsing an SVG file.
 //!
 //! Each [`Icon`] is [`SIZE`] layout units square and has a [`Mask`] for
-//! each scale: 24 pixels at scale 1, 48 at scale 2. A mask holds one
-//! coverage byte a pixel, row by row: 0 for none, 255 for full.
+//! each device scale from 1 to 4 in quarter steps, found by the scale's
+//! quarters: 24 pixels at scale 1 (4 quarters), 30 at 1.25, 48 at 2, 96 at
+//! 4. A mask holds one coverage byte a pixel, row by row: 0 for none, 255
+//! for full.
 //!
 //! ```
 //! use nowayos_icons::{FUEL, SIZE};
 //!
-//! let mask = FUEL.mask(2).unwrap();
+//! let mask = FUEL.mask(8).unwrap();
 //! assert_eq!(u32::from(mask.size()), SIZE * 2);
 //! assert_eq!(mask.coverage().len(), 48 * 48);
+//! assert_eq!(FUEL.mask(5).unwrap().size(), 30);
 //! assert!(FUEL.mask(3).is_none());
 //! ```
 //!
@@ -98,17 +101,22 @@ impl Mask {
     }
 }
 
-/// One icon: its name and a [`Mask`] for each device scale, from 1.
+/// How many device scales an icon has a mask for: every quarter step from
+/// 1 to 4.
+pub const SCALES: usize = 13;
+
+/// One icon: its name and a [`Mask`] for each device scale, from 1 to 4
+/// in quarter steps.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Icon {
     name: &'static str,
-    masks: [Mask; 2],
+    masks: [Mask; SCALES],
 }
 
 impl Icon {
-    /// The icon `name` with `masks`, for scales 1 and 2.
+    /// The icon `name` with `masks`, for scales 1, 1.25 and so on to 4.
     #[must_use]
-    pub const fn new(name: &'static str, masks: [Mask; 2]) -> Self {
+    pub const fn new(name: &'static str, masks: [Mask; SCALES]) -> Self {
         Self { name, masks }
     }
 
@@ -118,10 +126,12 @@ impl Icon {
         self.name
     }
 
-    /// Its mask at device scale `scale`; `None` for a scale it has none for.
+    /// Its mask at a device scale of `quarters` quarter pixels a layout
+    /// unit, 4 to 16 (`nowayos_display::DeviceScale::quarters`); `None`
+    /// for any other.
     #[must_use]
-    pub fn mask(&self, scale: u32) -> Option<&Mask> {
-        let index = usize::try_from(scale.checked_sub(1)?).ok()?;
+    pub fn mask(&self, quarters: u32) -> Option<&Mask> {
+        let index = usize::try_from(quarters.checked_sub(4)?).ok()?;
         self.masks.get(index)
     }
 }
@@ -137,11 +147,16 @@ mod tests {
     #[test]
     fn every_icon_has_a_mask_at_each_scale() {
         for icon in ALL {
-            for scale in [1, 2] {
-                let mask = icon.mask(scale).unwrap();
-                assert_eq!(u32::from(mask.size()), SIZE * scale, "{}", icon.name());
+            for quarters in 4..=16 {
+                let mask = icon.mask(quarters).unwrap();
+                assert_eq!(
+                    u32::from(mask.size()) * 4,
+                    SIZE * quarters,
+                    "{}",
+                    icon.name()
+                );
                 let inked = mask.coverage().iter().filter(|&&c| c > 0).count();
-                assert!(inked > 0, "{} at {scale}x draws nothing", icon.name());
+                assert!(inked > 0, "{} at {quarters}/4 draws nothing", icon.name());
                 assert_eq!(
                     mask.at(0, 0),
                     Some(0),
@@ -149,7 +164,7 @@ mod tests {
                     icon.name()
                 );
             }
-            assert!(icon.mask(0).is_none() && icon.mask(3).is_none());
+            assert!(icon.mask(3).is_none() && icon.mask(17).is_none());
         }
         let names: [&str; 6] = ALL.map(Icon::name);
         assert_eq!(
@@ -164,6 +179,6 @@ mod tests {
             ]
         );
         assert!(NOTICE.starts_with("ISC License"));
-        assert_eq!(FUEL.mask(1).unwrap().at(24, 0), None);
+        assert_eq!(FUEL.mask(4).unwrap().at(24, 0), None);
     }
 }

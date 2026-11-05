@@ -14,30 +14,30 @@ NOWAYOS: display-stub: announced 1920x1080 Xrgb8888 at scale 2
 NOWAYOS: input-script: starting; 10 steps to play
 NOWAYOS: ui: starting
 NOWAYOS: ui: the display is 1920x1080 Xrgb8888 at scale 2
-NOWAYOS: display-stub: frame 0 hash 0xee8b63267d29b198
-NOWAYOS: display-stub: frame 0 on the framebuffer, scan-out hash 0xee8b63267d29b198
-NOWAYOS: display-stub: frame 1 hash 0xee8b63267d29b198
-NOWAYOS: display-stub: frame 1 on the framebuffer, scan-out hash 0xee8b63267d29b198
-NOWAYOS: display-stub: frame 2 hash 0xee8b63267d29b198
-NOWAYOS: display-stub: frame 2 on the framebuffer, scan-out hash 0xee8b63267d29b198
+NOWAYOS: display-stub: frame 0 hash 0x1eb8cb3c502ea8ef
+NOWAYOS: display-stub: frame 0 on the framebuffer, scan-out hash 0x1eb8cb3c502ea8ef
+NOWAYOS: display-stub: frame 1 hash 0x1eb8cb3c502ea8ef
+NOWAYOS: display-stub: frame 1 on the framebuffer, scan-out hash 0x1eb8cb3c502ea8ef
+NOWAYOS: display-stub: frame 2 hash 0x1eb8cb3c502ea8ef
+NOWAYOS: display-stub: frame 2 on the framebuffer, scan-out hash 0x1eb8cb3c502ea8ef
 NOWAYOS: ui: input record rejected: invalid value in field `tag`
-NOWAYOS: display-stub: frame 3 hash 0xc128f929ca25372d
-NOWAYOS: display-stub: frame 3 on the framebuffer, scan-out hash 0xc128f929ca25372d
-NOWAYOS: display-stub: frame 4 hash 0xfa397a9281147401
-NOWAYOS: display-stub: frame 4 on the framebuffer, scan-out hash 0xfa397a9281147401
-NOWAYOS: display-stub: frame 5 hash 0x2bd3ccbc10bb4042
-NOWAYOS: display-stub: frame 5 on the framebuffer, scan-out hash 0x2bd3ccbc10bb4042
+NOWAYOS: display-stub: frame 3 hash 0xf7e7396b806d5adf
+NOWAYOS: display-stub: frame 3 on the framebuffer, scan-out hash 0xf7e7396b806d5adf
+NOWAYOS: display-stub: frame 4 hash 0xa9dbda556c368e3a
+NOWAYOS: display-stub: frame 4 on the framebuffer, scan-out hash 0xa9dbda556c368e3a
+NOWAYOS: display-stub: frame 5 hash 0x7012bfe5e1b88f4d
+NOWAYOS: display-stub: frame 5 on the framebuffer, scan-out hash 0x7012bfe5e1b88f4d
 NOWAYOS: ui: action Help
-NOWAYOS: display-stub: frame 6 hash 0x66b5c11742f5fbe2
-NOWAYOS: display-stub: frame 6 on the framebuffer, scan-out hash 0x66b5c11742f5fbe2
+NOWAYOS: display-stub: frame 6 hash 0xd56f21aa8cf2259d
+NOWAYOS: display-stub: frame 6 on the framebuffer, scan-out hash 0xd56f21aa8cf2259d
 NOWAYOS: ui: action Continue
-NOWAYOS: display-stub: frame 7 hash 0xff0e9cc9a5ed694b
-NOWAYOS: display-stub: frame 7 on the framebuffer, scan-out hash 0xff0e9cc9a5ed694b
-NOWAYOS: display-stub: frame 8 hash 0xff0e9cc9a5ed694b
-NOWAYOS: display-stub: frame 8 on the framebuffer, scan-out hash 0xff0e9cc9a5ed694b
+NOWAYOS: display-stub: frame 7 hash 0x7197de60d8b874a4
+NOWAYOS: display-stub: frame 7 on the framebuffer, scan-out hash 0x7197de60d8b874a4
+NOWAYOS: display-stub: frame 8 hash 0x7197de60d8b874a4
+NOWAYOS: display-stub: frame 8 on the framebuffer, scan-out hash 0x7197de60d8b874a4
 NOWAYOS: ui: action Start again
-NOWAYOS: display-stub: frame 9 hash 0xee8b63267d29b198
-NOWAYOS: display-stub: frame 9 on the framebuffer, scan-out hash 0xee8b63267d29b198
+NOWAYOS: display-stub: frame 9 hash 0x1eb8cb3c502ea8ef
+NOWAYOS: display-stub: frame 9 on the framebuffer, scan-out hash 0x1eb8cb3c502ea8ef
 NOWAYOS: ui: frame 9 shown
 NOWAYOS: input-script: session done
 

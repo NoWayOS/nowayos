@@ -155,7 +155,13 @@ pub fn files(spec: &Spec, faces: &[(&Face, &PinnedFile, FaceAtlas)]) -> Result<A
     let mut atlas_entries = String::new();
     let mut coverage_bytes = 0_usize;
     let mut glyph_count = Vec::new();
-    for ((face, file, atlas), (chars, ranges)) in faces.iter().zip(&spec.face_sets) {
+    for (index, ((face, file, atlas), (chars, ranges))) in
+        faces.iter().zip(&spec.face_sets).enumerate()
+    {
+        // Each face's number, from 1, in the order glyphs.toml lists them: what a
+        // glyph cache tells the faces apart by.
+        let id = u16::try_from(index.saturating_add(1))
+            .map_err(|_| Error::Spec(format!("{} lists too many faces", crate::SPEC_FILE)))?;
         let kerning = kerning_module(face);
         files.push((
             format!("{kerning}.rs"),
@@ -165,13 +171,13 @@ pub fn files(spec: &Spec, faces: &[(&Face, &PinnedFile, FaceAtlas)]) -> Result<A
         let outline = format!("{}_outline", face.name);
         files.push((
             format!("{outline}.rs"),
-            outline_rs(spec, face, file, atlas, &kerning)?.into_bytes(),
+            outline_rs(spec, face, file, atlas, &kerning, id)?.into_bytes(),
         ));
-        outline_statics.push((outline, face.name.to_uppercase()));
+        outline_statics.push((outline.clone(), face.name.to_uppercase()));
         glyph_count.push(chars.len());
         for size in &atlas.sizes {
             let name = module(face, size.size);
-            let rust = size_module(spec, face, file, size, &name, &kerning)?;
+            let rust = size_module(spec, face, file, size, &name, &kerning, &outline)?;
             files.push((format!("{name}.rs"), rust.into_bytes()));
             files.push((format!("{name}.coverage"), size.coverage.clone()));
             statics.push((
@@ -306,6 +312,7 @@ fn outline_rs(
     file: &PinnedFile,
     atlas: &FaceAtlas,
     kerning: &str,
+    id: u16,
 ) -> Result<String, Error> {
     let too_big = |what: &str| Error::Format {
         file: file.path.clone(),
@@ -393,8 +400,8 @@ fn outline_rs(
     let _ = write!(
         text,
         "]);\n\n\
-         /// The {style} face as outlines, which it is drawn from at any size.\n\
-         pub static {upper}: Face = Face::new(UPEM, [{line}], &GLYPHS, &KERNING);\n\n\
+         /// The {style} face as outlines, which it is drawn from at any size: face {id}.\n\
+         pub static {upper}: Face = Face::new({id}, UPEM, [{line}], &GLYPHS, &KERNING);\n\n\
          // Checked when this module compiles: the outlines exactly the face's characters, in order;\n\
          // every outline's steps taking exactly its points, the outlines taking all of VERBS and\n\
          // POINTS; every step a known one and every point inside its outline's box. The values are\n\
@@ -422,12 +429,15 @@ fn size_module(
     atlas: &SizeAtlas,
     name: &str,
     kerning: &str,
+    outline: &str,
 ) -> Result<String, Error> {
+    let face_static = face.name.to_uppercase();
     let mut text = header("//", spec, &[(face, file)]);
     let _ = write!(
         text,
         "//\n// {size} pixels per em: {HOW}.\n\n\
          use super::{kerning}::{{CHARS, KERNING, UPEM}};\n\
+         use super::{outline}::{face_static};\n\
          use crate::{{Atlas, Glyph, LineMetrics, is_whole, lay_out, same_chars}};\n\n\
          /// Every glyph's coverage, in the order of `GLYPHS`, each row by row from the top: one byte a\n\
          /// pixel, 0 for none and 255 for full.\n\
@@ -464,7 +474,7 @@ fn size_module(
     let _ = write!(
         text,
         "\n/// The {style} face at {size} pixels per em.\n\
-         pub static {upper}: Atlas = Atlas::new({size}, LineMetrics::new({ascent}, {descent}, {line_gap}), &GLYPHS, &KERNING, UPEM);\n\n\
+         pub static {upper}: Atlas = Atlas::new({size}, LineMetrics::new({ascent}, {descent}, {line_gap}), &GLYPHS, &KERNING, UPEM, &{face_static});\n\n\
          // Checked when this module compiles: both tables in the order the lookups search them in, no\n\
          // character twice; the glyphs exactly the face's characters, in order; every glyph's pixels\n\
          // exactly its width times its height, the glyphs taking all of COVERAGE; every kerned pair\n\

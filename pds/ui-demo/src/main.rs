@@ -24,10 +24,13 @@
 #![no_main]
 
 use nowayos_demo::{Demo, action_name};
-use nowayos_display::UiEvent;
+use nowayos_display::{DeviceScale, UiEvent};
 use nowayos_hw::cpu::{counter, counter_frequency};
+use nowayos_render_eg::{DEFAULT_BYTES, DEFAULT_SLOTS, Glyphs, Slot};
 use nowayos_ui_loop::{LoopError, UiChannels, UiLoop};
-use sel4_microkit::{Channel, ChannelSet, Handler, Infallible, debug_println, protection_domain};
+use sel4_microkit::{
+    Channel, ChannelSet, Handler, Infallible, NullHandler, debug_println, protection_domain,
+};
 
 /// The channel to the display PD.
 const DISPLAY: Channel = Channel::new(0);
@@ -36,43 +39,64 @@ const DISPLAY: Channel = Channel::new(0);
 const INPUT: Channel = Channel::new(1);
 
 #[protection_domain]
-fn init() -> UiPd {
+fn init() -> NullHandler {
     debug_println!("NOWAYOS: ui: starting");
-    let state = match start() {
+    // The glyph store's storage lives in this frame, which runs the event
+    // loop and never returns: a PD has no heap. The system gives the PD a
+    // stack to hold it.
+    let mut pixels = [0_u8; DEFAULT_BYTES];
+    let mut slots = [Slot::EMPTY; DEFAULT_SLOTS];
+    let glyphs = Glyphs::new(&mut pixels, &mut slots);
+    let state = match start(glyphs) {
         Ok(state) => Some(state),
         Err(error) => {
             debug_println!("NOWAYOS: ui: gave up: {error}");
             None
         }
     };
-    UiPd { state }
+    run_forever(&mut UiPd { state })
 }
 
-fn start() -> Result<State, LoopError> {
+/// rust-sel4's event loop for `pd`, which never returns.
+#[allow(
+    unreachable_code,
+    reason = "Handler::run never returns: its type, Result<Never, Infallible>, has no value"
+)]
+fn run_forever(pd: &mut UiPd<'_>) -> ! {
+    match pd.run() {
+        Ok(never) => match never {},
+        Err(infallible) => match infallible {},
+    }
+}
+
+fn start(glyphs: Glyphs<'_>) -> Result<State<'_>, LoopError> {
     let channels = UiChannels::bind()?;
     let ui = UiLoop::new(channels.frame_len());
     Ok(State {
         channels,
         ui,
+        glyphs,
         demo: None,
     })
 }
 
 /// Everything the UI PD holds once started.
-struct State {
+struct State<'g> {
     channels: UiChannels,
     ui: UiLoop,
+    /// Where its text's glyphs come from: drawn from the outlines, kept.
+    glyphs: Glyphs<'g>,
     /// The demo, once the display has announced its layout.
     demo: Option<Demo>,
 }
 
-impl State {
+impl State<'_> {
     /// Takes every record from the display and acts on it.
     fn serve(&mut self) -> Result<(), LoopError> {
         while let Some(record) = self.channels.next_from_display()? {
             match self.ui.receive(&record)? {
                 UiEvent::Configured(layout) => {
-                    let scale = self.ui.scale().unwrap_or(1);
+                    let scale = self.ui.scale().unwrap_or(DeviceScale::ONE);
                     debug_println!(
                         "NOWAYOS: ui: the display is {}x{} {:?} at scale {scale}",
                         layout.width(),
@@ -124,7 +148,9 @@ impl State {
             return Ok(());
         };
         let started = counter();
-        let present = self.ui.draw_dirty(demo.tree_mut(), self.channels.frame())?;
+        let present =
+            self.ui
+                .draw_dirty(demo.tree_mut(), self.channels.frame(), &mut self.glyphs)?;
         let took = counter().saturating_sub(started);
         self.channels.send(&present)?;
         DISPLAY.notify();
@@ -145,11 +171,11 @@ impl State {
 }
 
 /// The UI PD: `None` once it has given up.
-struct UiPd {
-    state: Option<State>,
+struct UiPd<'g> {
+    state: Option<State<'g>>,
 }
 
-impl Handler for UiPd {
+impl Handler for UiPd<'_> {
     type Error = Infallible;
 
     fn notified(&mut self, channels: ChannelSet) -> Result<(), Self::Error> {

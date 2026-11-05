@@ -37,7 +37,11 @@ fn nothing_inside_the_view_is_drawn_outside_it() {
         tree.handle(InputEvent::KeyDown(KeyCode::PAGE_DOWN));
         tree.scroll_to(tree.scroll_offset().unwrap() - 20).unwrap();
         let mut fb = Framebuffer::new(320, 240).unwrap();
-        render(&tree, &mut fb, &theme).unwrap();
+        {
+            nowayos_testkit::glyph_store!(glyphs__);
+            render(&tree, &mut fb, &theme, &mut glyphs__)
+        }
+        .unwrap();
         let view_rect = tree.get(view).unwrap().rect();
         let straddles = |edge: i64| {
             buttons.iter().any(|&id| {

@@ -27,7 +27,7 @@ fn every_control_of_the_demo_meets_the_minimum_target_size_in_every_theme() {
             screens.push(demo.screen());
             for (_, node) in demo.tree().paint_order() {
                 let size = node.rect().size;
-                let least = MIN_TARGET * SCALE;
+                let least = SCALE.px(MIN_TARGET);
                 if node.is_focusable() && (size.width < least || size.height < least) {
                     failures.push(format!(
                         "{name}, after {}: {:?} is {}x{}, below {least}x{least}",

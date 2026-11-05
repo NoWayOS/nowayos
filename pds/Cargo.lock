@@ -1234,6 +1234,7 @@ dependencies = [
  "embedded-graphics",
  "nowayos-display",
  "nowayos-glyphs",
+ "nowayos-raster",
  "nowayos-ui",
 ]
 
@@ -1460,6 +1461,7 @@ dependencies = [
  "nowayos-demo",
  "nowayos-display",
  "nowayos-hw",
+ "nowayos-render-eg",
  "nowayos-ui-loop",
  "sel4-microkit",
 ]

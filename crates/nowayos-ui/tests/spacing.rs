@@ -61,7 +61,7 @@ fn a_named_gap_and_padding_follow_the_theme_and_the_scale() {
     let large = metrics.with_spacing(Spacing::LARGE);
     assert_eq!(placed(&mut tree, first, second, &large), (12, 24));
     // At device scale 2, every layout unit two pixels.
-    let at_two = metrics.with_scale(2);
+    let at_two = metrics.with_scale(nowayos_display::DeviceScale::TWO);
     assert_eq!(placed(&mut tree, first, second, &at_two), (16, 32));
 }
 

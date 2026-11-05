@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Text drawn from the glyph atlases: every pixel a line's glyphs
+//! Text drawn from the glyph outlines: every pixel a line's glyphs
 //! cover is its coverage blended over the colour the node is known to draw
 //! beneath the text - worked out here independently of the renderer, from
-//! the atlas's own tables, in both themes and in `Rgb888` and `Rgb565` -
+//! the face's own tables and a rasteriser of the test's own, in both
+//! themes and in `Rgb888` and `Rgb565` -
 //! and any text, in any node, at any size, repaints exactly in any area
 //! and never draws outside its node.
 
@@ -20,9 +21,10 @@ use std::collections::HashMap;
 use embedded_graphics::pixelcolor::{Rgb565, Rgb888, RgbColor};
 use embedded_graphics::prelude::{DrawTarget, OriginDimensions, Pixel, Size};
 use nowayos_display::{Insets, Point, Rect};
-use nowayos_glyphs::Atlas;
+use nowayos_glyphs::Face;
 use nowayos_input::InputEvent;
-use nowayos_render_eg::{Theme, render, render_area};
+use nowayos_raster::Rasteriser;
+use nowayos_render_eg::{Font, Theme, render, render_area};
 use nowayos_testkit::Framebuffer;
 use nowayos_ui::text::{fit_end, fit_start, is_printable};
 use nowayos_ui::{
@@ -82,56 +84,72 @@ impl DrawTarget for Narrow {
     }
 }
 
-/// The atlas a theme draws body text in.
-fn atlas<C: RgbColor>(theme: &Theme<C>) -> &'static Atlas {
-    match theme.type_scale.body.atlas(1) {
-        Some(atlas) => atlas,
-        None => panic!("a product theme draws from an atlas"),
+/// A face at a size in 1/64 pixel per em.
+type Sized = (&'static Face, u32);
+
+/// The face and size a theme draws body text in, at scale 1.
+fn body<C: RgbColor>(theme: &Theme<C>) -> Sized {
+    match theme.type_scale.body {
+        Font::Outline(face, size) => (face, u32::from(size) * 64),
+        Font::Mono(_) => panic!("a product theme draws from outlines"),
     }
 }
 
-/// The metrics and atlas `line` is drawn with in `theme`: Bold body text's
-/// for a button's label, body text's for the rest.
+/// The metrics, face and size `line` is drawn with in `theme`: Bold body
+/// text's for a button's label, body text's for the rest.
 fn face<C: RgbColor, D>(
     theme: &Theme<C>,
     metrics: &TextMetrics,
     line: &Expected<D>,
-) -> (TextMetrics, &'static Atlas) {
+) -> (TextMetrics, Sized) {
     if !line.bold {
-        return (*metrics, atlas(theme));
+        return (*metrics, body(theme));
     }
-    match theme.type_scale.body_bold.atlas(1) {
-        Some(bold) => (metrics.for_style(TextStyle::BODY.bold()), bold),
-        None => panic!("a product theme draws Bold from an atlas"),
+    match theme.type_scale.body_bold {
+        Font::Outline(face, size) => (
+            metrics.for_style(TextStyle::BODY.bold()),
+            (face, u32::from(size) * 64),
+        ),
+        Font::Mono(_) => panic!("a product theme draws Bold from outlines"),
     }
 }
 
-/// What a line of `text` covers, worked out from the atlas's tables alone:
-/// the pen starts at `left`; each glyph sits at the sum of the advances
-/// before it and the pairs' kerning, in 1/64 pixel, rounded to the nearest
-/// pixel (a half rounding right), then its own left; its top `top` pixels
-/// above the baseline, which is the ascent, rounded, below the line's
-/// `top`. Where glyphs share a pixel their coverage adds up, capped at 255.
-fn covered(atlas: &Atlas, text: &str, left: i64, top: i64) -> HashMap<(i64, i64), u8> {
-    let baseline = top + (i64::from(atlas.line_metrics().ascent()) + 32).div_euclid(64);
+/// What a line of `text` covers, worked out from the face's tables and a
+/// rasteriser of its own: the pen starts at `left`; each glyph sits at the
+/// sum of the advances before it and the pairs' kerning, in 1/64 pixel,
+/// rounded to the nearest pixel (a half rounding right), then its ink box's
+/// left; its top that many pixels above the baseline, which is the ascent,
+/// rounded, below the line's `top`. Where glyphs share a pixel their
+/// coverage adds up, capped at 255.
+fn covered((face, size64): Sized, text: &str, left: i64, top: i64) -> HashMap<(i64, i64), u8> {
+    let metrics = face.scale(size64).unwrap();
+    let outlines = face.outline_scale(size64).unwrap();
+    let ascent = i64::from(face.line_metrics(metrics).ascent());
+    let baseline = top + (ascent + 32).div_euclid(64);
+    let mut rasteriser: Box<Rasteriser<4096, 16_384>> = Box::default();
     let mut sums: HashMap<(i64, i64), u32> = HashMap::new();
     let (mut pen, mut previous) = (0_i64, None);
     for ch in text.chars() {
-        let glyph = atlas.glyph(ch).unwrap();
+        let outline = face.glyph(ch).unwrap();
         if let Some(before) = previous {
-            pen += i64::from(atlas.kerning(before, ch));
+            pen += i64::from(metrics.to_64(face.kerning_units(before, ch)));
         }
-        let x = left + (pen + 32).div_euclid(64) + i64::from(glyph.left());
-        let y = baseline - i64::from(glyph.top());
-        let width = usize::from(glyph.width());
-        for (index, &coverage) in glyph.coverage().iter().enumerate() {
+        let placement = outline.placement(outlines);
+        let mut coverage = vec![0; placement.len()];
+        rasteriser
+            .render(outline.path(), outlines, placement, &mut coverage)
+            .unwrap();
+        let x = left + (pen + 32).div_euclid(64) + i64::from(placement.left());
+        let y = baseline - i64::from(placement.top());
+        let width = placement.width() as usize;
+        for (index, &coverage) in coverage.iter().enumerate() {
             if coverage > 0 {
                 let (row, column) = (index / width, index % width);
                 *sums.entry((x + column as i64, y + row as i64)).or_insert(0) +=
                     u32::from(coverage);
             }
         }
-        pen += i64::from(glyph.advance());
+        pen += i64::from(metrics.to_64(outline.advance()));
         previous = Some(ch);
     }
     sums.into_iter()
@@ -170,7 +188,7 @@ struct Expected<C> {
 
 /// Every pixel the text covers inside its clip is its coverage blended
 /// over `background`; every other pixel of `area` is `background`.
-fn check_line<C, F>(frame: &F, metrics: &TextMetrics, atlas: &Atlas, line: &Expected<C>)
+fn check_line<C, F>(frame: &F, metrics: &TextMetrics, font: Sized, line: &Expected<C>)
 where
     C: RgbColor + std::fmt::Debug,
     F: Frame<C>,
@@ -184,7 +202,7 @@ where
     let left = line.area.left() + i64::from(dx);
     let top = line.area.top()
         + i64::from(line.area.size.height.saturating_sub(metrics.line_height()) / 2);
-    let cover = covered(atlas, &line.text, left, top);
+    let cover = covered(font, &line.text, left, top);
     assert!(!cover.is_empty(), "{}: no ink", line.what);
     let inside = |x: i64, y: i64| {
         x >= line.clip.left()
@@ -416,19 +434,27 @@ fn text_is_its_coverage_blended_over_its_nodes_known_background() {
         let metrics = wide.metrics();
         let (tree, nodes) = screen(&metrics, width, height);
         let mut frame = Framebuffer::new(width, height).unwrap();
-        render(&tree, &mut frame, &wide).unwrap();
+        {
+            nowayos_testkit::glyph_store!(glyphs__);
+            render(&tree, &mut frame, &wide, &mut glyphs__)
+        }
+        .unwrap();
         for line in lines(&tree, nodes, &wide, &metrics) {
-            let (metrics, atlas) = face(&wide, &metrics, &line);
-            check_line(&frame, &metrics, atlas, &line);
+            let (metrics, font) = face(&wide, &metrics, &line);
+            check_line(&frame, &metrics, font, &line);
         }
         let mut frame = Narrow {
             size: Size::new(width, height),
             pixels: vec![Rgb565::BLACK; (width * height) as usize],
         };
-        render(&tree, &mut frame, &narrow).unwrap();
+        {
+            nowayos_testkit::glyph_store!(glyphs__);
+            render(&tree, &mut frame, &narrow, &mut glyphs__)
+        }
+        .unwrap();
         for line in lines(&tree, nodes, &narrow, &metrics) {
-            let (metrics, atlas) = face(&narrow, &metrics, &line);
-            check_line(&frame, &metrics, atlas, &line);
+            let (metrics, font) = face(&narrow, &metrics, &line);
+            check_line(&frame, &metrics, font, &line);
         }
     }
 }
@@ -531,7 +557,7 @@ proptest! {
         }
         let rect = tree.get(node).unwrap().rect();
         let mut full = Framebuffer::filled(300, 140, Rgb888::new(1, 2, 3)).unwrap();
-        render(&tree, &mut full, &theme).unwrap();
+        { nowayos_testkit::glyph_store!(glyphs__); render(&tree, &mut full, &theme, &mut glyphs__) }.unwrap();
         for y in 0..140_u32 {
             for x in 0..300_u32 {
                 let inside = rect.contains(Point::new(x as i32, y as i32));
@@ -543,7 +569,7 @@ proptest! {
         for (x, y, w, h) in areas {
             let area = Rect::new(x, y, w, h);
             let mut part = Framebuffer::filled(300, 140, Rgb888::new(1, 2, 3)).unwrap();
-            render_area(&tree, &mut part, &theme, area).unwrap();
+            { nowayos_testkit::glyph_store!(glyphs__); render_area(&tree, &mut part, &theme, area, &mut glyphs__) }.unwrap();
             for py in 0..140_u32 {
                 for px in 0..300_u32 {
                     let want = if area.contains(Point::new(px as i32, py as i32)) {

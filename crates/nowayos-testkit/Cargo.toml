@@ -8,6 +8,8 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+# Our own: the glyph cache's slots, for glyph_storage.
+nowayos-raster.workspace = true
 embedded-graphics.workspace = true
 png.workspace = true
 

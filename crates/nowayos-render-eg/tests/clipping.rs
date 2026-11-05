@@ -33,7 +33,11 @@ const CAP: usize = 24;
 fn full<const N: usize>(tree: &Tree<N>, theme: &Theme<Rgb888>) -> Framebuffer {
     let size = tree.viewport().size;
     let mut fb = Framebuffer::new(size.width, size.height).unwrap();
-    render(tree, &mut fb, theme).unwrap();
+    {
+        nowayos_testkit::glyph_store!(glyphs__);
+        render(tree, &mut fb, theme, &mut glyphs__)
+    }
+    .unwrap();
     fb
 }
 
@@ -111,7 +115,11 @@ fn a_label_shorter_than_a_line_draws_only_inside_its_rect() {
 
     tree.clear_dirty();
     tree.set_text(below, "c").unwrap();
-    render_dirty(&tree, &mut incremental, &theme).unwrap();
+    {
+        nowayos_testkit::glyph_store!(glyphs__);
+        render_dirty(&tree, &mut incremental, &theme, &mut glyphs__)
+    }
+    .unwrap();
     assert_eq!(incremental.diff(&full(&tree, &theme)), None);
 }
 
@@ -163,7 +171,11 @@ fn text_cut_at_a_dirty_edge_matches_a_full_repaint() {
         let rows = (0..33).map(|y| Rect::new(0, y * 3 + 1, width, 5));
         for area in columns.chain(rows) {
             let mut fb = Framebuffer::filled(width, height, Rgb888::new(1, 2, 3)).unwrap();
-            nowayos_render_eg::render_area(&tree, &mut fb, &theme, area).unwrap();
+            {
+                nowayos_testkit::glyph_store!(glyphs__);
+                nowayos_render_eg::render_area(&tree, &mut fb, &theme, area, &mut glyphs__)
+            }
+            .unwrap();
             for y in 0..height {
                 for x in 0..width {
                     let inside = area.contains(Point::new(x as i32, y as i32));
@@ -284,8 +296,16 @@ fn extreme_layouts_render_without_overflow_in(theme: &Theme<Rgb888>) {
             tree.set_selected(FieldId(3), Some(1)).unwrap();
             tree.set_field_error(FieldId(1), "Wrong").unwrap();
             let mut sink = Sink { pixels: 0 };
-            render(&tree, &mut sink, &theme).unwrap();
-            render_dirty(&tree, &mut sink, &theme).unwrap();
+            {
+                nowayos_testkit::glyph_store!(glyphs__);
+                render(&tree, &mut sink, &theme, &mut glyphs__)
+            }
+            .unwrap();
+            {
+                nowayos_testkit::glyph_store!(glyphs__);
+                render_dirty(&tree, &mut sink, &theme, &mut glyphs__)
+            }
+            .unwrap();
             assert!(tree.get(label).is_some());
             // With ordinary styles the controls are on screen and drawn, so
             // the drawing code is really exercised at these coordinates;
@@ -563,7 +583,11 @@ fn check_changes(
     tree.clear_dirty();
     for (index, change) in changes.iter().enumerate() {
         apply(&mut tree, ids, change);
-        render_dirty(&tree, &mut incremental, &theme).unwrap();
+        {
+            nowayos_testkit::glyph_store!(glyphs__);
+            render_dirty(&tree, &mut incremental, &theme, &mut glyphs__)
+        }
+        .unwrap();
         tree.clear_dirty();
         let expected = full(&tree, &theme);
         prop_assert_eq!(

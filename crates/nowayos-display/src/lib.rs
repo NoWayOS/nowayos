@@ -34,6 +34,7 @@
 #![deny(clippy::indexing_slicing, clippy::arithmetic_side_effects)]
 
 mod contract;
+mod device_scale;
 mod dirty;
 mod ends;
 mod geometry;
@@ -45,8 +46,9 @@ mod scale;
 
 pub use contract::{
     CONFIGURE_KIND, Configure, ContractError, MAX_DAMAGE_RECTS, MAX_DIMENSION, MAX_RECORD_LEN,
-    MAX_SCALE, PRESENT_DONE_KIND, PRESENT_KIND, Present, PresentDone,
+    PRESENT_DONE_KIND, PRESENT_KIND, Present, PresentDone,
 };
+pub use device_scale::{DEFAULT_LAYOUT, DeviceScale, scale_for};
 pub use dirty::DirtyRegion;
 pub use ends::{DisplayEnd, Spans, UiEnd, UiEvent, ValidPresent};
 pub use geometry::{Insets, Point, Rect, Size};

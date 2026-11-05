@@ -81,7 +81,7 @@ fn welcome_at(theme: &Theme<Rgb888>, width: u32, height: u32, scale: u32) -> Wel
     tree.append(buttons, continue_button).unwrap();
     tree.layout(
         Rect::new(0, 0, width * scale, height * scale),
-        &theme.metrics_at(scale),
+        &theme.metrics_at(nowayos_display::DeviceScale::whole(scale).unwrap()),
     )
     .unwrap();
     Welcome {
@@ -95,7 +95,11 @@ fn welcome_at(theme: &Theme<Rgb888>, width: u32, height: u32, scale: u32) -> Wel
 fn full_frame(tree: &Tree<16>, theme: &Theme<Rgb888>) -> Framebuffer {
     let size = tree.viewport().size;
     let mut fb = Framebuffer::new(size.width, size.height).unwrap();
-    render(tree, &mut fb, theme).unwrap();
+    {
+        nowayos_testkit::glyph_store!(glyphs__);
+        render(tree, &mut fb, theme, &mut glyphs__)
+    }
+    .unwrap();
     fb
 }
 
@@ -257,7 +261,11 @@ fn dirty_repaint_equals_full_repaint_in(
             dirty_area < u64::from(width * height),
             "step {index} repainted the whole screen"
         );
-        render_dirty(&screen.tree, &mut incremental, &theme).unwrap();
+        {
+            nowayos_testkit::glyph_store!(glyphs__);
+            render_dirty(&screen.tree, &mut incremental, &theme, &mut glyphs__)
+        }
+        .unwrap();
         screen.tree.clear_dirty();
         let full = full_frame(&screen.tree, &theme);
         assert_eq!(
@@ -332,7 +340,11 @@ fn painting_an_area_touches_nothing_outside_it() {
     let marker = Rgb888::new(0xFF, 0x00, 0xFF);
     let mut fb = Framebuffer::filled(WIDTH, HEIGHT, marker).unwrap();
     let area = Rect::new(20, 30, 50, 25);
-    render_area(&screen.tree, &mut fb, &theme, area).unwrap();
+    {
+        nowayos_testkit::glyph_store!(glyphs__);
+        render_area(&screen.tree, &mut fb, &theme, area, &mut glyphs__)
+    }
+    .unwrap();
     for y in 0..HEIGHT {
         for x in 0..WIDTH {
             let inside = area.contains(nowayos_display::Point::new(x as i32, y as i32));
@@ -481,7 +493,11 @@ fn slot_text_repaints_only_its_area() {
             !dirty.is_empty() && dirty.iter().all(|rect| slot_rect.contains_rect(rect)),
             "{text:?}: {dirty:?} outside {slot_rect:?}"
         );
-        render_dirty(&tree, &mut incremental, &theme).unwrap();
+        {
+            nowayos_testkit::glyph_store!(glyphs__);
+            render_dirty(&tree, &mut incremental, &theme, &mut glyphs__)
+        }
+        .unwrap();
         tree.clear_dirty();
         assert_eq!(
             incremental.diff(&full_frame(&tree, &theme)),
@@ -491,7 +507,11 @@ fn slot_text_repaints_only_its_area() {
     }
     tree.set_slot(NAME_SLOT, "Sam").unwrap();
     tree.clear_slots();
-    render_dirty(&tree, &mut incremental, &theme).unwrap();
+    {
+        nowayos_testkit::glyph_store!(glyphs__);
+        render_dirty(&tree, &mut incremental, &theme, &mut glyphs__)
+    }
+    .unwrap();
     assert_eq!(
         incremental.diff(&full_frame(&tree, &theme)),
         None,
@@ -513,7 +533,7 @@ fn a_live_figure_repaints_only_the_digits_that_change() {
         (Theme::high_contrast(), 1),
     ] {
         let mut tree = review(&theme);
-        let metrics = theme.metrics_at(scale);
+        let metrics = theme.metrics_at(nowayos_display::DeviceScale::whole(scale).unwrap());
         tree.layout(Rect::new(0, 0, WIDTH * scale, HEIGHT * scale), &metrics)
             .unwrap();
         let slot = tree.find_slot(NAME_SLOT).unwrap();
@@ -532,7 +552,11 @@ fn a_live_figure_repaints_only_the_digits_that_change() {
                     assert!(rect.size.width <= strip, "{text}: {rect:?} at {scale}x");
                 }
             }
-            render_dirty(&tree, &mut incremental, &theme).unwrap();
+            {
+                nowayos_testkit::glyph_store!(glyphs__);
+                render_dirty(&tree, &mut incremental, &theme, &mut glyphs__)
+            }
+            .unwrap();
             tree.clear_dirty();
             assert_eq!(
                 incremental.diff(&full_frame(&tree, &theme)),
@@ -598,7 +622,11 @@ fn switching_screens_leaves_no_pixel_of_the_old_one() {
     tree.clear_dirty();
 
     nav.go(CHECK, &mut tree, flow_screen).unwrap();
-    render_dirty(&tree, &mut screen, &theme).unwrap();
+    {
+        nowayos_testkit::glyph_store!(glyphs__);
+        render_dirty(&tree, &mut screen, &theme, &mut glyphs__)
+    }
+    .unwrap();
     tree.clear_dirty();
     assert_eq!(
         screen.diff(&fresh_frame(CHECK, &theme, true)),
@@ -607,10 +635,18 @@ fn switching_screens_leaves_no_pixel_of_the_old_one() {
     );
 
     tree.set_slot(NAME_SLOT, "Sam").unwrap();
-    render_dirty(&tree, &mut screen, &theme).unwrap();
+    {
+        nowayos_testkit::glyph_store!(glyphs__);
+        render_dirty(&tree, &mut screen, &theme, &mut glyphs__)
+    }
+    .unwrap();
     tree.clear_dirty();
     assert!(nav.back(&mut tree, flow_screen).unwrap());
-    render_dirty(&tree, &mut screen, &theme).unwrap();
+    {
+        nowayos_testkit::glyph_store!(glyphs__);
+        render_dirty(&tree, &mut screen, &theme, &mut glyphs__)
+    }
+    .unwrap();
     assert_eq!(
         screen.diff(&fresh_frame(FORM, &theme, true)),
         None,
@@ -693,7 +729,11 @@ fn clearing_a_field_error_repaints_only_its_line() {
     tree.clear_dirty();
     tree.set_field_error(NAME, "Enter your name").unwrap();
     tree.set_field_error(CODE, "Use digits only").unwrap();
-    render_dirty(&tree, &mut incremental, &theme).unwrap();
+    {
+        nowayos_testkit::glyph_store!(glyphs__);
+        render_dirty(&tree, &mut incremental, &theme, &mut glyphs__)
+    }
+    .unwrap();
     tree.clear_dirty();
     assert_eq!(incremental.diff(&full_frame(&tree, &theme)), None);
     tree.clear_field_error(CODE).unwrap();
@@ -702,11 +742,19 @@ fn clearing_a_field_error_repaints_only_its_line() {
         .unwrap()
         .rect();
     assert_eq!(tree.dirty_rects(), &[line], "one line, not the screen");
-    render_dirty(&tree, &mut incremental, &theme).unwrap();
+    {
+        nowayos_testkit::glyph_store!(glyphs__);
+        render_dirty(&tree, &mut incremental, &theme, &mut glyphs__)
+    }
+    .unwrap();
     tree.clear_dirty();
     assert_eq!(incremental.diff(&full_frame(&tree, &theme)), None);
     tree.clear_field_error(NAME).unwrap();
-    render_dirty(&tree, &mut incremental, &theme).unwrap();
+    {
+        nowayos_testkit::glyph_store!(glyphs__);
+        render_dirty(&tree, &mut incremental, &theme, &mut glyphs__)
+    }
+    .unwrap();
     assert_eq!(incremental.diff(&before), None, "gone without a trace");
 }
 
@@ -936,7 +984,11 @@ fn choices_repaint_only_the_control() {
         for dirty in tree.dirty_rects() {
             assert!(controls.contains(dirty), "step {index} repainted {dirty:?}");
         }
-        render_dirty(&tree, &mut incremental, &theme).unwrap();
+        {
+            nowayos_testkit::glyph_store!(glyphs__);
+            render_dirty(&tree, &mut incremental, &theme, &mut glyphs__)
+        }
+        .unwrap();
         tree.clear_dirty();
         assert_eq!(
             incremental.diff(&full_frame(&tree, &theme)),
@@ -963,19 +1015,31 @@ fn a_reset_draws_the_start_screen_with_no_pixel_of_the_session() {
         type_text(&mut tree, "Sam");
         tree.set_checked(COPY, true).unwrap();
         if reset_on == CHECK {
-            render_dirty(&tree, &mut screen, &theme).unwrap();
+            {
+                nowayos_testkit::glyph_store!(glyphs__);
+                render_dirty(&tree, &mut screen, &theme, &mut glyphs__)
+            }
+            .unwrap();
             tree.clear_dirty();
             nav.go(CHECK, &mut tree, flow_screen).unwrap();
             tree.set_slot(NAME_SLOT, "Sam").unwrap();
         }
-        render_dirty(&tree, &mut screen, &theme).unwrap();
+        {
+            nowayos_testkit::glyph_store!(glyphs__);
+            render_dirty(&tree, &mut screen, &theme, &mut glyphs__)
+        }
+        .unwrap();
         tree.clear_dirty();
         assert!(!tree.is_wiped());
 
         nav.reset(&mut tree, flow_screen).unwrap();
         assert!(tree.is_wiped(), "every value's storage zeroed");
         assert_eq!(tree.dirty_rects(), &[viewport], "a full repaint");
-        render_dirty(&tree, &mut screen, &theme).unwrap();
+        {
+            nowayos_testkit::glyph_store!(glyphs__);
+            render_dirty(&tree, &mut screen, &theme, &mut glyphs__)
+        }
+        .unwrap();
         check_snapshot(&screen, &golden("reset-start.png")).unwrap();
         assert_eq!(
             screen.diff(&fresh_frame(FORM, &theme, false)),
@@ -1065,11 +1129,15 @@ fn raw_framebuffers_hold_the_golden_pixels_in_their_format() {
             for stride in [row, row + 12] {
                 let layout = FramebufferLayout::new(WIDTH, HEIGHT, stride, format).unwrap();
                 let mut memory = vec![0xA5_u8; layout.byte_len() + 16];
-                render(
-                    tree,
-                    &mut RawFramebuffer::new(layout, &mut memory[..]).unwrap(),
-                    &theme,
-                )
+                {
+                    nowayos_testkit::glyph_store!(glyphs__);
+                    render(
+                        tree,
+                        &mut RawFramebuffer::new(layout, &mut memory[..]).unwrap(),
+                        &theme,
+                        &mut glyphs__,
+                    )
+                }
                 .unwrap();
                 let bpp = usize::from(format.bytes_per_pixel());
                 for y in 0..HEIGHT {
@@ -1124,7 +1192,11 @@ fn renders_to_other_colour_types() {
     let theme: Theme<Rgb565> = Theme::light();
     let screen = welcome(&Theme::light(), WIDTH, HEIGHT);
     let mut target = Rgb565Buffer::new(WIDTH, HEIGHT);
-    render(&screen.tree, &mut target, &theme).unwrap();
+    {
+        nowayos_testkit::glyph_store!(glyphs__);
+        render(&screen.tree, &mut target, &theme, &mut glyphs__)
+    }
+    .unwrap();
     assert!(target.pixels.contains(&theme.button));
     assert!(target.pixels.contains(&theme.background));
 }
@@ -1142,7 +1214,11 @@ fn rgb565_frames_match_golden_images_in_every_theme() {
             Theme::high_contrast()
         };
         let mut target = Rgb565Buffer::new(width, height);
-        render(&screen.tree, &mut target, &narrow).unwrap();
+        {
+            nowayos_testkit::glyph_store!(glyphs__);
+            render(&screen.tree, &mut target, &narrow, &mut glyphs__)
+        }
+        .unwrap();
         let frame = target.widened();
         check_snapshot(
             &frame,
@@ -1191,7 +1267,7 @@ fn type_scale(theme: &Theme<Rgb888>, width: u32, height: u32, scale: u32) -> Tre
     }
     tree.layout(
         Rect::new(0, 0, width * scale, height * scale),
-        &theme.metrics_at(scale),
+        &theme.metrics_at(nowayos_display::DeviceScale::whole(scale).unwrap()),
     )
     .unwrap();
     tree
@@ -1227,7 +1303,11 @@ fn every_text_role_matches_its_approved_images() {
         // Each line repainted alone gives the full frame's pixels there.
         for (_, node) in tree.paint_order().skip(1) {
             let mut part = Framebuffer::new(width * scale, height * scale).unwrap();
-            render_area(&tree, &mut part, &theme, node.rect()).unwrap();
+            {
+                nowayos_testkit::glyph_store!(glyphs__);
+                render_area(&tree, &mut part, &theme, node.rect(), &mut glyphs__)
+            }
+            .unwrap();
             let area = node.rect();
             for y in area.top()..area.bottom() {
                 for x in area.left()..area.right() {
@@ -1333,7 +1413,7 @@ fn look(theme: &Theme<Rgb888>, width: u32, height: u32, scale: u32) -> (Tree<32>
     }
     tree.layout(
         Rect::new(0, 0, width * scale, height * scale),
-        &theme.metrics_at(scale),
+        &theme.metrics_at(nowayos_display::DeviceScale::whole(scale).unwrap()),
     )
     .unwrap();
     (tree, [quiet, secondary, primary, home])
@@ -1342,7 +1422,11 @@ fn look(theme: &Theme<Rgb888>, width: u32, height: u32, scale: u32) -> (Tree<32>
 fn frame_of<const N: usize>(tree: &Tree<N>, theme: &Theme<Rgb888>) -> Framebuffer {
     let size = tree.viewport().size;
     let mut fb = Framebuffer::new(size.width, size.height).unwrap();
-    render(tree, &mut fb, theme).unwrap();
+    {
+        nowayos_testkit::glyph_store!(glyphs__);
+        render(tree, &mut fb, theme, &mut glyphs__)
+    }
+    .unwrap();
     fb
 }
 
@@ -1413,7 +1497,11 @@ fn surfaces_and_button_variants_match_their_approved_images() {
         for (_, node) in tree.paint_order() {
             let size = tree.viewport().size;
             let mut part = Framebuffer::new(size.width, size.height).unwrap();
-            render_area(&tree, &mut part, &theme, node.rect()).unwrap();
+            {
+                nowayos_testkit::glyph_store!(glyphs__);
+                render_area(&tree, &mut part, &theme, node.rect(), &mut glyphs__)
+            }
+            .unwrap();
             let area = node.rect();
             for y in area.top()..area.bottom() {
                 for x in area.left()..area.right() {
@@ -1431,7 +1519,11 @@ fn surfaces_and_button_variants_match_their_approved_images() {
             down: false,
         });
         tree.set_focus(Some(quiet)).unwrap();
-        render_dirty(&tree, &mut dirty, &theme).unwrap();
+        {
+            nowayos_testkit::glyph_store!(glyphs__);
+            render_dirty(&tree, &mut dirty, &theme, &mut glyphs__)
+        }
+        .unwrap();
         assert_eq!(dirty, frame_of(&tree, &theme), "{name}");
     }
 }
