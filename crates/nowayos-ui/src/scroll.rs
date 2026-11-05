@@ -406,15 +406,15 @@ impl<const N: usize, const T: usize> Tree<N, T> {
             .unwrap_or(false)
     }
 
-    /// Each scroll view's offset moved from scale `from` to scale `to`, in
-    /// proportion, so it shows the same place when laid out again
-    /// (#10083); layout then keeps it in range.
-    pub(crate) fn rescale_scrolls(
-        &mut self,
-        from: nowayos_display::DeviceScale,
-        to: nowayos_display::DeviceScale,
-    ) {
-        let (from, to) = (u64::from(from.quarters()), u64::from(to.quarters()));
+    /// Before the tree is laid out again at scale `to` - zoomed (#10083) -
+    /// moves each scroll view's offset from the scale it was laid out at to
+    /// `to`, in proportion, so it shows the same place; the layout then
+    /// keeps it in range. Laid out at the same scale, nothing changes.
+    pub fn rescale(&mut self, to: nowayos_display::DeviceScale) {
+        if self.metrics.is_none() || to == self.scale {
+            return;
+        }
+        let (from, to) = (u64::from(self.scale.quarters()), u64::from(to.quarters()));
         let scaled = |offset: &mut u32| {
             *offset = u64::from(*offset)
                 .saturating_mul(to)

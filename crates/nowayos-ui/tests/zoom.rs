@@ -84,12 +84,14 @@ fn laid_out_at_another_scale_focus_and_each_scroll_place_are_kept() {
     let before = height(&tree);
     // At 1.5, the same place: half as far again, in pixels.
     let metrics = TextMetrics::new(12, 24).with_scale(DeviceScale::from_quarters(6).unwrap());
+    tree.rescale(metrics.scale());
     tree.layout(Rect::new(0, 0, 400, 300), &metrics).unwrap();
     assert_eq!(tree.scale(), DeviceScale::from_quarters(6).unwrap());
     assert_eq!(tree.scroll_offset(), Some(150));
     assert_eq!(tree.focused(), focused);
     assert!(height(&tree) < before, "the input above it is taller");
     // Back at 1: where it was.
+    tree.rescale(DeviceScale::ONE);
     tree.layout(Rect::new(0, 0, 400, 300), &TextMetrics::new(8, 16))
         .unwrap();
     assert_eq!(tree.scroll_offset(), Some(100));

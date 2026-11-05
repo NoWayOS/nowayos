@@ -222,10 +222,11 @@ impl UiLoop {
     /// Steps the scale the screens are laid out and drawn at by `zoom`
     /// (#10083; Ctrl and plus, minus or zero, [`UiEvent::Zoom`]): a quarter
     /// larger or smaller, within 1 to 4, or back to the display's own. The
-    /// new scale if it changed - then lay the screens out again with
-    /// [`metrics`](Self::metrics), which keeps focus and each scroll view's
-    /// place, and draw them whole; `None` if it did not, or before the
-    /// display has announced its layout.
+    /// new scale if it changed - then, for each screen, keep its scroll
+    /// views' places (`Tree::rescale`) and lay it out again with
+    /// [`metrics`](Self::metrics), which keeps focus, and draw it whole;
+    /// `None` if it did not, or before the display has announced its
+    /// layout.
     ///
     /// [`UiEvent::Zoom`]: nowayos_ui::UiEvent::Zoom
     pub fn zoom(&mut self, zoom: Zoom) -> Option<DeviceScale> {
