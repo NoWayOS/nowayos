@@ -158,6 +158,10 @@ impl<const N: usize, const T: usize> Tree<N, T> {
         self.mark_layer(id);
         let first = self.focus_order().next();
         self.move_focus(first);
+        // Its default transition, as the motion setting allows (#10086).
+        if let Some(kind) = self.layer_kind(id) {
+            self.transition_in(id, kind);
+        }
         Ok(())
     }
 

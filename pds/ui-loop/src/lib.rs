@@ -263,6 +263,30 @@ impl UiLoop {
         Ok(present)
     }
 
+    /// The runtime's frame clock (#10086): while anything in `tree` moves
+    /// (a transition, an animation, a fling), lets `elapsed` milliseconds
+    /// pass ([`Tree::advance`]) and draws what moved, giving the frame to
+    /// present; `None` while nothing moves. A PD calls it each time the
+    /// display has shown a frame, with the time since the last, so motion
+    /// runs at the display's rate.
+    ///
+    /// # Errors
+    ///
+    /// As [`draw_dirty`](Self::draw_dirty).
+    pub fn tick<M: FrameMemory, const N: usize, const T: usize>(
+        &mut self,
+        tree: &mut Tree<N, T>,
+        frame: M,
+        glyphs: &mut Glyphs<'_>,
+        elapsed: u32,
+    ) -> Result<Option<Present>, LoopError> {
+        if !tree.is_moving() || !self.end.can_draw() {
+            return Ok(None);
+        }
+        tree.advance(elapsed);
+        self.draw_dirty(tree, frame, glyphs).map(Some)
+    }
+
     /// Draws only the areas `tree` has marked dirty into `frame`, its text's
     /// glyphs from `glyphs`, marks
     /// them drawn ([`Tree::clear_dirty`]), and returns the `Present`
@@ -616,6 +640,37 @@ mod tests {
         let mut memory = vec![0_u8; layout.byte_len()];
         with_glyphs(|glyphs| ui.draw_all(tree, &mut memory[..], glyphs)).unwrap();
         memory
+    }
+
+    /// The frame clock (#10086): nothing to draw while nothing moves; while
+    /// a fade runs, a frame each tick, the last as a whole frame would be.
+    #[test]
+    fn the_frame_clock_draws_while_something_moves() {
+        let layout = FramebufferLayout::packed(64, 48, PixelFormat::Xrgb8888).unwrap();
+        let mut display = DisplayEnd::new(layout).unwrap();
+        let mut ui = UiLoop::new(layout.byte_len());
+        ui.receive(&record(&display.configure())).unwrap();
+        let mut tree: Tree<4> = Tree::new();
+        let column = tree.column(Style::new()).unwrap();
+        tree.set_root(column).unwrap();
+        tree.layout(layout.bounds(), &ui.metrics()).unwrap();
+        let mut memory = vec![0_u8; layout.byte_len()];
+        shown(&mut ui, &mut display, &mut tree, &mut memory);
+        let idle = with_glyphs(|glyphs| ui.tick(&mut tree, &mut memory[..], glyphs, 16)).unwrap();
+        assert!(idle.is_none(), "nothing moves");
+        tree.set_motion(nowayos_ui::motion::MotionSetting::Full);
+        tree.animate(column, nowayos_ui::motion::Animation::fade_in(48))
+            .unwrap();
+        let mut frames = 0;
+        while let Some(present) =
+            with_glyphs(|glyphs| ui.tick(&mut tree, &mut memory[..], glyphs, 16)).unwrap()
+        {
+            let done = display.accept(&present).unwrap().done();
+            ui.receive(&record(&done)).unwrap();
+            frames += 1;
+        }
+        assert_eq!(frames, 3, "48 ms at 16 a frame");
+        assert_eq!(memory, whole(&tree, layout, false));
     }
 
     /// The pointer is drawn where the mouse last moved, a move

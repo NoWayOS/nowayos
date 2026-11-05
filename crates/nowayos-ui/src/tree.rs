@@ -74,6 +74,9 @@ pub struct Tree<const N: usize, const T: usize = 0> {
     pub(crate) list_moved: Option<crate::ListId>,
     /// The layers open over the screen, and the tooltip showing (#10076).
     pub(crate) layers: crate::layer::Layers,
+    /// Transitions and animations running, and how moving nodes are drawn
+    /// (#10086).
+    pub(crate) motion: crate::motion::Motion,
 }
 
 /// A touch that may scroll a scroll view.
@@ -131,6 +134,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
             thumb: None,
             list_moved: None,
             layers: crate::layer::Layers::new(),
+            motion: crate::motion::Motion::new(),
         }
     }
 
@@ -155,6 +159,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
         self.ctrl_keys = [false; 2];
         self.layers.open.clear();
         self.layers.tooltip = None;
+        self.motion.clear();
         self.dirty.mark_all();
     }
 
@@ -1638,6 +1643,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
         self.focus_visible = false;
         // Every layer closed: the next person starts on the screen.
         self.close_all();
+        self.motion.clear();
         self.drop_hidden_focus();
         self.dirty.mark_all();
     }

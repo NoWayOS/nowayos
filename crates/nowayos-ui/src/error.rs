@@ -123,6 +123,9 @@ pub enum UiError {
     TooManyLayers,
     /// A layer of this number is in the tree already.
     DuplicateLayer(crate::LayerId),
+    /// [`MAX_RUNNING`](crate::motion::MAX_RUNNING) animations are running
+    /// already (#10086).
+    TooManyAnimations,
     /// A long text holds from 1 to
     /// [`MAX_LONG_TEXT`](crate::long_text::MAX_LONG_TEXT) bytes.
     LongTextOutOfRange,
@@ -190,6 +193,11 @@ impl fmt::Display for UiError {
             Self::UnknownLayer(layer) => write!(f, "no layer {layer:?}"),
             Self::LayerHidden(layer) => write!(f, "{layer:?} is inside what does not show"),
             Self::DuplicateLayer(layer) => write!(f, "{layer:?} is already in the tree"),
+            Self::TooManyAnimations => write!(
+                f,
+                "at most {} animations run at once",
+                crate::motion::MAX_RUNNING
+            ),
             Self::TooManyLayers => write!(
                 f,
                 "at most {} layers are open at once",
