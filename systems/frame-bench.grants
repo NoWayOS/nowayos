@@ -1,0 +1,15 @@
+# Everything systems/frame-bench.system grants, one fact per line. tools/check-system
+# fails the build if the system description grants anything not listed here,
+# or lists anything it does not grant (format: see tools/check-system). A
+# change here is a security change: call it out in the pull request.
+
+# The kind of system, and each PD's role (tools/grant-rules.toml).
+system demo
+role frame_bench app
+
+pd frame_bench priority=1 budget=1000 period=1000
+
+# The frame it draws into, and the screen it copies each frame to: its own
+# alone.
+map frame_bench frame rw
+map frame_bench screen rw

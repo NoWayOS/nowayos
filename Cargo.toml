@@ -23,6 +23,7 @@ nowayos-bounded = { path = "crates/nowayos-bounded" }
 nowayos-demo = { path = "crates/nowayos-demo" }
 nowayos-display = { path = "crates/nowayos-display" }
 nowayos-fault-policy = { path = "crates/nowayos-fault-policy" }
+nowayos-frame-times = { path = "crates/nowayos-frame-times" }
 nowayos-heartbeat = { path = "crates/nowayos-heartbeat" }
 nowayos-gem = { path = "crates/nowayos-gem" }
 nowayos-glyphs = { path = "crates/nowayos-glyphs" }

@@ -49,6 +49,8 @@ members = [
     "timer-client",
     # systems/glyph-bench.system: times drawing glyphs from outlines
     "glyph-bench",
+    # systems/frame-bench.system: times drawing frames at 1080p, 1440p, 4K
+    "frame-bench",
     # systems/ui-demo.system, the UI PD and a display stub
     "ui-demo",
     "display-stub",
@@ -171,6 +173,7 @@ nowayos-bounded = { path = "../crates/nowayos-bounded" }
 nowayos-demo = { path = "../crates/nowayos-demo" }
 nowayos-display = { path = "../crates/nowayos-display" }
 nowayos-fault-policy = { path = "../crates/nowayos-fault-policy" }
+nowayos-frame-times = { path = "../crates/nowayos-frame-times" }
 nowayos-glyphs = { path = "../crates/nowayos-glyphs" }
 nowayos-heartbeat = { path = "../crates/nowayos-heartbeat" }
 nowayos-input = { path = "../crates/nowayos-input" }

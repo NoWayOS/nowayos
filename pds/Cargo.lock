@@ -947,6 +947,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "nowayos-frame-bench"
+version = "0.1.0"
+dependencies = [
+ "nowayos-display",
+ "nowayos-frame-times",
+ "nowayos-hw",
+ "nowayos-region",
+ "nowayos-render-eg",
+ "sel4-microkit",
+]
+
+[[package]]
+name = "nowayos-frame-times"
+version = "0.1.0"
+dependencies = [
+ "embedded-graphics",
+ "nowayos-display",
+ "nowayos-input",
+ "nowayos-render-eg",
+ "nowayos-ui",
+]
+
+[[package]]
 name = "nowayos-gem"
 version = "0.1.0"
 dependencies = [

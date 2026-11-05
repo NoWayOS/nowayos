@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    The frame bench (#10077): one PD that times the renderer drawing two
+    screens at 1080p, 1440p and 4K in 16 and 32 bits into a framebuffer-
+    sized region, and copying each frame to a second region as the display
+    PD copies a frame to the screen; it prints each time. Two memory
+    regions of 32 MiB, the most a 4K frame at 32 bits takes; no channels or
+    devices. Its glyph store and tree live in its init frame, so it has an
+    8 MiB stack. Its grants are listed in frame-bench.grants.
+-->
+<system>
+    <memory_region name="frame" size="0x2000000" />
+    <memory_region name="screen" size="0x2000000" />
+
+    <protection_domain name="frame_bench" priority="1" stack_size="0x800000">
+        <program_image path="nowayos-frame-bench.elf" />
+        <map mr="frame" vaddr="0x4000_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_0_vaddr" setvar_size="nowayos_rw_region_0_size" />
+        <map mr="screen" vaddr="0x4200_0000" perms="rw"
+             setvar_vaddr="nowayos_rw_region_1_vaddr" setvar_size="nowayos_rw_region_1_size" />
+    </protection_domain>
+</system>

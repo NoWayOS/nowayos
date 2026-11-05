@@ -110,6 +110,13 @@ impl FrameMemory for Frame<ReadWrite> {
         let mut shared = self.bytes;
         shared.store(offset, bytes)
     }
+
+    /// Within the frame, as the bytes copy within themselves: what a scroll
+    /// moves of what is drawn (#10073), rather than drawing it again.
+    fn copy_within(&mut self, from: usize, to: usize, len: usize) -> bool {
+        let mut shared = self.bytes;
+        shared.copy_within(from, to, len)
+    }
 }
 
 /// A borrowed frame draws the same, so a PD can keep its frame and lend it
@@ -121,6 +128,10 @@ impl FrameMemory for &mut Frame<ReadWrite> {
 
     fn store(&mut self, offset: usize, bytes: &[u8]) -> bool {
         (**self).store(offset, bytes)
+    }
+
+    fn copy_within(&mut self, from: usize, to: usize, len: usize) -> bool {
+        (**self).copy_within(from, to, len)
     }
 }
 
@@ -163,6 +174,32 @@ mod tests {
         assert!(!display.load(PAGE - 3, &mut pixel), "past the end");
         assert!(!display.load(usize::MAX, &mut pixel));
         assert!(!ui.store(PAGE - 1, &[1, 2]));
+    }
+
+    #[test]
+    fn a_frame_copies_within_itself_as_a_scroll_moves_what_is_drawn() {
+        let page = TestPage::fresh();
+        let mut ui = Region::<ReadWrite>::test_page(page)
+            .into_frame(PAGE)
+            .unwrap();
+        assert!(ui.store(0, &[1, 2, 3, 4, 5, 6]));
+        // Overlapping, forward and back, through a borrow as the renderer
+        // holds it.
+        let mut lent = &mut ui;
+        assert!(FrameMemory::copy_within(&mut lent, 0, 2, 4));
+        assert_eq!(
+            (0..6).map(|n| page.byte(n)).collect::<Vec<_>>(),
+            [1, 2, 1, 2, 3, 4]
+        );
+        assert!(FrameMemory::copy_within(&mut lent, 2, 0, 4));
+        assert_eq!(
+            (0..6).map(|n| page.byte(n)).collect::<Vec<_>>(),
+            [1, 2, 3, 4, 3, 4]
+        );
+        assert!(
+            !FrameMemory::copy_within(&mut lent, PAGE - 2, 0, 4),
+            "past the end"
+        );
     }
 
     #[test]

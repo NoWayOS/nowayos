@@ -1,0 +1,12 @@
+# Lines tools/qemu-test must see, in this order, as whole serial lines. The
+# times between them are printed, not checked.
+NOWAYOS: frame-bench: starting
+NOWAYOS: frame-bench: done
+
+# Output that fails the test at once if it appears anywhere (substring
+# match): a step that failed, a fault reported by the Microkit monitor, a
+# kernel error message, or a panic.
+!frame-bench: failed
+!MON|ERROR
+!seL4(CPU
+!panicked
