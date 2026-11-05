@@ -615,6 +615,8 @@ impl<const N: usize, const T: usize> Tree<N, T> {
         };
         self.arrange(root, root_rect, units, 0)?;
         self.viewport = viewport;
+        // Each layer against the viewport, over the screen (#10076).
+        self.place_layers(metrics)?;
         self.metrics = Some(*metrics);
         self.scale = units.scale;
         self.dirty.reset(viewport);
@@ -771,6 +773,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
             NodeKind::Spacer
             | NodeKind::Group { .. }
             | NodeKind::Switch { .. }
+            | NodeKind::Layer { .. }
             | NodeKind::Progress { .. }
             | NodeKind::Icon(_) => Size::ZERO,
             // A picture's own size, at the scale.
@@ -1205,6 +1208,11 @@ impl<const N: usize, const T: usize> Tree<N, T> {
     #[must_use]
     pub fn scroll_clip(&self, node: &Node) -> Option<Rect> {
         let mut seen: Option<Rect> = None;
+        // A layer is drawn over the screen, outside every view where it is
+        // written; what is inside it, only within the views inside it.
+        if let NodeKind::Layer { .. } = node.kind {
+            return None;
+        }
         let mut next = node.parent;
         for _ in 0..=MAX_DEPTH {
             let Some(id) = next else {
@@ -1213,6 +1221,9 @@ impl<const N: usize, const T: usize> Tree<N, T> {
             let Some(parent) = self.get(id) else {
                 break;
             };
+            if let NodeKind::Layer { .. } = parent.kind {
+                break;
+            }
             if let Some(view) = self.scroll_port(id) {
                 seen = Some(match seen {
                     Some(inner) => inner.intersection(&view).unwrap_or(Rect::EMPTY),
@@ -1606,6 +1617,11 @@ pub(crate) struct Units {
 }
 
 impl Units {
+    /// `units` layout units in pixels, at the device scale.
+    pub(crate) const fn px(self, units: u32) -> u32 {
+        self.scale.px(units)
+    }
+
     /// The units `metrics` lays out with.
     pub(crate) const fn of(metrics: &TextMetrics) -> Self {
         Self {

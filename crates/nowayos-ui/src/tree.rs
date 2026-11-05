@@ -72,6 +72,8 @@ pub struct Tree<const N: usize, const T: usize = 0> {
     pub(crate) thumb: Option<crate::scroll::ThumbHold>,
     /// A virtual list whose window of items moved, not yet reported.
     pub(crate) list_moved: Option<crate::ListId>,
+    /// The layers open over the screen, and the tooltip showing (#10076).
+    pub(crate) layers: crate::layer::Layers,
 }
 
 /// A touch that may scroll a scroll view.
@@ -128,6 +130,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
             fling: None,
             thumb: None,
             list_moved: None,
+            layers: crate::layer::Layers::new(),
         }
     }
 
@@ -150,6 +153,8 @@ impl<const N: usize, const T: usize> Tree<N, T> {
         self.drag = None;
         self.shift_keys = [false; 2];
         self.ctrl_keys = [false; 2];
+        self.layers.open.clear();
+        self.layers.tooltip = None;
         self.dirty.mark_all();
     }
 
@@ -765,7 +770,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
 
     /// Creates a node of `kind` with `children`, children first: every
     /// check comes before anything is created.
-    fn add_parent(
+    pub(crate) fn add_parent(
         &mut self,
         kind: NodeKind,
         style: Style,
@@ -1433,9 +1438,16 @@ impl<const N: usize, const T: usize> Tree<N, T> {
             let Some(parent) = self.get(current).and_then(|node| node.parent) else {
                 return self.get(current).is_some();
             };
-            let in_group = self
-                .get(parent)
-                .is_some_and(|node| node.kind.is_conditional());
+            let parent_node = self.get(parent);
+            // Inside a layer: shown while it is.
+            if parent_node.is_some_and(|node| matches!(node.kind, NodeKind::Layer { .. })) {
+                if !self.shown_layers().any(|shown| shown == parent) {
+                    return false;
+                }
+                current = parent;
+                continue;
+            }
+            let in_group = parent_node.is_some_and(|node| node.kind.is_conditional());
             if in_group && self.group_branch(parent) != Some(current) {
                 return false;
             }
@@ -1466,6 +1478,10 @@ impl<const N: usize, const T: usize> Tree<N, T> {
     /// alone, or every child of any other node.
     pub(crate) fn first_shown_child(&self, id: NodeId) -> Option<NodeId> {
         let node = self.get(id)?;
+        // A layer is walked only as a plane's root: its child shows there.
+        if let NodeKind::Layer { .. } = node.kind {
+            return node.first_child;
+        }
         if node.kind.is_conditional() {
             self.group_branch(id)
         } else {
@@ -1620,6 +1636,8 @@ impl<const N: usize, const T: usize> Tree<N, T> {
         self.pressed_key = None;
         // The next person has given no input yet: no focus ring until a key.
         self.focus_visible = false;
+        // Every layer closed: the next person starts on the screen.
+        self.close_all();
         self.drop_hidden_focus();
         self.dirty.mark_all();
     }
@@ -1712,6 +1730,23 @@ impl<const N: usize, const T: usize> Tree<N, T> {
             root: self.root,
             next: self.root,
             budget: N,
+            plane: 0,
+            onwards: true,
+        }
+    }
+
+    /// Every node that shows in plane `index` alone - 0 the root's, then
+    /// each layer shown ([`plane`](Self::plane)) - in paint order.
+    #[must_use]
+    pub fn plane_order(&self, index: usize) -> PaintOrder<'_, N, T> {
+        let root = self.plane(index);
+        PaintOrder {
+            tree: self,
+            root,
+            next: root,
+            budget: N,
+            plane: index,
+            onwards: false,
         }
     }
 
@@ -1924,28 +1959,48 @@ impl<const N: usize, const T: usize> Iterator for Children<'_, N, T> {
     }
 }
 
-/// Pre-order iterator over the tree from its root. See
-/// [`Tree::paint_order`]. Uses the parent and sibling links, so it needs no
-/// stack.
+/// Pre-order iterator over the tree from its root, then over each layer
+/// shown, bottom to top. See [`Tree::paint_order`]. Uses the parent and
+/// sibling links, so it needs no stack.
 #[derive(Debug, Clone)]
 pub struct PaintOrder<'a, const N: usize, const T: usize = 0> {
     tree: &'a Tree<N, T>,
     root: Option<NodeId>,
     next: Option<NodeId>,
     budget: usize,
+    /// The plane being walked: 0 the root's, then each layer shown.
+    plane: usize,
+    /// Whether to go on to the planes above when this one ends.
+    onwards: bool,
 }
 
 impl<'a, const N: usize, const T: usize> Iterator for PaintOrder<'a, N, T> {
     type Item = (NodeId, &'a Node);
 
     fn next(&mut self) -> Option<Self::Item> {
+        if self.next.is_none() && self.onwards {
+            // The plane above, if there is one.
+            self.plane = self.plane.saturating_add(1);
+            self.root = self.tree.plane(self.plane);
+            self.next = self.root;
+        }
         let id = self.next?;
         self.budget = self.budget.checked_sub(1)?;
         let node = self.tree.get(id)?;
-        self.next = match self.tree.first_shown_child(id) {
+        let mut next = match self.tree.first_shown_child(id) {
             Some(child) => Some(child),
             None => self.successor(id),
         };
+        // A layer shows in a plane of its own, never where it is written.
+        for _ in 0..N {
+            match next {
+                Some(layer) if self.tree.layer_kind(layer).is_some() => {
+                    next = self.successor(layer);
+                }
+                _ => break,
+            }
+        }
+        self.next = next;
         Some((id, node))
     }
 }

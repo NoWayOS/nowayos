@@ -114,6 +114,15 @@ pub enum UiError {
     },
     /// No virtual list of this number in the tree.
     UnknownList(crate::ListId),
+    /// No layer of this number in the tree (#10076).
+    UnknownLayer(crate::LayerId),
+    /// The layer is inside a hidden group or a closed layer, so cannot
+    /// open.
+    LayerHidden(crate::LayerId),
+    /// [`MAX_OPEN`](crate::layer::MAX_OPEN) layers are open already.
+    TooManyLayers,
+    /// A layer of this number is in the tree already.
+    DuplicateLayer(crate::LayerId),
     /// A long text holds from 1 to
     /// [`MAX_LONG_TEXT`](crate::long_text::MAX_LONG_TEXT) bytes.
     LongTextOutOfRange,
@@ -178,6 +187,14 @@ impl fmt::Display for UiError {
                 write!(f, "the tree's text store ({capacity} bytes) is full")
             }
             Self::UnknownList(list) => write!(f, "no list {list:?}"),
+            Self::UnknownLayer(layer) => write!(f, "no layer {layer:?}"),
+            Self::LayerHidden(layer) => write!(f, "{layer:?} is inside what does not show"),
+            Self::DuplicateLayer(layer) => write!(f, "{layer:?} is already in the tree"),
+            Self::TooManyLayers => write!(
+                f,
+                "at most {} layers are open at once",
+                crate::layer::MAX_OPEN
+            ),
             Self::LongTextOutOfRange => write!(
                 f,
                 "a long text holds from 1 to {} bytes",

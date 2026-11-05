@@ -384,6 +384,9 @@ pub struct Theme<C: PixelColor> {
     pub scrollbar: C,
     /// What is selected in a text input, behind its text (#10075).
     pub selection: C,
+    /// What an open dialog veils the screen beneath it with: every colour
+    /// there is drawn half way to this ([`Theme::veiled`], #10076).
+    pub veil: C,
     /// What each spacing token measures, in layout units: the
     /// gaps, padding and spacers a screen names by size. Layout gives them
     /// through [`Theme::metrics`].
@@ -533,6 +536,7 @@ impl<C: PixelColor + From<Rgb888>> Theme<C> {
             progress_track: Rgb888::new(0xE6, 0xE0, 0xD5).into(),
             scrollbar: Rgb888::new(0x6B, 0x6B, 0x6B).into(),
             selection: Rgb888::new(0xB9, 0xD4, 0xF5).into(),
+            veil: Rgb888::new(0x16, 0x19, 0x1D).into(),
             spacing: Spacing::STANDARD,
         }
     }
@@ -574,6 +578,7 @@ impl<C: PixelColor + From<Rgb888>> Theme<C> {
             progress_track: Rgb888::new(0x59, 0x59, 0x59).into(),
             scrollbar: Rgb888::new(0xC8, 0xC8, 0xC8).into(),
             selection: Rgb888::new(0x1F, 0x4E, 0x8C).into(),
+            veil: Rgb888::new(0, 0, 0).into(),
             spacing: Spacing::LARGE,
         }
     }
@@ -664,6 +669,44 @@ impl<C: PixelColor> Theme<C> {
 }
 
 impl<C: RgbColor + From<Rgb888>> Theme<C> {
+    /// This theme beneath an open dialog (#10076): every colour drawn
+    /// half way to the [`veil`](Self::veil), so the screen shows, dimmed,
+    /// out of reach behind it.
+    #[must_use]
+    pub fn veiled(&self) -> Self {
+        let v = |colour: C| text::blend(self.veil, colour, VEIL);
+        let s = |colours: SurfaceColours<C>| SurfaceColours {
+            fill: v(colours.fill),
+            border: v(colours.border),
+            text: v(colours.text),
+        };
+        Self {
+            background: v(self.background),
+            text: v(self.text),
+            text_muted: v(self.text_muted),
+            placeholder: v(self.placeholder),
+            button: v(self.button),
+            button_pressed: v(self.button_pressed),
+            button_text: v(self.button_text),
+            input: v(self.input),
+            input_border: v(self.input_border),
+            focus: v(self.focus),
+            error: v(self.error),
+            button_secondary: v(self.button_secondary),
+            surfaces: Surfaces {
+                card: s(self.surfaces.card),
+                header: s(self.surfaces.header),
+                success: s(self.surfaces.success),
+                caution: s(self.surfaces.caution),
+                warning: s(self.surfaces.warning),
+            },
+            progress_track: v(self.progress_track),
+            scrollbar: v(self.scrollbar),
+            selection: v(self.selection),
+            ..*self
+        }
+    }
+
     /// One of the theme's colours, by its role: what a screen's
     /// style names - a fill, a border, a text's colour - is drawn in the
     /// theme's own, so a theme switched recolours it.
@@ -825,6 +868,10 @@ pub fn metrics(font: &MonoFont<'_>) -> TextMetrics {
     )
 }
 
+/// How far beneath an open dialog each colour is drawn toward the theme's
+/// veil, out of 255: half way.
+const VEIL: u8 = 128;
+
 /// Paints the tree's whole viewport.
 ///
 /// # Errors
@@ -893,81 +940,109 @@ where
     };
     let scale = tree.scale();
     let base = theme.metrics_at(scale);
+    // Beneath an open dialog, every colour veiled (#10076).
+    let veiled = theme.veiled();
+    let theme_of = |plane: usize| {
+        if tree.is_veiled(plane) {
+            (&veiled, Some(theme.veil))
+        } else {
+            (theme, None)
+        }
+    };
+    let (ground_theme, veil) = theme_of(0);
     Painter {
         target: &mut target.clipped(&to_eg(area)),
-        theme,
+        theme: ground_theme,
         glyphs: &mut *glyphs,
         metrics: base,
         scale,
-        font: theme.type_scale.body,
+        font: ground_theme.type_scale.body,
         clip: area,
-        ground: theme.background,
+        ground: ground_theme.background,
         surface: None,
+        veil,
     }
-    .fill(area, theme.background)?;
-    for (id, node) in tree.paint_order() {
-        // The part of the node inside the area - and, inside the scroll
-        // view, inside the view: everything it draws is clipped to
-        // this, in NoWayOS's overflow-safe geometry first and by
-        // `embedded-graphics` as well.
-        let seen = match tree.scroll_clip(node) {
-            Some(view) => area.intersection(&view),
-            None => Some(area),
+    .fill(area, ground_theme.background)?;
+    // The screen, then each layer shown over it, bottom to top.
+    for plane in 0..=nowayos_ui::layer::MAX_OPEN.saturating_add(1) {
+        let Some(plane_root) = tree.plane(plane) else {
+            break;
         };
-        if let Some(clip) = seen.and_then(|seen| node.rect().intersection(&seen)) {
-            // Its text in its own role and weight, measured as
-            // layout measured it.
-            let style = node.style().text;
-            // What it stands on: the nearest container
-            // drawn on a surface or with a fill of its own, or the
-            // background.
-            let (surface, fill) = under(tree, node);
-            Painter {
+        let (theme, veil) = theme_of(plane);
+        for (id, node) in tree.plane_order(plane) {
+            // The part of the node inside the area - and, inside a scroll
+            // view, inside the view: everything it draws is clipped to
+            // this, in NoWayOS's overflow-safe geometry first and by
+            // `embedded-graphics` as well.
+            let seen = match tree.scroll_clip(node) {
+                Some(view) => area.intersection(&view),
+                None => Some(area),
+            };
+            if let Some(clip) = seen.and_then(|seen| node.rect().intersection(&seen)) {
+                // Its text in its own role and weight, measured as
+                // layout measured it.
+                let style = node.style().text;
+                // What it stands on: the nearest container
+                // drawn on a surface or with a fill of its own, or the
+                // background - for a layer, the background.
+                let (surface, fill) = if id == plane_root && plane > 0 {
+                    (None, None)
+                } else {
+                    under(tree, node)
+                };
+                Painter {
+                    target: &mut target.clipped(&to_eg(clip)),
+                    theme,
+                    glyphs: &mut *glyphs,
+                    metrics: base.for_style(style),
+                    scale,
+                    font: theme.type_scale.font(style),
+                    clip,
+                    ground: fill.map_or_else(|| theme.ground(surface), |fill| theme.colour(fill)),
+                    surface,
+                    veil,
+                }
+                .node(tree, id, node)?;
+            }
+        }
+        // Each scroll view's thumbs in the plane, over what it shows.
+        let in_plane = |id: NodeId| match tree.layer_of(id) {
+            Some(layer) => plane > 0 && layer == plane_root,
+            None => plane == 0,
+        };
+        for id in tree.scroll_views().filter(|&id| in_plane(id)) {
+            let Some(view) = tree.get(id) else {
+                continue;
+            };
+            let seen = match tree.scroll_clip(view) {
+                Some(outer) => view.content().intersection(&outer),
+                None => Some(view.content()),
+            };
+            let Some(clip) = seen.and_then(|seen| seen.intersection(&area)) else {
+                continue;
+            };
+            let bars = tree.scrollbars(id);
+            let style = view.style();
+            let (surface, fill) = if style.surface.is_some() || style.look.fill.is_some() {
+                (style.surface, style.look.fill)
+            } else {
+                under(tree, view)
+            };
+            let mut painter = Painter {
                 target: &mut target.clipped(&to_eg(clip)),
                 theme,
                 glyphs: &mut *glyphs,
-                metrics: base.for_style(style),
+                metrics: base,
                 scale,
-                font: theme.type_scale.font(style),
+                font: theme.type_scale.body,
                 clip,
                 ground: fill.map_or_else(|| theme.ground(surface), |fill| theme.colour(fill)),
                 surface,
+                veil,
+            };
+            for bar in [bars.vertical, bars.horizontal].into_iter().flatten() {
+                painter.thumb(bar.thumb)?;
             }
-            .node(tree, id, node)?;
-        }
-    }
-    // Each scroll view's thumbs, over what it shows.
-    for id in tree.scroll_views() {
-        let Some(view) = tree.get(id) else {
-            continue;
-        };
-        let seen = match tree.scroll_clip(view) {
-            Some(outer) => view.content().intersection(&outer),
-            None => Some(view.content()),
-        };
-        let Some(clip) = seen.and_then(|seen| seen.intersection(&area)) else {
-            continue;
-        };
-        let bars = tree.scrollbars(id);
-        let style = view.style();
-        let (surface, fill) = if style.surface.is_some() || style.look.fill.is_some() {
-            (style.surface, style.look.fill)
-        } else {
-            under(tree, view)
-        };
-        let mut painter = Painter {
-            target: &mut target.clipped(&to_eg(clip)),
-            theme,
-            glyphs: &mut *glyphs,
-            metrics: base,
-            scale,
-            font: theme.type_scale.body,
-            clip,
-            ground: fill.map_or_else(|| theme.ground(surface), |fill| theme.colour(fill)),
-            surface,
-        };
-        for bar in [bars.vertical, bars.horizontal].into_iter().flatten() {
-            painter.thumb(bar.thumb)?;
         }
     }
     Ok(())
@@ -991,6 +1066,10 @@ pub(crate) fn under<const N: usize, const T: usize>(
         let style = parent.style();
         if parent.kind().is_container() && (style.surface.is_some() || style.look.fill.is_some()) {
             return (style.surface, style.look.fill);
+        }
+        // A layer stands on its own surface, over the screen (#10076).
+        if let NodeKind::Layer { .. } = parent.kind() {
+            return (style.surface, None);
         }
         next = parent.parent();
     }
@@ -1047,6 +1126,10 @@ struct Painter<'t, 'th, 'g, 'c, D: DrawTarget> {
     ground: D::Color,
     /// The surface the node stands on, if any.
     surface: Option<Surface>,
+    /// The veil over the plane being drawn, beneath an open dialog: a
+    /// picture's pixels are drawn half way to it, as the theme's colours
+    /// are ([`Theme::veiled`]).
+    veil: Option<D::Color>,
 }
 
 impl<D> Painter<'_, '_, '_, '_, D>
@@ -1078,6 +1161,11 @@ where
                 }
             }
             NodeKind::Group { .. } | NodeKind::Switch { .. } | NodeKind::Spacer => Ok(()),
+            // A layer over the screen, on its surface (#10076).
+            NodeKind::Layer { .. } => match node.style().surface {
+                Some(surface) => self.surface(rect, surface),
+                None => Ok(()),
+            },
             NodeKind::Progress { permille, .. } => self.progress(content, *permille),
             NodeKind::Icon(icon) => self.icon(content, icon),
             NodeKind::Image { picture, fit, .. } => self.picture(content, picture, *fit),
@@ -1506,6 +1594,7 @@ where
                     clip: inside,
                     ground: self.ground,
                     surface: self.surface,
+                    veil: self.veil,
                 }
                 .text("!", marker, TextAlign::Center, cut_out, on)?;
             }
@@ -2035,7 +2124,7 @@ where
             return Ok(());
         };
         let pixels = picture.best(placed.width, placed.height);
-        let ground = self.ground;
+        let (ground, veil) = (self.ground, self.veil);
         let offset = |from: i64, to: i64| u32::try_from(from.saturating_sub(to)).unwrap_or(0);
         let (dx, dy) = (offset(visible.left(), left), offset(visible.top(), top));
         let (width, height) = (visible.size.width, visible.size.height);
@@ -2047,7 +2136,8 @@ where
                     placed.width,
                     placed.height,
                 );
-                picture::over(rgba, ground)
+                let colour = picture::over(rgba, ground);
+                veil.map_or(colour, |veil| text::blend(veil, colour, VEIL))
             })
         });
         self.target.fill_contiguous(&to_eg(visible), colours)

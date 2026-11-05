@@ -41,6 +41,12 @@ pub enum UiEvent {
     /// application binds each row that now shows another item
     /// ([`Tree::list_row`](crate::Tree::list_row)).
     ListMoved(crate::ListId),
+    /// The runtime closed a menu or popover (builder contract v20): on
+    /// Escape, a press outside it or, for a menu, a choice made in it.
+    Closed(crate::LayerId),
+    /// Escape was pressed in an open dialog (builder contract v20): the
+    /// application may close it ([`Tree::close`](crate::Tree::close)).
+    Dismissed(crate::LayerId),
 }
 
 /// How far, in layout units, a touch on the scroll view must move before it
@@ -56,6 +62,11 @@ impl<const N: usize, const T: usize> Tree<N, T> {
     /// cannot be hit.
     #[must_use]
     pub fn hit_test(&self, point: Point) -> Option<NodeId> {
+        // An open layer first: under a dialog, menu or popover nothing
+        // beneath can be hit (#10076).
+        if let Some(hit) = self.hit_layers(point) {
+            return hit;
+        }
         self.hit(self.root?, point, 0)
     }
 
@@ -221,6 +232,8 @@ impl<const N: usize, const T: usize> Tree<N, T> {
     /// `InputLimits`); anything unexpected is ignored, never a panic.
     pub fn handle(&mut self, event: InputEvent) -> Option<UiEvent> {
         let reported = self.respond(event);
+        // The tooltip of what the pointer rests on, or what has focus.
+        self.update_tooltip();
         // A virtual list whose window moved, if nothing else is reported.
         reported.or_else(|| self.list_moved.take().map(UiEvent::ListMoved))
     }
@@ -363,6 +376,12 @@ impl<const N: usize, const T: usize> Tree<N, T> {
             self.mark_key(board, key);
             return None;
         }
+        // Outside the layer holding focus: a menu or popover closes, and
+        // nothing beneath is pressed (#10076).
+        if let Some(outcome) = self.press_outside(self.pointer) {
+            self.set_pressed(None);
+            return outcome;
+        }
         let target = self.control_at(self.pointer);
         self.set_pressed(target);
         if let Some(id) = target {
@@ -462,7 +481,10 @@ impl<const N: usize, const T: usize> Tree<N, T> {
         }
         let node = self.get(pressed)?;
         match node.kind {
-            NodeKind::Button { action, .. } => Some(UiEvent::Action(action)),
+            NodeKind::Button { action, .. } => {
+                self.chosen_in_menu(pressed);
+                Some(UiEvent::Action(action))
+            }
             NodeKind::Checkbox { .. } => self.toggle(pressed),
             NodeKind::RadioGroup { .. } => {
                 let option = node.option_at(self.pointer)?;
@@ -477,6 +499,13 @@ impl<const N: usize, const T: usize> Tree<N, T> {
     }
 
     fn key_down(&mut self, key: KeyCode) -> Option<UiEvent> {
+        // Escape in a layer holding focus: a menu or popover closes, a
+        // dialog asks the application to close it (#10076).
+        if key == KeyCode::ESCAPE
+            && let Some(top) = self.trapping()
+        {
+            return self.dismiss(top);
+        }
         // In a focused radio group, the arrow keys choose: it is one tab
         // stop, so they do not move focus there.
         if let Some(focused) = self.focus
@@ -535,7 +564,12 @@ impl<const N: usize, const T: usize> Tree<N, T> {
         let shift = self.shift();
         match &self.get(focused)?.kind {
             NodeKind::Button { action, .. } => {
-                matches!(key, KeyCode::ENTER | KeyCode::SPACE).then_some(UiEvent::Action(*action))
+                let action = *action;
+                let chosen = matches!(key, KeyCode::ENTER | KeyCode::SPACE);
+                if chosen {
+                    self.chosen_in_menu(focused);
+                }
+                chosen.then_some(UiEvent::Action(action))
             }
             NodeKind::Checkbox { .. } => {
                 if key == KeyCode::SPACE {
@@ -888,13 +922,18 @@ impl<const N: usize, const T: usize> Tree<N, T> {
     }
 
     /// Focusable nodes in tree order.
-    fn focus_order(&self) -> impl Iterator<Item = NodeId> + '_ {
-        self.paint_order()
+    pub(crate) fn focus_order(&self) -> impl Iterator<Item = NodeId> + '_ {
+        // While a layer holds focus, only its controls (#10076).
+        let plane = self
+            .trapping()
+            .and_then(|top| self.shown_layers().position(|id| id == top))
+            .map_or(0, |at| at.saturating_add(1));
+        self.plane_order(plane)
             .filter(|(_, node)| node.is_focusable())
             .map(|(id, _)| id)
     }
 
-    fn move_focus(&mut self, to: Option<NodeId>) {
+    pub(crate) fn move_focus(&mut self, to: Option<NodeId>) {
         if to != self.focus {
             self.mark_optional(self.focus);
             // Onto a control the scroll view hides: scrolled into view
