@@ -102,6 +102,7 @@
 
 pub mod area;
 pub mod builder;
+pub mod clipboard;
 pub mod edit;
 mod error;
 mod interact;

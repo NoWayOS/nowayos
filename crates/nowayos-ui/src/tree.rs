@@ -77,6 +77,10 @@ pub struct Tree<const N: usize, const T: usize = 0> {
     /// Transitions and animations running, and how moving nodes are drawn
     /// (#10086).
     pub(crate) motion: crate::motion::Motion,
+    /// What was copied (#10080).
+    pub(crate) clipboard: crate::clipboard::Clipboard,
+    /// The selectable text a press selected (#10080).
+    pub(crate) selected: Option<NodeId>,
 }
 
 /// A touch that may scroll a scroll view.
@@ -135,6 +139,8 @@ impl<const N: usize, const T: usize> Tree<N, T> {
             list_moved: None,
             layers: crate::layer::Layers::new(),
             motion: crate::motion::Motion::new(),
+            clipboard: crate::clipboard::Clipboard::new(),
+            selected: None,
         }
     }
 
@@ -160,6 +166,8 @@ impl<const N: usize, const T: usize> Tree<N, T> {
         self.layers.open.clear();
         self.layers.tooltip = None;
         self.motion.clear();
+        self.clipboard.wipe();
+        self.selected = None;
         self.dirty.mark_all();
     }
 
@@ -1654,6 +1662,9 @@ impl<const N: usize, const T: usize> Tree<N, T> {
         // Every layer closed: the next person starts on the screen.
         self.close_all();
         self.motion.clear();
+        // What was copied leaves nothing behind for the next person.
+        self.clipboard.wipe();
+        self.selected = None;
         self.drop_hidden_focus();
         self.dirty.mark_all();
     }

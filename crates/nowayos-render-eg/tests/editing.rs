@@ -3,7 +3,8 @@
 //! word selected on the selection colour and the caret after it, a long
 //! value scrolled to keep its caret in view, and a text area of several
 //! lines with a selection across two of them; and a repaint of any part
-//! gives the pixels of a full one.
+//! gives the pixels of a full one. Selectable text, pressed, on the
+//! selection colour (#10080).
 
 #![allow(
     clippy::unwrap_used,
@@ -21,7 +22,7 @@ use nowayos_input::{InputEvent, KeyCode};
 use nowayos_render_eg::{Theme, render, render_area};
 use nowayos_testkit::{Framebuffer, check_snapshot};
 use nowayos_ui::builder::{Layout, UiBuilder};
-use nowayos_ui::{FieldId, Input, Tree};
+use nowayos_ui::{FieldId, Input, TextStyle, Tree};
 
 fn key(tree: &mut Tree<16, 512>, code: KeyCode) {
     tree.handle(InputEvent::KeyDown(code));
@@ -119,5 +120,52 @@ fn a_selection_a_scrolled_value_and_a_text_area_as_approved() {
             .unwrap();
         }
     }
+    assert_eq!(part.diff(&full), None);
+}
+
+#[test]
+fn selectable_text_pressed_is_drawn_on_the_selection_colour() {
+    let theme = Theme::<Rgb888>::light();
+    let mut tree: Tree<16, 512> = Tree::new();
+    let text =
+        UiBuilder::text_styled(&mut tree, "Ref 4471", TextStyle::default().selectable()).unwrap();
+    let root = UiBuilder::column(&mut tree, Layout::new().padding(12), &[text]).unwrap();
+    tree.set_root(root).unwrap();
+    tree.layout(Rect::new(0, 0, 200, 60), &theme.metrics())
+        .unwrap();
+    let content = tree.get(text).unwrap().content();
+    // A corner of the text's box: beside its glyphs, never on one.
+    let (x, y) = (
+        u32::try_from(content.left()).unwrap(),
+        u32::try_from(content.top()).unwrap(),
+    );
+    let before = frame(&tree, &theme);
+    assert_eq!(before.pixel(x, y), Some(theme.background));
+    let press = |tree: &mut Tree<16, 512>, down: bool| {
+        tree.handle(InputEvent::PointerMove {
+            x: i32::try_from(x).unwrap() + 2,
+            y: i32::try_from(y).unwrap() + 2,
+        });
+        tree.handle(InputEvent::PointerButton { button: 0, down });
+    };
+    press(&mut tree, true);
+    press(&mut tree, false);
+    assert_eq!(tree.selected_text(), Some(text));
+    let full = frame(&tree, &theme);
+    assert_eq!(full.pixel(x, y), Some(theme.selection));
+    // A repaint of the text alone, over the frame before, gives the full
+    // one's pixels.
+    let mut part = before;
+    {
+        nowayos_testkit::glyph_store!(glyphs__);
+        render_area(
+            &tree,
+            &mut part,
+            &theme,
+            tree.get(text).unwrap().rect(),
+            &mut glyphs__,
+        )
+    }
+    .unwrap();
     assert_eq!(part.diff(&full), None);
 }

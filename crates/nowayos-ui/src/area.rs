@@ -137,6 +137,10 @@ impl<const N: usize, const T: usize> Tree<N, T> {
     /// line.
     pub(crate) fn type_area(&mut self, id: NodeId, key: KeyCode, shift: bool) -> Option<UiEvent> {
         let ctrl = self.ctrl_keys.contains(&true);
+        // Copy, cut and paste (#10080).
+        if ctrl && crate::interact::is_clip_key(key) {
+            return self.clip_area(id, key);
+        }
         let metrics = self.metrics?;
         let node = self.get(id)?;
         let (rect, width) = (node.rect, node.content().size.width);
@@ -159,6 +163,13 @@ impl<const N: usize, const T: usize> Tree<N, T> {
             boundary(text, usize::try_from(anchor).unwrap_or(0)),
         );
         let (low, high) = selection(text, at, from);
+        // Ctrl+A selects it all.
+        if ctrl && KeyCode::letter('a') == Some(key) {
+            let end = text.len();
+            self.set_area_caret(id, 0, true);
+            self.set_area_caret(id, end, false);
+            return None;
+        }
         // Moving the caret.
         let (line, span) = line_of(text, at, width, &metrics);
         let x = metrics.text_width(text.get(span.0..at).unwrap_or(""));
@@ -223,6 +234,78 @@ impl<const N: usize, const T: usize> Tree<N, T> {
             None => Some(UiEvent::InputFull(field)),
         };
         typed.wipe();
+        self.dirty.add(rect);
+        event
+    }
+
+    /// Ctrl+C, Ctrl+X or Ctrl+V in text area `id` (#10080): the selection
+    /// copied, or cut, or the clipboard pasted over it, if it fits.
+    fn clip_area(&mut self, id: NodeId, key: KeyCode) -> Option<UiEvent> {
+        let node = self.nodes.get(id.index())?;
+        let rect = node.rect;
+        let NodeKind::TextArea {
+            field,
+            start,
+            capacity,
+            len,
+            caret,
+            anchor,
+            ..
+        } = node.kind
+        else {
+            return None;
+        };
+        let text = self.texts.get(start, len);
+        let (low, high) = selection(
+            text,
+            usize::try_from(caret).unwrap_or(0),
+            usize::try_from(anchor).unwrap_or(0),
+        );
+        if KeyCode::letter('v') != Some(key) {
+            if low == high {
+                return None;
+            }
+            if let Some(part) = text.get(low..high) {
+                self.clipboard.set(part);
+            }
+            return if KeyCode::letter('x') == Some(key) {
+                self.type_area(id, KeyCode::DELETE, false)
+            } else {
+                None
+            };
+        }
+        let mut paste = [0_u8; crate::clipboard::CLIPBOARD];
+        let clip = self.clipboard.text();
+        let size = clip.len();
+        if let (Some(into), Some(from)) = (paste.get_mut(..size), clip.as_bytes().get(..size)) {
+            into.copy_from_slice(from);
+        }
+        let ok = paste
+            .get(..size)
+            .and_then(|bytes| core::str::from_utf8(bytes).ok())
+            .is_some_and(|text| {
+                !text.is_empty() && crate::long_text::check_paragraphs(text).is_ok()
+            });
+        let event = if ok {
+            match paste.get(..size).and_then(|bytes| {
+                self.texts
+                    .splice((start, capacity, len), (low, high), bytes)
+            }) {
+                Some(new_len) => {
+                    if let Some(NodeKind::TextArea { len, .. }) =
+                        self.node_mut(id).ok().map(|node| &mut node.kind)
+                    {
+                        *len = new_len;
+                    }
+                    self.set_area_caret(id, low.saturating_add(size), true);
+                    Some(UiEvent::ValueChanged(field))
+                }
+                None => Some(UiEvent::InputFull(field)),
+            }
+        } else {
+            None
+        };
+        paste.wipe();
         self.dirty.add(rect);
         event
     }

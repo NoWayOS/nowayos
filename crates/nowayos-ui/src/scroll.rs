@@ -411,8 +411,10 @@ impl<const N: usize, const T: usize> Tree<N, T> {
     /// and slows. Whether a fling is still moving - so the loop calls again
     /// at its next frame.
     pub fn advance(&mut self, elapsed: u32) -> bool {
-        // Transitions and animations step on too (#10086).
+        // Transitions and animations step on too (#10086), and what was
+        // copied ages (#10080).
         let moving = self.step_motion(elapsed);
+        self.pass_time(elapsed);
         self.advance_fling(elapsed) || moving
     }
 

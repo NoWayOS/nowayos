@@ -382,6 +382,15 @@ impl<const N: usize, const T: usize> Tree<N, T> {
             self.set_pressed(None);
             return outcome;
         }
+        // Selectable text under the pointer is selected, or a selection
+        // cleared (#10080).
+        let under = self.hit_test(self.pointer).filter(|&id| {
+            self.get(id).is_some_and(|node| {
+                node.style.text.selectable
+                    && matches!(node.kind, NodeKind::Text(_) | NodeKind::Slot { .. })
+            })
+        });
+        self.select_text(under);
         // On a rich text, only its links can be pressed (#10078).
         let target =
             self.control_at(self.pointer)
@@ -403,6 +412,11 @@ impl<const N: usize, const T: usize> Tree<N, T> {
             Some(id) if self.focus != Some(id) => {
                 self.move_focus(Some(id));
                 Some(UiEvent::FocusChanged(Some(id)))
+            }
+            // Text selected takes focus from an input, so Ctrl+C copies it.
+            None if under.is_some() && self.focus.is_some() => {
+                self.move_focus(None);
+                Some(UiEvent::FocusChanged(None))
             }
             _ => None,
         }
@@ -607,6 +621,19 @@ impl<const N: usize, const T: usize> Tree<N, T> {
             }
             _ => {}
         }
+        // Ctrl+C with selectable text selected copies it (#10080), unless
+        // an input holds the keys.
+        if self.ctrl()
+            && KeyCode::letter('c') == Some(key)
+            && let Some(selected) = self.selected
+            && self
+                .focus
+                .and_then(|id| self.input_mode(Some(id)))
+                .is_none()
+        {
+            self.copy_text(selected);
+            return None;
+        }
         let focused = self.focus?;
         let shift = self.shift();
         match &self.get(focused)?.kind {
@@ -649,18 +676,20 @@ impl<const N: usize, const T: usize> Tree<N, T> {
     /// Backspace and Delete remove what is selected, or the character
     /// before or after the caret. Enter moves to the next control.
     fn type_key(&mut self, id: NodeId, key: KeyCode, shift: bool) -> Option<UiEvent> {
-        use crate::edit::{Step, replaced, selection, step};
+        use crate::edit::{Step, selection, step};
         use nowayos_bounded::Wipe;
         if key == KeyCode::ENTER {
             return self.focus_event(Self::focus_next);
         }
         let ctrl = self.ctrl();
+        // Copy, cut and paste (#10080).
+        if ctrl && is_clip_key(key) {
+            return self.clip_input(id, key);
+        }
         let node = self.node_mut(id).ok()?;
         let rect = node.rect;
         let NodeKind::TextInput {
-            field,
             value,
-            max_len,
             mode,
             caret,
             anchor,
@@ -669,7 +698,6 @@ impl<const N: usize, const T: usize> Tree<N, T> {
         else {
             return None;
         };
-        let field = *field;
         let text = value.as_str();
         let (at, from) = (usize::from(*caret), usize::from(*anchor));
         let (low, high) = selection(text, at, from);
@@ -720,6 +748,34 @@ impl<const N: usize, const T: usize> Tree<N, T> {
         if range.0 == range.1 && insert.is_empty() {
             return None;
         }
+        let event = self.put_input(id, range, insert);
+        // What was typed leaves no copy behind.
+        typed.wipe();
+        event
+    }
+
+    /// Replaces bytes `range` of text input `id`'s value with `insert`,
+    /// the caret after it: `ValueChanged`, or `InputFull` if it would not
+    /// fit.
+    fn put_input(&mut self, id: NodeId, range: (usize, usize), insert: &str) -> Option<UiEvent> {
+        use crate::edit::replaced;
+        use nowayos_bounded::Wipe;
+        let node = self.node_mut(id).ok()?;
+        let rect = node.rect;
+        let NodeKind::TextInput {
+            field,
+            value,
+            max_len,
+            caret,
+            anchor,
+            ..
+        } = &mut node.kind
+        else {
+            return None;
+        };
+        let field = *field;
+        let text = value.as_str();
+        let to_u8 = |offset: usize| u8::try_from(offset).unwrap_or(u8::MAX);
         let mut made = [0_u8; crate::INPUT_CAPACITY];
         let event = match replaced(text, range, insert, usize::from(*max_len), &mut made) {
             Some(len) => {
@@ -738,10 +794,56 @@ impl<const N: usize, const T: usize> Tree<N, T> {
         };
         // What was typed leaves no copy behind.
         made.wipe();
-        typed.wipe();
         if matches!(event, Some(UiEvent::ValueChanged(_))) {
             self.dirty.add(rect);
         }
+        event
+    }
+
+    /// Ctrl+C, Ctrl+X or Ctrl+V in text input `id` (#10080): the
+    /// selection copied, or cut, or the clipboard pasted over it - if it
+    /// fits and the input takes every character.
+    fn clip_input(&mut self, id: NodeId, key: KeyCode) -> Option<UiEvent> {
+        use nowayos_bounded::Wipe;
+        let NodeKind::TextInput {
+            value,
+            mode,
+            caret,
+            anchor,
+            ..
+        } = &self.nodes.get(id.index())?.kind
+        else {
+            return None;
+        };
+        let (low, high) =
+            crate::edit::selection(value.as_str(), usize::from(*caret), usize::from(*anchor));
+        let mode = *mode;
+        if KeyCode::letter('v') != Some(key) {
+            if low == high {
+                return None;
+            }
+            if let Some(part) = value.as_str().get(low..high) {
+                self.clipboard.set(part);
+            }
+            return if KeyCode::letter('x') == Some(key) {
+                self.put_input(id, (low, high), "")
+            } else {
+                None
+            };
+        }
+        // Pasted: one line, every character one the input takes.
+        let mut paste = [0_u8; crate::clipboard::CLIPBOARD];
+        let clip = self.clipboard.text();
+        let len = clip.len();
+        if let (Some(into), Some(from)) = (paste.get_mut(..len), clip.as_bytes().get(..len)) {
+            into.copy_from_slice(from);
+        }
+        let event = paste
+            .get(..len)
+            .and_then(|bytes| core::str::from_utf8(bytes).ok())
+            .filter(|text| !text.is_empty() && text.chars().all(|ch| mode.accepts(ch)))
+            .and_then(|text| self.put_input(id, (low, high), text));
+        paste.wipe();
         event
     }
 
@@ -1289,6 +1391,13 @@ impl<const N: usize, const T: usize> Tree<N, T> {
             self.mark_dirty(id);
         }
     }
+}
+
+/// Whether `key` is C, X or V: with Ctrl, copy, cut or paste (#10080).
+pub(crate) fn is_clip_key(key: KeyCode) -> bool {
+    ['c', 'x', 'v']
+        .iter()
+        .any(|&letter| KeyCode::letter(letter) == Some(key))
 }
 
 #[cfg(test)]
