@@ -273,14 +273,11 @@ impl Animation {
 
     /// Growing a little and back, over and over.
     #[must_use]
-    pub fn pulse() -> Self {
-        Self::keyframes(
-            Property::Scale,
-            &[(0, 1000), (500, 1060), (1000, 1000)],
-            1200,
-        )
-        .easing(Easing::EaseInOut)
-        .repeat(Repeat::Forever)
+    pub const fn pulse() -> Self {
+        Self::new(Property::Scale, 1000, 1060, 600)
+            .easing(Easing::EaseInOut)
+            .alternate()
+            .repeat(Repeat::Forever)
     }
 
     /// Fading in.
@@ -608,7 +605,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
                 break;
             };
             let id = NodeId(index);
-            if let Some(animation) = self.get(id).and_then(|node| node.style.look.animation) {
+            if let Some(&animation) = self.get(id).and_then(|node| node.style.look.animation) {
                 let _ = self.animate(id, animation);
             }
         }
@@ -626,7 +623,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
                 break;
             };
             let id = NodeId(index);
-            let Some(transition) = self.get(id).and_then(|node| node.style.look.transition) else {
+            let Some(&transition) = self.get(id).and_then(|node| node.style.look.transition) else {
                 continue;
             };
             if !self.is_shown(id) || !self.inside_where(id, &which) {

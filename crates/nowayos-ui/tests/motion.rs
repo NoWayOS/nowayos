@@ -104,13 +104,14 @@ fn animations_repeat_stop_and_a_wipe_leaves_nothing_moving() {
 
 #[test]
 fn a_node_with_a_transition_comes_into_view_when_its_group_shows() {
+    const FADE: Transition = Transition::new(Property::Opacity, 200);
     use nowayos_ui::builder::Transition;
     use nowayos_ui::{GroupId, Look};
     let mut tree: Tree<8> = Tree::new();
     let words = UiBuilder::text(&mut tree, "Hello").unwrap();
     let card = UiBuilder::column(
         &mut tree,
-        Layout::new().look(Look::NONE.transition(Transition::new(Property::Opacity, 200))),
+        Layout::new().look(Look::NONE.transition(&FADE)),
         &[words],
     )
     .unwrap();
@@ -132,12 +133,14 @@ fn a_node_with_a_transition_comes_into_view_when_its_group_shows() {
 
 #[test]
 fn a_node_s_own_animation_runs_while_motion_is_on() {
+    const SHIMMER: Animation = Animation::shimmer();
+    const PULSE: Animation = Animation::pulse();
     use nowayos_ui::Look;
     let mut tree: Tree<8> = Tree::new();
     let words = UiBuilder::text(&mut tree, "Loading").unwrap();
     let card = UiBuilder::column(
         &mut tree,
-        Layout::new().look(Look::NONE.animation(Animation::shimmer())),
+        Layout::new().look(Look::NONE.animation(&SHIMMER)),
         &[words],
     )
     .unwrap();
@@ -150,7 +153,7 @@ fn a_node_s_own_animation_runs_while_motion_is_on() {
     let words = UiBuilder::text(&mut tree, "Again").unwrap();
     let again = UiBuilder::column(
         &mut tree,
-        Layout::new().look(Look::NONE.animation(Animation::pulse())),
+        Layout::new().look(Look::NONE.animation(&PULSE)),
         &[words],
     )
     .unwrap();
