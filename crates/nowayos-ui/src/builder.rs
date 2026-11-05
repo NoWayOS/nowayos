@@ -145,6 +145,10 @@
 //! with its own weight, italics, colour, code or link ([`Run`]; React's
 //! `<strong>`, `<em>`, `<code>`, `<a onClick>` and `<span>` inside a text).
 //!
+//! Contract v22 adds to [`Look`] a theme's shadow ([`Elevation`]), a
+//! [`Gradient`] between the theme's colours and an opacity (CSS's
+//! `boxShadow`, `linear-gradient`, `radial-gradient` and `opacity`).
+//!
 //! Provisional: tracks Screen Compiler's contract; both sides change together.
 
 use crate::{ContainerKind, LayerKind, Length, NodeId, NodeKind, Style, Tree, UiError};
@@ -156,9 +160,9 @@ pub use crate::pictures::{Fit, Picture};
 /// A run of a rich text (contract v21).
 pub use crate::rich::Run;
 pub use crate::{
-    ActionId, Align, ButtonVariant, Colour, FieldId, GroupId, Input, InputMode, Justify, LayerId,
-    ListId, Look, MAX_LINES, SLOT_CAPACITY, ScrollAxes, SlotId, Space, Surface, SwitchId,
-    TEMPLATE_CAPACITY, Template, TextAlign, TextRole, TextStyle, Tone, Weight,
+    ActionId, Align, ButtonVariant, Colour, Elevation, FieldId, Gradient, GroupId, Input,
+    InputMode, Justify, LayerId, ListId, Look, MAX_LINES, SLOT_CAPACITY, ScrollAxes, SlotId, Space,
+    Surface, SwitchId, TEMPLATE_CAPACITY, Template, TextAlign, TextRole, TextStyle, Tone, Weight,
 };
 
 /// How a list picker shows (contract v10): the placeholder its

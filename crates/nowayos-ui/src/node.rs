@@ -477,6 +477,75 @@ pub struct Look {
     pub radius: Option<u32>,
     /// A button's label colour.
     pub text: Option<Colour>,
+    /// A shadow beneath it, one of the theme's (#10079).
+    pub shadow: Option<Elevation>,
+    /// A gradient filling it, between two of the theme's colours, in
+    /// place of a fill (#10079).
+    pub gradient: Option<Gradient>,
+    /// How opaque it and everything inside it are drawn, from 0, unseen, to
+    /// 255, as now (#10079).
+    pub opacity: Option<u8>,
+}
+
+/// One of the theme's shadows, by how high what casts it stands (#10079):
+/// each is an offset, a blur and a spread in layout units, the theme's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum Elevation {
+    /// A card resting on the screen.
+    #[default]
+    Low,
+    /// A card lifted: a menu or a popover.
+    Medium,
+    /// A dialog over everything.
+    High,
+}
+
+/// A gradient between two of the theme's colours (#10079).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Gradient {
+    /// Its shape.
+    pub kind: GradientKind,
+    /// Its colour at its start: the line's start, or the centre.
+    pub from: Colour,
+    /// Its colour at its end: the line's end, or the farthest corner.
+    pub to: Colour,
+}
+
+/// A gradient's shape (#10079).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum GradientKind {
+    /// Along a line at `angle` degrees, as CSS's `linear-gradient`: 180,
+    /// top to bottom; 90, left to right.
+    Linear {
+        /// Its angle, in degrees from 0 to 359.
+        angle: u16,
+    },
+    /// Out from the centre to the farthest corner, as CSS's
+    /// `radial-gradient`.
+    Radial,
+}
+
+impl Gradient {
+    /// From `from` to `to` along a line at `angle` degrees (180, top to
+    /// bottom).
+    #[must_use]
+    pub const fn linear(angle: u16, from: Colour, to: Colour) -> Self {
+        Self {
+            kind: GradientKind::Linear { angle: angle % 360 },
+            from,
+            to,
+        }
+    }
+
+    /// From `from` at the centre to `to` at the farthest corner.
+    #[must_use]
+    pub const fn radial(from: Colour, to: Colour) -> Self {
+        Self {
+            kind: GradientKind::Radial,
+            from,
+            to,
+        }
+    }
 }
 
 impl Look {
@@ -487,7 +556,43 @@ impl Look {
         border_width: None,
         radius: None,
         text: None,
+        shadow: None,
+        gradient: None,
+        opacity: None,
     };
+
+    /// With the theme's shadow for `elevation` beneath it.
+    #[must_use]
+    pub const fn shadow(self, elevation: Elevation) -> Self {
+        Self {
+            shadow: Some(elevation),
+            ..self
+        }
+    }
+
+    /// Filled with `gradient`.
+    #[must_use]
+    pub const fn gradient(self, gradient: Gradient) -> Self {
+        Self {
+            gradient: Some(gradient),
+            ..self
+        }
+    }
+
+    /// It and everything inside it drawn `opacity` out of 255 opaque.
+    #[must_use]
+    pub const fn opacity(self, opacity: u8) -> Self {
+        Self {
+            opacity: Some(opacity),
+            ..self
+        }
+    }
+
+    /// Whether it is drawn see-through: an opacity below 255.
+    #[must_use]
+    pub const fn is_translucent(&self) -> bool {
+        matches!(self.opacity, Some(opacity) if opacity < u8::MAX)
+    }
 
     /// With `colour` as its fill.
     #[must_use]
@@ -544,7 +649,7 @@ impl Look {
     /// corners named.
     #[must_use]
     pub const fn draws(&self) -> bool {
-        self.fill.is_some() || self.has_border() || self.radius.is_some()
+        self.fill.is_some() || self.has_border() || self.radius.is_some() || self.gradient.is_some()
     }
 }
 

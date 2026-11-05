@@ -410,6 +410,14 @@ pub fn text_colours<'a, const N: usize, const T: usize>(
                     || theme.text_on(surface, style.text.role),
                     |colour| theme.colour(colour),
                 );
+                // Over a gradient, its worse end (#10079).
+                let ground = crate::gradient_under(tree, node, theme).map_or(ground, |g| {
+                    if ratio(text, g.from) < ratio(text, g.to) {
+                        g.from
+                    } else {
+                        g.to
+                    }
+                });
                 Some((id, text, ground))
             }
             NodeKind::Button { .. } => {
