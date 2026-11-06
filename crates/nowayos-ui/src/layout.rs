@@ -200,6 +200,27 @@ impl TextMetrics {
         }
     }
 
+    /// The same metrics for a run of rich text in italics or code: its
+    /// face's italic or monospace sibling at the same size
+    /// ([`nowayos_glyphs::styled`]), with the same line height.
+    #[must_use]
+    pub fn styled(&self, italic: bool, code: bool) -> Self {
+        match self.face {
+            Some(face) if italic || code => {
+                let face = FaceRef {
+                    face: nowayos_glyphs::styled(face.face, italic, code).0,
+                    ..face
+                };
+                Self {
+                    char_width: face.zero_width(),
+                    face: Some(face),
+                    ..*self
+                }
+            }
+            _ => *self,
+        }
+    }
+
     /// The same metrics with `min_target` as the minimum target size - a
     /// theme's token, in pixels.
     #[must_use]

@@ -3,8 +3,9 @@
 // Made from Atkinson Hyperlegible Next 2.001, Regular: fonts/AtkinsonHyperlegibleNext-Regular.ttf,
 // sha256 88ed5c31a71584c7772963b02d04bef1eb7e3d2e9c8b9cb204339b1f82cf432c.
 // Copyright 2020-2024 The Atkinson Hyperlegible Next Project Authors (https://github.com/googlefonts/atkinson-hyperlegible-next)
+// Copyright 2020-2024 The Atkinson Hyperlegible Mono Project Authors (https://github.com/googlefonts/atkinson-hyperlegible-next-mono)
 // Licensed under the SIL Open Font License, Version 1.1 (OFL-1.1):
-// a Modified Version of the font, made by NoWayOS's glyph atlas tool (tools/glyph-atlas).
+// a Modified Version of the fonts, made by NoWayOS's glyph atlas tool (tools/glyph-atlas).
 // The licence is OFL.txt in this crate's folder.
 //
 // The Regular face's pair kerning, in font units, which every size of it shares: an atlas
@@ -41,6 +42,10 @@ const fn k(left: char, right: char, units: i16) -> KernPair {
     KernPair::new(index_of_char(&CHARS, left), index_of_char(&CHARS, right), units)
 }
 
+#[allow(
+    long_running_const_eval,
+    reason = "each pair's characters are looked up when the crate compiles: an italic face's 7,500 pairs take longer than the lint allows"
+)]
 pub(crate) static KERNING: [KernPair; 4768] = [
     k(' ', 'A', -10),
     k(' ', 'T', -20),

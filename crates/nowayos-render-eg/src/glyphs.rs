@@ -2,7 +2,7 @@
 //! Where text's glyphs come from: drawn from the faces' outlines by
 //! `nowayos-raster`, at the size and device scale the text is drawn at,
 //! and kept in a bounded cache ([`Glyphs`]) so each is drawn once
-//! (ADR-0026, proposed).
+//! (ADR-0026).
 //!
 //! A [`Glyphs`] holds the rasteriser itself, about 192 KiB, and a cache
 //! over storage its owner gives it: a buffer of coverage and a table of

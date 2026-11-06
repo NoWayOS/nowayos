@@ -3,7 +3,7 @@
 //! advance from the signed-off font at every size the themes use, so the
 //! device draws proportional text without ever parsing a font file. And
 //! each face's outlines ([`Face`], [`Outline`]), from the same tool, which
-//! `nowayos-raster` draws on the device at any size (ADR-0026, proposed).
+//! `nowayos-raster` draws on the device at any size (ADR-0026).
 //!
 //! **Provisional**: `nowayos-ui` lays text out with these metrics,
 //! and `nowayos-render-eg` draws text from these glyphs, anti-aliased;
@@ -53,13 +53,22 @@
 //! signed off with the font. Glyphs are unhinted, each meant to be drawn at
 //! a whole pixel; ligatures are off, so every character is one glyph.
 //!
+//! # Faces
+//!
+//! [`REGULAR`] and [`BOLD`] set every role of the type scale, and
+//! [`DISPLAY`] its display role. Rich text's italics are [`ITALIC`] and
+//! [`BOLDITALIC`], and its code [`CODE`] and [`CODEBOLD`], the monospace
+//! sibling: [`styled`] picks the one a run is drawn in.
+//!
 //! # Licence
 //!
 //! The atlases are a Modified Version of Atkinson Hyperlegible Next 2.001
-//! under the SIL Open Font License 1.1, and so is this whole crate:
-//! `OFL-1.1`, whatever licence NoWayOS's own crates take ([`NOTICE`]; the
-//! licence is `OFL.txt` beside this crate's `Cargo.toml`). `make image` puts
-//! that notice beside every image, and its SBOM names the font.
+//! and Atkinson Hyperlegible Mono 2.001 under the SIL Open Font License
+//! 1.1, and so is this whole crate: `OFL-1.1`, whatever licence NoWayOS's
+//! own crates take ([`NOTICE`]; the licence is `OFL.txt` beside this
+//! crate's `Cargo.toml`, with both families' copyright lines, and each
+//! family's licence file as released is in `fonts/`). `make image` puts
+//! that notice beside every image, and its SBOM names the fonts.
 
 #![no_std]
 
@@ -70,6 +79,33 @@ mod outline;
 pub use atlas::*;
 pub use outline::{Face, Outline, Path};
 pub(crate) use outline::{lay_out_outlines, outlines_fit};
+
+/// The face a run of text in `face` is drawn in when it is in italics or
+/// code, and whether it is slanted as an oblique because no face draws it:
+/// italics in [`ITALIC`] or [`BOLDITALIC`], code in [`CODE`] or
+/// [`CODEBOLD`] - Bold's for a Bold face's runs - and code in italics, or
+/// the display face's italics, slanted.
+///
+/// ```
+/// use nowayos_glyphs::{BOLD, BOLDITALIC, CODE, DISPLAY, REGULAR, styled};
+///
+/// assert!(core::ptr::eq(styled(&BOLD, true, false).0, &BOLDITALIC));
+/// assert!(core::ptr::eq(styled(&REGULAR, true, true).0, &CODE));
+/// assert!(styled(&REGULAR, true, true).1);
+/// let (face, slanted) = styled(&DISPLAY, true, false);
+/// assert!(core::ptr::eq(face, &DISPLAY) && slanted);
+/// ```
+#[must_use]
+pub fn styled(face: &'static Face, italic: bool, code: bool) -> (&'static Face, bool) {
+    let bold = face.id() == BOLD.id() || face.id() == BOLDITALIC.id() || face.id() == CODEBOLD.id();
+    let display = face.id() == DISPLAY.id();
+    match (italic, code) {
+        (_, true) if !display => (if bold { &CODEBOLD } else { &CODE }, italic),
+        (true, false) if !display => (if bold { &BOLDITALIC } else { &ITALIC }, false),
+        (true, _) => (face, true),
+        (false, _) => (face, false),
+    }
+}
 
 /// No glyph: the character is outside the atlas's set. It never says which
 /// character, so text a person typed cannot leak through it.
@@ -506,13 +542,19 @@ mod tests {
         }
     }
 
+    /// An atlas of the monospace face: no kerned pairs, its letters set
+    /// in cells of one width.
+    fn is_code(atlas: &Atlas) -> bool {
+        atlas.face().id() == CODE.id() || atlas.face().id() == CODEBOLD.id()
+    }
+
     fn is_display(atlas: &Atlas) -> bool {
         core::ptr::eq(atlas, &DISPLAY_96) || core::ptr::eq(atlas, &DISPLAY_192)
     }
 
     #[test]
     fn every_atlas_has_its_whole_set_and_nothing_else() {
-        assert_eq!(ATLASES.len(), 22);
+        assert_eq!(ATLASES.len(), 30);
         for atlas in ATLASES {
             let count = if is_display(atlas) { 46 } else { 190 };
             assert_eq!(atlas.glyphs().len(), count, "{} px", atlas.size());
@@ -532,14 +574,41 @@ mod tests {
     }
 
     #[test]
+    fn code_is_monospace_and_styled_picks_each_face() {
+        for face in [&CODE, &CODEBOLD] {
+            let em = face.glyph('m').unwrap().advance();
+            for ch in (' '..='~')
+                .chain('\u{A0}'..='\u{FF}')
+                .filter(|&c| c != '\u{AD}')
+            {
+                assert_eq!(face.glyph(ch).unwrap().advance(), em, "{ch:?}");
+            }
+        }
+        let picked = |face, italic, code| {
+            let (face, slanted): (&Face, bool) = styled(face, italic, code);
+            (face.id(), slanted)
+        };
+        assert_eq!(picked(&REGULAR, false, false), (REGULAR.id(), false));
+        assert_eq!(picked(&REGULAR, true, false), (ITALIC.id(), false));
+        assert_eq!(picked(&BOLD, true, false), (BOLDITALIC.id(), false));
+        assert_eq!(picked(&REGULAR, false, true), (CODE.id(), false));
+        assert_eq!(picked(&BOLD, false, true), (CODEBOLD.id(), false));
+        assert_eq!(picked(&BOLD, true, true), (CODEBOLD.id(), true));
+        assert_eq!(picked(&DISPLAY, true, false), (DISPLAY.id(), true));
+        assert_eq!(picked(&DISPLAY, false, true), (DISPLAY.id(), false));
+    }
+
+    #[test]
     fn the_sizes_are_every_themes_type_scale() {
-        let sizes: [u16; 22] = core::array::from_fn(|i| ATLASES[i].size());
+        let sizes: [u16; 30] = core::array::from_fn(|i| ATLASES[i].size());
         assert_eq!(
             sizes,
             [
                 14, 16, 18, 24, 28, 32, 36, 48, // Regular
                 14, 16, 18, 20, 24, 28, 32, 36, 40, 48, 56, 72, // Bold
                 96, 192, // display
+                18, 24, 18, 24, // Italic, Bold Italic
+                18, 24, 18, 24, // code: the monospace Regular and Bold
             ]
         );
         assert_eq!(REGULAR_18.size(), 18);
@@ -575,10 +644,11 @@ mod tests {
             if is_display(atlas) {
                 continue;
             }
-            // Below the baseline: g and j, and j reaches back over the pen.
+            // Below the baseline: g and j, and j reaches back over the pen
+            // - but in the monospace face, inside its cell.
             let j = atlas.glyph('j').unwrap();
             assert!(i32::from(j.top()) < i32::from(j.height()));
-            assert!(j.bearing_x() < 0);
+            assert_eq!(j.bearing_x() < 0, !is_code(atlas), "{} px", atlas.size());
             // The micro sign is drawn with the Greek mu: a descender, ink.
             let micro = atlas.glyph('\u{B5}').unwrap();
             assert!(i32::from(micro.top()) < i32::from(micro.height()));
@@ -645,6 +715,10 @@ mod tests {
     #[test]
     fn the_font_kerns_its_pairs() {
         for atlas in ATLASES {
+            if is_code(atlas) {
+                assert!(atlas.kerning.is_empty(), "the monospace face kerns nothing");
+                continue;
+            }
             if !is_display(atlas) {
                 assert!(atlas.kerning('T', 'o') < 0, "{} px", atlas.size());
                 assert!(atlas.kerning.len() > 1000);
@@ -675,7 +749,7 @@ mod tests {
 
     #[test]
     fn every_atlas_takes_its_coverage_file_glyph_by_glyph() {
-        let files: [(&Atlas, &[u8]); 22] = [
+        let files: [(&Atlas, &[u8]); 30] = [
             (&REGULAR_14, include_bytes!("atlas/regular_14.coverage")),
             (&REGULAR_16, include_bytes!("atlas/regular_16.coverage")),
             (&REGULAR_18, include_bytes!("atlas/regular_18.coverage")),
@@ -698,6 +772,20 @@ mod tests {
             (&BOLD_72, include_bytes!("atlas/bold_72.coverage")),
             (&DISPLAY_96, include_bytes!("atlas/display_96.coverage")),
             (&DISPLAY_192, include_bytes!("atlas/display_192.coverage")),
+            (&ITALIC_18, include_bytes!("atlas/italic_18.coverage")),
+            (&ITALIC_24, include_bytes!("atlas/italic_24.coverage")),
+            (
+                &BOLDITALIC_18,
+                include_bytes!("atlas/bolditalic_18.coverage"),
+            ),
+            (
+                &BOLDITALIC_24,
+                include_bytes!("atlas/bolditalic_24.coverage"),
+            ),
+            (&CODE_18, include_bytes!("atlas/code_18.coverage")),
+            (&CODE_24, include_bytes!("atlas/code_24.coverage")),
+            (&CODEBOLD_18, include_bytes!("atlas/codebold_18.coverage")),
+            (&CODEBOLD_24, include_bytes!("atlas/codebold_24.coverage")),
         ];
         for (atlas, file) in files {
             let mut at = 0;

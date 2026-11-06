@@ -3,8 +3,9 @@
 // Made from Atkinson Hyperlegible Next 2.001, Regular: fonts/AtkinsonHyperlegibleNext-Regular.ttf,
 // sha256 88ed5c31a71584c7772963b02d04bef1eb7e3d2e9c8b9cb204339b1f82cf432c.
 // Copyright 2020-2024 The Atkinson Hyperlegible Next Project Authors (https://github.com/googlefonts/atkinson-hyperlegible-next)
+// Copyright 2020-2024 The Atkinson Hyperlegible Mono Project Authors (https://github.com/googlefonts/atkinson-hyperlegible-next-mono)
 // Licensed under the SIL Open Font License, Version 1.1 (OFL-1.1):
-// a Modified Version of the font, made by NoWayOS's glyph atlas tool (tools/glyph-atlas).
+// a Modified Version of the fonts, made by NoWayOS's glyph atlas tool (tools/glyph-atlas).
 // The licence is OFL.txt in this crate's folder.
 //
 // 48 pixels per em: unhinted, 8-bit coverage, metrics in 1/64 pixel, GPOS pair kerning in font units scaled at each size, no ligatures.

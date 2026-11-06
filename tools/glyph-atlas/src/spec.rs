@@ -32,7 +32,9 @@ const MAX_ENTRIES: usize = 256;
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct SpecFile {
-    family: Family,
+    notice: String,
+    #[serde(rename = "family")]
+    families: Vec<Family>,
     #[serde(rename = "file")]
     files: Vec<PinnedFile>,
     #[serde(rename = "face")]
@@ -42,16 +44,19 @@ struct SpecFile {
     aliases: Vec<Alias>,
 }
 
-/// The font family: its name, licence and where it comes from.
+/// A font family: its name, licence and where it comes from.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields, rename_all = "kebab-case")]
 pub struct Family {
+    /// The family's id, which each of its files names.
+    pub id: String,
     /// The family's name, for the notice and the manifest only: an atlas is
     /// named for its job, never for its font.
     pub name: String,
     /// Its licence, an SPDX identifier, which the atlas crate must declare.
     pub licence: String,
-    /// The pinned file holding the licence and the copyright line.
+    /// The pinned file holding the licence and the copyright line, as
+    /// released.
     pub licence_file: String,
     /// The copyright line, as the licence file gives it.
     pub copyright: String,
@@ -63,10 +68,12 @@ pub struct Family {
     pub decision: String,
 }
 
-/// A file of the family, pinned.
+/// A file of a family, pinned.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PinnedFile {
+    /// The id of the family it belongs to.
+    pub family: String,
     /// Where it is in the atlas crate.
     pub path: String,
     /// Where it is in the repository at the commit.
@@ -114,8 +121,11 @@ struct Alias {
 pub struct Spec {
     /// The atlas crate's name, from its `Cargo.toml`.
     pub crate_name: String,
-    /// The font family.
-    pub family: Family,
+    /// The notice every copy of the atlases carries, in the crate's
+    /// folder: each family's copyright line, then the licence's text.
+    pub notice: String,
+    /// The font families, in the order they are listed.
+    pub families: Vec<Family>,
     /// Every pinned file.
     pub files: Vec<PinnedFile>,
     /// The faces.
@@ -133,7 +143,7 @@ pub struct Spec {
 
 impl Spec {
     /// Reads and checks `crate_dir/glyphs.toml` and the crate's
-    /// `Cargo.toml`, which must declare the family's licence.
+    /// `Cargo.toml`, which must declare the families' one licence.
     pub fn load(crate_dir: &Path) -> Result<Self, Error> {
         let spec_text = read_text(crate_dir, SPEC_FILE)?;
         let file: SpecFile = toml::from_str(&spec_text)
@@ -150,17 +160,16 @@ impl Spec {
         let crate_name = field("name")
             .ok_or_else(|| Error::Spec("Cargo.toml names no package".into()))?
             .to_owned();
-        if field("license") != Some(file.family.licence.as_str()) {
+        let licence = check_families(&file.families)?;
+        if field("license") != Some(licence) {
             return Err(Error::Spec(format!(
-                "the atlases are under {}, as {SPEC_FILE} says, so Cargo.toml must declare \
-                 license = \"{}\" (it declares {:?})",
-                file.family.licence,
-                file.family.licence,
+                "the atlases are under {licence}, as {SPEC_FILE} says, so Cargo.toml must declare \
+                 license = \"{licence}\" (it declares {:?})",
                 field("license")
             )));
         }
-        check_family(&file.family)?;
-        check_files(&file.files, &file.family)?;
+        check_path("notice", &file.notice)?;
+        check_files(&file.files, &file.families, &file.notice)?;
         check_faces(&file.faces, &file.files)?;
         let (chars, ranges) = character_set(&file.characters)?;
         let aliases = aliases(&file.aliases, &chars)?;
@@ -191,7 +200,8 @@ impl Spec {
         }
         Ok(Self {
             crate_name,
-            family: file.family,
+            notice: file.notice,
+            families: file.families,
             files: file.files,
             faces: file.faces,
             chars,
@@ -199,6 +209,70 @@ impl Spec {
             aliases,
             face_sets,
         })
+    }
+
+    /// The families' one licence, an SPDX identifier.
+    #[must_use]
+    pub fn licence(&self) -> &str {
+        self.families
+            .first()
+            .map_or("", |family| family.licence.as_str())
+    }
+
+    /// The family `file` belongs to: [`load`](Self::load) checked that
+    /// every file names one it lists.
+    #[must_use]
+    pub fn family_of(&self, file: &PinnedFile) -> Option<&Family> {
+        self.families.iter().find(|family| family.id == file.family)
+    }
+
+    /// Every family's copyright line, in the order they are listed.
+    pub fn copyrights(&self) -> impl Iterator<Item = &str> {
+        self.families.iter().map(|family| family.copyright.as_str())
+    }
+
+    /// The notice, as it must read: each family's copyright line, then the
+    /// licence's text, which each family's pinned licence file gives word
+    /// for word after its own copyright line. `inputs` are the pinned
+    /// files' contents ([`check_pins`]).
+    pub fn notice_text(&self, inputs: &BTreeMap<String, Vec<u8>>) -> Result<String, Error> {
+        let mut body: Option<&str> = None;
+        for family in &self.families {
+            let text = inputs
+                .get(&family.licence_file)
+                .and_then(|bytes| std::str::from_utf8(bytes).ok())
+                .ok_or_else(|| {
+                    Error::Spec(format!("{} is not read, or not UTF-8", family.licence_file))
+                })?;
+            let rest = text
+                .strip_prefix(family.copyright.as_str())
+                .and_then(|rest| rest.strip_prefix('\n'))
+                .ok_or_else(|| {
+                    Error::Spec(format!(
+                        "{}: its first line must be family {}'s copyright line, as {SPEC_FILE} \
+                         gives it",
+                        family.licence_file, family.id
+                    ))
+                })?;
+            match body {
+                None => body = Some(rest),
+                Some(first) if first == rest => {}
+                Some(_) => {
+                    return Err(Error::Spec(format!(
+                        "{}: after its copyright line its licence text differs from the first \
+                         family's, so one notice cannot carry both",
+                        family.licence_file
+                    )));
+                }
+            }
+        }
+        let mut notice = String::new();
+        for family in &self.families {
+            notice.push_str(&family.copyright);
+            notice.push('\n');
+        }
+        notice.push_str(body.unwrap_or(""));
+        Ok(notice)
     }
 
     /// The pinned file at `path`.
@@ -366,6 +440,35 @@ fn check_path(what: &str, path: &str) -> Result<(), Error> {
     }
 }
 
+/// Checks every family, and returns their one licence: the atlas crate
+/// declares one.
+fn check_families(families: &[Family]) -> Result<&str, Error> {
+    let Some(first) = families.first() else {
+        return Err(Error::Spec(format!("{SPEC_FILE} names no [[family]]")));
+    };
+    let mut ids = BTreeSet::new();
+    for family in families {
+        let mut chars = family.id.chars();
+        let good = chars.next().is_some_and(|c| c.is_ascii_lowercase())
+            && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit());
+        if !good || !ids.insert(family.id.as_str()) {
+            return Err(Error::Spec(format!(
+                "{SPEC_FILE}: family {:?} needs an id of its own, of lowercase letters and digits",
+                family.id
+            )));
+        }
+        check_family(family)?;
+        if family.licence != first.licence {
+            return Err(Error::Spec(format!(
+                "{SPEC_FILE}: family {} is under {}, family {} under {}: the atlases are one \
+                 crate, under one licence",
+                family.id, family.licence, first.id, first.licence
+            )));
+        }
+    }
+    Ok(first.licence.as_str())
+}
+
 fn check_family(family: &Family) -> Result<(), Error> {
     for (what, value) in [
         ("[family] name", &family.name),
@@ -380,9 +483,15 @@ fn check_family(family: &Family) -> Result<(), Error> {
     check_path("[family] licence-file", &family.licence_file)
 }
 
-fn check_files(files: &[PinnedFile], family: &Family) -> Result<(), Error> {
+fn check_files(files: &[PinnedFile], families: &[Family], notice: &str) -> Result<(), Error> {
     let mut paths = BTreeSet::new();
     for file in files {
+        if !families.iter().any(|family| family.id == file.family) {
+            return Err(Error::Spec(format!(
+                "{SPEC_FILE}: {} belongs to family {:?}, which it does not list",
+                file.path, file.family
+            )));
+        }
         check_path("a [[file]] path", &file.path)?;
         check_path("a [[file]] upstream path", &file.upstream)?;
         check_line("a [[file]] version", &file.version)?;
@@ -404,10 +513,21 @@ fn check_files(files: &[PinnedFile], family: &Family) -> Result<(), Error> {
             )));
         }
     }
-    if !paths.contains(family.licence_file.as_str()) {
+    for family in families {
+        let pinned = files
+            .iter()
+            .any(|file| file.path == family.licence_file && file.family == family.id);
+        if !pinned {
+            return Err(Error::Spec(format!(
+                "{SPEC_FILE}: the licence file {} must be pinned, like the fonts, as family {}'s",
+                family.licence_file, family.id
+            )));
+        }
+    }
+    if paths.contains(notice) {
         return Err(Error::Spec(format!(
-            "{SPEC_FILE}: the licence file {} must be pinned, like the fonts",
-            family.licence_file
+            "{SPEC_FILE}: the notice {notice} is made from the families' licence files, so it is \
+             not pinned itself"
         )));
     }
     Ok(())

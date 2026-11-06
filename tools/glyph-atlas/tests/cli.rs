@@ -20,7 +20,16 @@ use std::path::{Path, PathBuf};
 use nowayos_glyph_atlas::{Error, generate, run};
 
 const REGULAR: &str = "fonts/AtkinsonHyperlegibleNext-Regular.ttf";
-const BOLD: &str = "fonts/AtkinsonHyperlegibleNext-Bold.ttf";
+const MONO_LICENCE: &str = "fonts/AtkinsonHyperlegibleMono-OFL.txt";
+
+/// The sha256 of `bytes`, in lowercase hexadecimal, as glyphs.toml pins it.
+fn sha256_of(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(bytes)
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
 
 /// A copy of the atlas crate's inputs in a fresh folder named `name`.
 fn inputs(name: &str) -> PathBuf {
@@ -30,8 +39,12 @@ fn inputs(name: &str) -> PathBuf {
         fs::remove_dir_all(&dir).unwrap();
     }
     fs::create_dir_all(dir.join("fonts")).unwrap();
-    for file in ["Cargo.toml", "glyphs.toml", "OFL.txt", REGULAR, BOLD] {
+    for file in ["Cargo.toml", "glyphs.toml", "OFL.txt"] {
         fs::copy(real.join(file), dir.join(file)).unwrap();
+    }
+    for entry in fs::read_dir(real.join("fonts")).unwrap() {
+        let path = entry.unwrap().path();
+        fs::copy(&path, dir.join("fonts").join(path.file_name().unwrap())).unwrap();
     }
     dir
 }
@@ -66,6 +79,10 @@ fn two_runs_give_the_same_bytes_naming_no_path() {
             &[14, 16, 18, 20, 24, 28, 32, 36, 40, 48, 56, 72][..],
         ),
         ("display", &[96, 192][..]),
+        ("italic", &[18, 24][..]),
+        ("bolditalic", &[18, 24][..]),
+        ("code", &[18, 24][..]),
+        ("codebold", &[18, 24][..]),
     ] {
         expected.push(format!("{face}_kerning.rs"));
         expected.push(format!("{face}_outline.rs"));
@@ -88,7 +105,7 @@ fn two_runs_give_the_same_bytes_naming_no_path() {
         }
     }
     assert!(first.summary.starts_with(
-        "glyph-atlas: PASS - 22 atlases: regular Regular at 14, 16, 18, 24, 28, 32, 36, 48 px"
+        "glyph-atlas: PASS - 30 atlases: regular Regular at 14, 16, 18, 24, 28, 32, 36, 48 px"
     ));
 }
 
@@ -131,12 +148,82 @@ fn a_file_in_fonts_that_is_not_pinned_fails_naming_it() {
 #[test]
 fn a_pinned_file_that_is_missing_fails_naming_it() {
     let dir = inputs("missing-file");
-    fs::remove_file(dir.join("OFL.txt")).unwrap();
+    fs::remove_file(dir.join(MONO_LICENCE)).unwrap();
     let message = generate(&dir).err().unwrap().to_string();
     assert!(
-        message.contains("OFL.txt is pinned in glyphs.toml but missing"),
+        message.contains(&format!(
+            "{MONO_LICENCE} is pinned in glyphs.toml but missing"
+        )),
         "{message}"
     );
+}
+
+#[test]
+fn the_notice_is_every_familys_copyright_line_then_the_licence() {
+    let dir = inputs("notice");
+    let notice = fs::read_to_string(dir.join("OFL.txt")).unwrap();
+    let next = fs::read_to_string(dir.join("fonts/AtkinsonHyperlegibleNext-OFL.txt")).unwrap();
+    let mono = fs::read_to_string(dir.join(MONO_LICENCE)).unwrap();
+    let (next_line, body) = next.split_once('\n').unwrap();
+    let (mono_line, mono_body) = mono.split_once('\n').unwrap();
+    assert_eq!(
+        body, mono_body,
+        "the two families' licence texts are the same"
+    );
+    assert_eq!(notice, format!("{next_line}\n{mono_line}\n{body}"));
+
+    // Checking (--out) fails on a notice that differs, and writes nothing;
+    // writing (make atlases) puts it right.
+    fs::write(dir.join("OFL.txt"), &next).unwrap();
+    let out = dir.join("out");
+    let message = run_on(&dir, &out).unwrap_err().to_string();
+    assert!(message.contains("`make atlases` writes it"), "{message}");
+    assert!(!out.exists(), "nothing is written");
+    run(&[dir.display().to_string()]).unwrap();
+    assert_eq!(fs::read_to_string(dir.join("OFL.txt")).unwrap(), notice);
+}
+
+#[test]
+fn a_licence_file_unlike_the_others_is_refused() {
+    let dir = inputs("licence-differs");
+    let mono = fs::read_to_string(dir.join(MONO_LICENCE)).unwrap();
+    let changed = mono.replacen("Version 1.1", "Version 1.2", 1);
+    fs::write(dir.join(MONO_LICENCE), &changed).unwrap();
+    let sha = sha256_of(changed.as_bytes());
+    edit(
+        &dir,
+        "glyphs.toml",
+        "1ebb31cf7393164f20d10c1d48406cddb5314feff8465531cf1e4ba37e9dd740",
+        &sha,
+    );
+    let message = generate(&dir).err().unwrap().to_string();
+    assert!(
+        message.contains("its licence text differs from the first family's"),
+        "{message}"
+    );
+}
+
+#[test]
+fn every_file_names_a_family_and_the_families_share_a_licence() {
+    let dir = inputs("no-family");
+    edit(
+        &dir,
+        "glyphs.toml",
+        "family = \"mono\"\n",
+        "family = \"other\"\n",
+    );
+    let message = generate(&dir).err().unwrap().to_string();
+    assert!(message.contains("which it does not list"), "{message}");
+
+    let dir = inputs("two-licences");
+    edit(
+        &dir,
+        "glyphs.toml",
+        "id = \"mono\"\nname = \"Atkinson Hyperlegible Mono\"\nlicence = \"OFL-1.1\"",
+        "id = \"mono\"\nname = \"Atkinson Hyperlegible Mono\"\nlicence = \"MIT\"",
+    );
+    let message = generate(&dir).err().unwrap().to_string();
+    assert!(message.contains("under one licence"), "{message}");
 }
 
 #[test]
@@ -222,7 +309,11 @@ fn the_crate_must_declare_the_fonts_licence() {
 #[test]
 fn a_malformed_spec_is_refused() {
     for (old, new, needle) in [
-        ("[family]", "[family]\nextra = 1", "unknown field"),
+        (
+            "[[family]]\nid = \"next\"",
+            "[[family]]\nid = \"next\"\nextra = 1",
+            "unknown field",
+        ),
         (
             "sizes = [14, 16, 18, 24, 28, 32, 36, 48]",
             "sizes = [24, 18]",
@@ -234,13 +325,13 @@ fn a_malformed_spec_is_refused() {
             "must start after the one before",
         ),
         (
-            "path = \"OFL.txt\"",
-            "path = \"../OFL.txt\"",
+            "notice = \"OFL.txt\"",
+            "notice = \"../OFL.txt\"",
             "not a relative path",
         ),
         (
-            "file = \"fonts/",
-            "file = \"fonts/Other-",
+            "\nfile = \"fonts/",
+            "\nfile = \"fonts/Other-",
             "must be a pinned file in fonts/",
         ),
         // A face's own set holds only characters of the whole set.
@@ -276,7 +367,7 @@ fn the_output_folder_holds_only_what_the_tool_writes() {
     let summary = run_on(&dir, &out).unwrap();
     assert!(summary.contains("written to"), "{summary}");
     assert!(!out.join("regular_99.rs").exists());
-    assert_eq!(fs::read_dir(&out).unwrap().count(), 52);
+    assert_eq!(fs::read_dir(&out).unwrap().count(), 76);
 }
 
 #[test]

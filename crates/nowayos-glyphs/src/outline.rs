@@ -114,8 +114,8 @@ impl Outline {
     }
 
     /// Its path slanted as an oblique: each point moved right by
-    /// 13/64 of its height above the baseline - italics drawn from the
-    /// upright face (#10078), until an italic face is signed off.
+    /// 13/64 of its height above the baseline - italics where no italic
+    /// face draws them: code in italics, and the display face's italics.
     pub fn path_slanted(&self) -> impl Iterator<Item = Command> {
         let lean = |p: Point| Point::new(p.x.saturating_add(slant(p.y)), p.y);
         self.path().map(move |command| match command {

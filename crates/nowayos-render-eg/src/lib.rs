@@ -3037,8 +3037,9 @@ where
         Ok(())
     }
 
-    /// A rich text's runs (#10078), line by line inside `content`: each
-    /// in its own weight and colour, italics slanted, code on its tint,
+    /// A rich text's runs, line by line inside `content`: each in its own
+    /// weight and colour, italics in the italic face, code in the
+    /// monospace face on its tint,
     /// links underlined, and the focused link ringed after a key.
     fn rich(
         &mut self,
@@ -3091,9 +3092,16 @@ where
                     ),
                 };
                 let run_style = run.style_in(style);
-                self.metrics = base.for_style(run_style);
-                self.font = theme.type_scale.font(run_style);
-                self.text_slanted(piece.text, rect, TextAlign::Start, colour, on, run.italic)?;
+                self.metrics = run.metrics_in(style, &base);
+                let (run_font, slanted) = match theme.type_scale.font(run_style) {
+                    Font::Outline(face, size) => {
+                        let (face, slanted) = nowayos_glyphs::styled(face, run.italic, run.code);
+                        (Font::Outline(face, size), slanted)
+                    }
+                    bitmap @ Font::Mono(_) => (bitmap, run.italic),
+                };
+                self.font = run_font;
+                self.text_slanted(piece.text, rect, TextAlign::Start, colour, on, slanted)?;
                 if linked.is_some() {
                     // Underlined, a little below the baseline; twice as
                     // thick while the pointer hovers it (#10082).

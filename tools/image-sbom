@@ -31,8 +31,8 @@ loader.img is made of, each part with its sha256:
   the reviewed list (FILE, pds/std-crates.txt);
 * the system description itself and any prefill files;
 * the glyph atlases' notice, OFL.txt, which `make image` puts beside every
-  image: the copyright line and licence of the font the
-  atlases are a Modified Version of, with that font - family, version, file
+  image: the copyright lines and licence of the fonts the
+  atlases are a Modified Version of, with each font - family, version, file
   and sha256 - from the manifest the atlas tool writes
   (DIR/src/atlas/manifest.toml, DIR the atlas crate, --glyphs). When a
   program image links the atlas crate, its component (licence OFL-1.1, from
@@ -830,12 +830,12 @@ def build_sbom(args, components, graph, metadata, lock, containerfile, position)
     entries.append({
         "type": "file", "bom-ref": f"notice:{notice}", "name": notice, "scope": "required",
         "description": (f"The notice of the glyph atlases ({glyphs['crate']}, {glyphs['licence']}), a Modified "
-                        f"Version of {fonts}: its copyright line and licence, which go with every copy of the "
+                        f"Version of {fonts}: their copyright lines and licence, which go with every copy of the "
                         "atlases and beside every image"),
         "hashes": sha256_entry(notice_sha),
         "properties": [
             {"name": "nowayos:source", "value": f"{relative_name(os.path.join(args.glyphs, notice))}, "
-                                                     "the font's licence text as released, unchanged"},
+                                                     "each family's copyright line, then the licence text as released"},
             {"name": "nowayos:notice-for", "value": f"{glyphs['crate']} ({glyphs['licence']}): "
                                                          f"{glyphs['copyright']}"},
             *font_properties(glyphs),
