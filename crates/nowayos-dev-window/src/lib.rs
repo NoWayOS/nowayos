@@ -11,7 +11,8 @@
 //! input PD would.
 //!
 //! An application that is one `nowayos-ui` tree - the usual one - needs only
-//! [`ui::UiApplication`], and [`ui::Ui`] is its [`Application`].
+//! `ui::UiApplication`, and `ui::Ui` is its [`Application`] (the `ui`
+//! feature, on unless turned off).
 //!
 //! **Time** is the window's: milliseconds from [`START`], passing as the
 //! clock on the wall does. The application is told the time with every
@@ -39,6 +40,7 @@
 pub mod bmp;
 pub mod events;
 pub mod http;
+#[cfg(feature = "ui")]
 pub mod ui;
 
 use std::fs::{self, File, OpenOptions};

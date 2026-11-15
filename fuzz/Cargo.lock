@@ -682,17 +682,7 @@ version = "0.1.0"
 dependencies = [
  "embedded-graphics",
  "nowayos-input",
- "nowayos-render-eg",
  "nowayos-testkit",
- "nowayos-ui",
-]
-
-[[package]]
-name = "nowayos-display"
-version = "0.1.0"
-dependencies = [
- "nowayos-bounded",
- "nowayos-ipc",
 ]
 
 [[package]]
@@ -725,17 +715,6 @@ version = "0.1.0"
 dependencies = [
  "nowayos-net",
 ]
-
-[[package]]
-name = "nowayos-glyphs"
-version = "0.1.0"
-dependencies = [
- "nowayos-raster",
-]
-
-[[package]]
-name = "nowayos-icons"
-version = "0.1.0"
 
 [[package]]
 name = "nowayos-input"
@@ -781,23 +760,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "nowayos-pictures"
-version = "0.1.0"
-
-[[package]]
 name = "nowayos-raster"
 version = "0.1.0"
-
-[[package]]
-name = "nowayos-render-eg"
-version = "0.1.0"
-dependencies = [
- "embedded-graphics",
- "nowayos-display",
- "nowayos-glyphs",
- "nowayos-raster",
- "nowayos-ui",
-]
 
 [[package]]
 name = "nowayos-seed"
@@ -860,18 +824,6 @@ dependencies = [
  "sha2 0.10.9",
  "x25519-dalek",
  "zeroize",
-]
-
-[[package]]
-name = "nowayos-ui"
-version = "0.1.0"
-dependencies = [
- "nowayos-bounded",
- "nowayos-display",
- "nowayos-glyphs",
- "nowayos-icons",
- "nowayos-input",
- "nowayos-pictures",
 ]
 
 [[package]]

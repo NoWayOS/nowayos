@@ -38,8 +38,9 @@ nowayos-tls-crypto = { path = "../crates/nowayos-tls-crypto" }
 nowayos-update = { path = "../crates/nowayos-update" }
 nowayos-usb = { path = "../crates/nowayos-usb" }
 # The dev window's parsers of what a browser sends: a developer's tool on the
-# host, held to the same rule.
-nowayos-dev-window = { path = "../crates/nowayos-dev-window" }
+# host, held to the same rule. Without its `ui` feature, so that no renderer
+# or font comes into this workspace.
+nowayos-dev-window = { path = "../crates/nowayos-dev-window", default-features = false }
 # Pictures received at run time (#10084): the decoder and its PD's records.
 nowayos-picture-decode = { path = "../crates/nowayos-picture-decode" }
 nowayos-picture-wire = { path = "../crates/nowayos-picture-wire" }
