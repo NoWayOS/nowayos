@@ -107,6 +107,22 @@ The full inventory, crate by crate and system by system, is in
   a configuration that seL4's completed proofs cover. Each image records the
   configuration it uses (`make sel4-config-check`).
 
+## Start your own application
+
+The quickest way in is the **[starter](https://github.com/NoWayOS/starter)**: an
+application of two screens, written in React and joined by sixty lines of
+Rust, with everything it needs to run in a browser window as you edit it and
+then boot on seL4 in QEMU.
+
+```sh
+git clone https://github.com/NoWayOS/starter.git my-app && cd my-app
+make setup     # fetches NoWayOS and the Screen Compiler into the folder, builds the dev container
+make dev       # your application in a browser window, following your edits
+```
+
+Its README is the guide: your first change, adding a screen, what runs on
+the device. The rest of this page is for working on NoWayOS itself.
+
 ## Try it
 
 NoWayOS's dev container mounts the folder above the clone, so give it a
@@ -172,6 +188,7 @@ is the operating system itself. Beside it, in the open: the
 **[Screen Compiler](https://github.com/NoWayOS/screen-compiler)**, which turns
 React screens into NoWayOS's native UI at build time, and the
 **[Showcase](https://github.com/NoWayOS/showcase)**, example kiosks you can run
-on a Raspberry Pi. Commercial products are built on NoWayOS too; anything
+on a Raspberry Pi, and the **[starter](https://github.com/NoWayOS/starter)**, an
+application of your own to begin from. Commercial products are built on NoWayOS too; anything
 generic they need is built here, in the open. NoWayOS is sponsored
 by Adappt.ai.
