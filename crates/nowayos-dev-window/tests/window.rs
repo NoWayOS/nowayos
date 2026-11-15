@@ -6,6 +6,7 @@
 //! into a program started again, and forgotten by *Start again*; a notice
 //! posted is shown; and time passes for the application without any input.
 
+#![cfg(feature = "window")]
 #![allow(
     clippy::unwrap_used,
     clippy::panic,

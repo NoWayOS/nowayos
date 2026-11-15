@@ -9,21 +9,24 @@ publish = false
 
 [features]
 default = ["ui"]
-# The adapter for the usual application, one nowayos-ui tree (`ui::Ui`). Off,
-# the crate is the window and its parsers alone, with no renderer and no font
-# in its graph: what the fuzz harness takes.
-ui = ["dep:nowayos-render-eg", "dep:nowayos-ui"]
+# The window itself: the server, and the frame it shows (the test kit's).
+window = ["dep:nowayos-testkit", "dep:embedded-graphics"]
+# The adapter for the usual application, one nowayos-ui tree (`ui::Ui`):
+# the UI core and its renderer.
+ui = ["window", "dep:nowayos-render-eg", "dep:nowayos-ui"]
+# With neither, the crate is its two parsers alone, with no frame, renderer,
+# font or image code in its graph: what the fuzz harness takes.
 
 [dependencies]
-# Our own: the canonical input events, and the host's frame.
+# Our own: the canonical input events.
 nowayos-input.workspace = true
-nowayos-testkit.workspace = true
+# The host's frame, and its pixels (the `window` feature).
+nowayos-testkit = { workspace = true, optional = true }
+embedded-graphics = { workspace = true, optional = true }
 # For an application that is one tree (the `ui` feature): the UI core and
 # its renderer.
 nowayos-render-eg = { workspace = true, optional = true }
 nowayos-ui = { workspace = true, optional = true }
-# The frame's pixels.
-embedded-graphics.workspace = true
 
 [dev-dependencies]
 nowayos-display.workspace = true
