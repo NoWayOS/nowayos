@@ -572,11 +572,19 @@ name = "nowayos-bounded"
 version = "0.1.0"
 
 [[package]]
+name = "nowayos-dev-window"
+version = "0.1.0"
+dependencies = [
+ "nowayos-input",
+]
+
+[[package]]
 name = "nowayos-fuzz"
 version = "0.1.0"
 dependencies = [
  "libfuzzer-sys",
  "nowayos-audio",
+ "nowayos-dev-window",
  "nowayos-gem",
  "nowayos-input",
  "nowayos-ip",

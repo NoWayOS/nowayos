@@ -1,0 +1,36 @@
+[package]
+name = "nowayos-dev-window"
+description = "A developer's tool, host only: an application on nowayos-ui shown in a browser window on this machine, taking its clicks and keys as canonical input events"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+
+[features]
+default = ["ui"]
+# The window itself: the server, and the frame it shows (the test kit's).
+window = ["dep:nowayos-testkit", "dep:embedded-graphics"]
+# The adapter for the usual application, one nowayos-ui tree (`ui::Ui`):
+# the UI core and its renderer.
+ui = ["window", "dep:nowayos-render-eg", "dep:nowayos-ui"]
+# With neither, the crate is its two parsers alone, with no frame, renderer,
+# font or image code in its graph: what the fuzz harness takes.
+
+[dependencies]
+# Our own: the canonical input events.
+nowayos-input.workspace = true
+# The host's frame, and its pixels (the `window` feature).
+nowayos-testkit = { workspace = true, optional = true }
+embedded-graphics = { workspace = true, optional = true }
+# For an application that is one tree (the `ui` feature): the UI core and
+# its renderer.
+nowayos-render-eg = { workspace = true, optional = true }
+nowayos-ui = { workspace = true, optional = true }
+
+[dev-dependencies]
+nowayos-display.workspace = true
+proptest.workspace = true
+
+[lints]
+workspace = true

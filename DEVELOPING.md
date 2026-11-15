@@ -7,7 +7,7 @@ What is in NoWayOS, how to build and test it, and the rules it keeps. What NoWay
 What exists today (the README's Status says what runs where):
 
 - the library crates in `crates/` (below): host-tested, with no `unsafe` code,
-  and every one but the host-only `nowayos-testkit` builds for bare-metal
+  and every one but the host-only `nowayos-testkit` and `nowayos-dev-window` builds for bare-metal
   `aarch64-unknown-none` with no heap;
 - glyph atlases of the signed-off font, made at build time by a tool of
   their own (`make atlases`) and checked in: every printable Latin-1
@@ -222,6 +222,7 @@ may change.
 | `crates/nowayos-glyphs` | The glyph atlases: every character of the UI's set drawn in advance from the signed-off font at each size the themes use - 8-bit coverage, metrics and pair kerning in 1/64 pixel - as generated Rust tables (`src/atlas/`, written by `make atlases`, never by hand), with lookups that never parse anything. Licensed `OFL-1.1`, the font's licence (its `OFL.txt`), not NoWayOS's; `glyphs.toml` pins the font file it is made from |
 | `crates/nowayos-demo` | A small synthetic form demo and its scripted session of taps, clicks and keys: `make demo` checks every step's frame against a golden image (`session/`); the same screens and session run in a UI PD |
 | `crates/nowayos-testkit` | Host-only test harness: in-memory framebuffer and golden-image snapshots (PNG) |
+| `crates/nowayos-dev-window` | Host-only developer's tool: an application on `nowayos-ui`, built for the host, shown in a browser window on the developer's machine (`http://localhost:8017/`) and taking its clicks and keys as canonical input events; it can keep the session in a file and play it back into a program started again. A small HTTP server on the standard library, listening on the loopback address, answering only as `localhost` and changing nothing without its page's own header; everything it reads is bounded, property-tested and fuzzed (`dev_window_text`). `tools/dev-window` keeps such a program running, rebuilt on every save. No part of any image |
 | `pds/` | Microkit protection domains and the libraries they share: a separate Cargo workspace on the nightly toolchain rust-sel4 needs (see `pds/README.md`) |
 | `fuzz/` | The fuzz harness: libFuzzer targets for the decoders of untrusted input (`fuzz_targets/`), a Cargo workspace of its own that `make fuzz` builds and runs; libFuzzer is for development and CI fuzzing only and never ships |
 | `tools/glyph-atlas` | The glyph atlas tool: a host program in a Cargo workspace of its own, so the rasteriser (`swash`) and its font parsers are in no device crate's dependency graph. It checks every font file against its pin, then writes `crates/nowayos-glyphs/src/atlas/` (`make atlases`); `make atlases-check` writes it again and compares |
@@ -326,6 +327,18 @@ nightly, and their git sources the commits `pds/Cargo.toml` pins
 run from programs of its own that call NoWayOS's PD libraries: the timer,
 the virtio console driver, and the supervisor, whose program names the
 system's children (`pds/supervisor`'s documentation shows how).
+
+**A product's application in a window while it is written**: a program of
+the product's own gives `nowayos-dev-window` its application - its UI and
+whatever that talks to, joined as its PDs join them, built for the host - and
+`tools/dev-window` keeps it running: it builds the program, runs it, and on
+every save runs the product's steps (checking and converting a saved screen),
+builds again and starts it again with the same session, so the browser window
+shows the application where it was, about a second later. A failed step or
+build is shown above the screen and the last good application stays up. The
+tool's header says how a `make dev` rule calls it; in the dev container the
+rule adds `-p 127.0.0.1:PORT:PORT` to `CONTAINER_RUN_ARGS` and passes
+`--all-addresses`, so the window is on the host's loopback address only.
 
 ## Ground rules
 
