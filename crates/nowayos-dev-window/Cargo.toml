@@ -11,10 +11,14 @@ publish = false
 # Our own: the canonical input events, and the host's frame.
 nowayos-input.workspace = true
 nowayos-testkit.workspace = true
+# For an application that is one tree: the UI core and its renderer.
+nowayos-render-eg.workspace = true
+nowayos-ui.workspace = true
 # The frame's pixels.
 embedded-graphics.workspace = true
 
 [dev-dependencies]
+nowayos-display.workspace = true
 proptest.workspace = true
 
 [lints]

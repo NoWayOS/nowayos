@@ -10,6 +10,9 @@
 //! it back as canonical input events ([`nowayos_input::InputEvent`]), as an
 //! input PD would.
 //!
+//! An application that is one `nowayos-ui` tree - the usual one - needs only
+//! [`ui::UiApplication`], and [`ui::Ui`] is its [`Application`].
+//!
 //! **Time** is the window's: milliseconds from [`START`], passing as the
 //! clock on the wall does. The application is told the time with every
 //! batch of input and about fifty times a second between.
@@ -36,6 +39,7 @@
 pub mod bmp;
 pub mod events;
 pub mod http;
+pub mod ui;
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
