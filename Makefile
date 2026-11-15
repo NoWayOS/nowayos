@@ -21,7 +21,7 @@ export RUSTUP_AUTO_INSTALL
 # Every crate must build without std (checked by `make nostd`) except these,
 # which run on the host only: a new std crate fails until it is fixed or
 # listed here (the NoWayOS baseline, tools/baseline.toml).
-HOST_ONLY_CRATES := nowayos-testkit
+HOST_ONLY_CRATES := nowayos-testkit nowayos-dev-window
 # make sbom writes a CycloneDX SBOM for each workspace here.
 SBOM_DIR := build/sbom
 # make publication-scan reads these repositories: the open ones.

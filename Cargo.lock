@@ -661,6 +661,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "nowayos-dev-window"
+version = "0.1.0"
+dependencies = [
+ "embedded-graphics",
+ "nowayos-input",
+ "nowayos-testkit",
+ "proptest",
+]
+
+[[package]]
 name = "nowayos-display"
 version = "0.1.0"
 dependencies = [

@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>__TITLE__</title>
+<link rel="icon" href="data:,">
+<style>
+  :root { color-scheme: dark; }
+  html, body { height: 100%; margin: 0; }
+  body { display: flex; flex-direction: column; background: #161616; color: #ddd;
+         font: 13px/1.4 system-ui, sans-serif; }
+  header { display: flex; gap: 12px; align-items: center; padding: 6px 12px;
+           background: #222; border-bottom: 1px solid #333; }
+  header b { color: #fff; }
+  #status { color: #9ab; font-family: ui-monospace, monospace; }
+  #state { margin-left: auto; color: #888; }
+  button { font: inherit; color: #ddd; background: #333; border: 1px solid #555;
+           border-radius: 4px; padding: 2px 10px; cursor: pointer; }
+  button:hover { background: #444; }
+  #notice { margin: 0; padding: 8px 12px; max-height: 40%; overflow: auto; white-space: pre-wrap;
+            background: #4a1f1f; color: #fdd; border-bottom: 1px solid #733;
+            font: 12px/1.4 ui-monospace, monospace; }
+  #stage { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center;
+           padding: 12px; }
+  #frame { max-width: 100%; max-height: 100%; outline: none; box-shadow: 0 0 0 1px #333;
+           user-select: none; -webkit-user-drag: none; touch-action: none; }
+</style>
+<header>
+  <b>__TITLE__</b>
+  <span id="status"></span>
+  <button id="again" title="The application from its first screen, the session forgotten">Start again</button>
+  <span id="state">connecting</span>
+</header>
+<pre id="notice" hidden></pre>
+<div id="stage"><img id="frame" alt="The application's screen" draggable="false"></div>
+<script>
+"use strict";
+const frame = document.getElementById("frame");
+const state = document.getElementById("state");
+const statusText = document.getElementById("status");
+const notice = document.getElementById("notice");
+const ours = { "X-NoWayOS-Dev": "1" };
+
+// Keys by their place on the keyboard (KeyboardEvent.code) as USB HID
+// keyboard usages, which is what a canonical key event carries.
+const usages = {
+  Enter: 40, Escape: 41, Backspace: 42, Tab: 43, Space: 44, Minus: 45, Equal: 46,
+  BracketLeft: 47, BracketRight: 48, Backslash: 49, IntlHash: 50, Semicolon: 51, Quote: 52,
+  Backquote: 53, Comma: 54, Period: 55, Slash: 56, CapsLock: 57, Insert: 73, Home: 74,
+  PageUp: 75, Delete: 76, End: 77, PageDown: 78, ArrowRight: 79, ArrowLeft: 80, ArrowDown: 81,
+  ArrowUp: 82, IntlBackslash: 100, ControlLeft: 224, ShiftLeft: 225, AltLeft: 226,
+  ControlRight: 228, ShiftRight: 229, AltRight: 230,
+};
+for (let i = 0; i < 26; i++) usages["Key" + String.fromCharCode(65 + i)] = 4 + i;
+for (let i = 1; i <= 9; i++) usages["Digit" + i] = 29 + i;
+usages.Digit0 = 39;
+for (let i = 1; i <= 12; i++) usages["F" + i] = 57 + i;
+
+// Events wait here and go in order, one request at a time.
+let waiting = [];
+let sending = false;
+function send(event) {
+  waiting.push(event);
+  if (!sending) flush();
+}
+async function flush() {
+  sending = true;
+  while (waiting.length) {
+    const batch = waiting.splice(0, 200).join("\n");
+    try {
+      await fetch("/input", { method: "POST", headers: ours, body: batch });
+    } catch (error) {
+      waiting = [];
+    }
+  }
+  sending = false;
+}
+
+const held = new Set();
+window.addEventListener("keydown", (event) => {
+  const usage = usages[event.code];
+  // The Command key's shortcuts stay the browser's.
+  if (usage === undefined || event.metaKey) return;
+  event.preventDefault();
+  held.add(usage);
+  send("kd " + usage);
+});
+window.addEventListener("keyup", (event) => {
+  const usage = usages[event.code];
+  if (usage === undefined || !held.delete(usage)) return;
+  event.preventDefault();
+  send("ku " + usage);
+});
+// A key still down when the window loses the keyboard is let go.
+window.addEventListener("blur", () => {
+  for (const usage of held) send("ku " + usage);
+  held.clear();
+});
+
+// A place on the picture, in the frame's own pixels.
+function place(event) {
+  const box = frame.getBoundingClientRect();
+  if (!box.width || !box.height || !frame.naturalWidth) return null;
+  const x = Math.round((event.clientX - box.left) * frame.naturalWidth / box.width);
+  const y = Math.round((event.clientY - box.top) * frame.naturalHeight / box.height);
+  return x + " " + y;
+}
+let moved = null;
+frame.addEventListener("pointermove", (event) => {
+  const at = place(event);
+  if (at === null) return;
+  // One move a frame is plenty.
+  if (moved === null) requestAnimationFrame(() => { send("pm " + moved); moved = null; });
+  moved = at;
+});
+frame.addEventListener("pointerdown", (event) => {
+  const at = place(event);
+  if (at === null || event.button > 2) return;
+  event.preventDefault();
+  // The button's release is wanted even if it happens off the picture.
+  try { frame.setPointerCapture(event.pointerId); } catch (error) { /* not a pointer that can be held */ }
+  send("pm " + at);
+  send("pb " + event.button + " 1");
+});
+frame.addEventListener("pointerup", (event) => {
+  const at = place(event);
+  if (at === null || event.button > 2) return;
+  send("pm " + at);
+  send("pb " + event.button + " 0");
+});
+frame.addEventListener("contextmenu", (event) => event.preventDefault());
+let turned = 0;
+frame.addEventListener("wheel", (event) => {
+  event.preventDefault();
+  // A notch for each 100 units; away from the user is positive.
+  turned -= event.deltaMode === 0 ? event.deltaY / 100 : event.deltaY;
+  const notches = Math.trunc(turned);
+  if (notches) { turned -= notches; send("wh " + Math.max(-127, Math.min(127, notches))); }
+}, { passive: false });
+
+document.getElementById("again").addEventListener("click", () => {
+  fetch("/restart", { method: "POST", headers: ours }).catch(() => {});
+});
+
+// What is shown: which run of the application, which frame, which notice.
+let shown = { instance: 0, frame: 0, notice: 0 };
+let picture = null;
+async function follow() {
+  for (;;) {
+    try {
+      const query = `/wait?instance=${shown.instance}&frame=${shown.frame}&notice=${shown.notice}`;
+      const answer = await fetch(query);
+      if (!answer.ok) throw new Error(answer.status);
+      const now = {};
+      for (const line of (await answer.text()).split("\n")) {
+        const gap = line.indexOf(" ");
+        if (gap > 0) now[line.slice(0, gap)] = line.slice(gap + 1);
+      }
+      const next = { instance: Number(now.instance), frame: Number(now.frame), notice: Number(now.notice) };
+      if (next.instance !== shown.instance || next.frame !== shown.frame) {
+        const blob = await (await fetch("/frame")).blob();
+        const url = URL.createObjectURL(blob);
+        frame.src = url;
+        if (picture) URL.revokeObjectURL(picture);
+        picture = url;
+      }
+      if (next.instance !== shown.instance || next.notice !== shown.notice) {
+        const text = await (await fetch("/notice")).text();
+        notice.textContent = text;
+        notice.hidden = text === "";
+      }
+      shown = next;
+      statusText.textContent = now.status || "";
+      state.textContent = "live";
+    } catch (error) {
+      state.textContent = "waiting for the application";
+      await new Promise((done) => setTimeout(done, 300));
+    }
+  }
+}
+follow();
+</script>
+</html>

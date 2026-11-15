@@ -21,6 +21,7 @@ publish = false
 nowayos-audio = { path = "crates/nowayos-audio" }
 nowayos-bounded = { path = "crates/nowayos-bounded" }
 nowayos-demo = { path = "crates/nowayos-demo" }
+nowayos-dev-window = { path = "crates/nowayos-dev-window" }
 nowayos-display = { path = "crates/nowayos-display" }
 nowayos-fault-policy = { path = "crates/nowayos-fault-policy" }
 nowayos-frame-times = { path = "crates/nowayos-frame-times" }

@@ -1,0 +1,245 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: MIT OR Apache-2.0
+"""Keeps an application running in NoWayOS's dev window while its source is edited.
+
+A product's `make dev` runs this with how to build its dev program and where
+its source is. It builds the program, runs it - an application on
+nowayos-ui, shown in a browser window on this machine by nowayos-dev-window -
+and then watches the source. When a file is saved it builds again and starts
+the program again with the same session file, so the application comes back
+to the screen it was on, a moment later, in the same browser window.
+
+    dev-window --build "cargo build -p my-dev" --watch DIR [--watch DIR ...]
+               [--check "screen-compiler check {file}"]
+               [--screens "tools/screens --bless --screens {crate}"]
+               [--port 8017] [--all-addresses] [--session FILE]
+               -- PROGRAM [ARGUMENT ...]
+
+* PROGRAM is run with `--listen ADDRESS:PORT --session FILE` after its own
+  arguments: the options nowayos_dev_window::Options::from_args reads.
+* A saved `.tsx` file is first checked with --check ({file} is the file,
+  {crate} the folder that holds its `tsx` folder); if that fails, its output
+  is the notice and nothing is built. Then --screens runs once for each such
+  folder ({crate}): the product's own step that converts its screens to Rust.
+* If a step or the build fails, what it printed is shown above the screen in
+  the window (and here), and the application already running stays up.
+* --all-addresses listens on every address: for a container, whose port the
+  host publishes on its own loopback address only. Otherwise the window
+  listens on 127.0.0.1.
+
+Saves are noticed by reading the files themselves, a few times a second. In
+a container on a Mac a bind mount carries no file events, and a file's
+modification time arrives up to four seconds late; its contents are there at
+once. Only source you trust: the steps run what it says. Python 3, standard
+library only.
+"""
+import argparse
+import os
+import shlex
+import signal
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+import zlib
+
+# How long the source is left between looks, in seconds.
+EVERY = 0.25
+# The most of a file that is read, in bytes.
+MOST_READ = 1024 * 1024
+# The most files watched.
+MOST = 20000
+# What a save may change.
+WATCHED = (".rs", ".tsx", ".ts", ".css", ".toml", ".names")
+# Folders never looked into.
+SKIPPED = {"target", "build", "node_modules", ".git"}
+# The longest notice the window takes, in bytes (nowayos_dev_window::http::MAX_BODY).
+MAX_NOTICE = 16 * 1024
+
+
+def say(text):
+    print(f"dev: {text}", flush=True)
+
+
+def stamp(path):
+    """What a file holds, briefly: its length and a checksum. None if it cannot be read."""
+    try:
+        with open(path, "rb") as handle:
+            data = handle.read(MOST_READ)
+    except OSError:
+        return None
+    return len(data), zlib.crc32(data)
+
+
+def stamps(folders):
+    """What every watched file under `folders` holds (stamp)."""
+    found = {}
+    for top in folders:
+        for folder, names, files in os.walk(top):
+            names[:] = [name for name in names if name not in SKIPPED and not name.startswith(".")]
+            for name in files:
+                if name.endswith(WATCHED) and len(found) < MOST:
+                    path = os.path.join(folder, name)
+                    found[path] = stamp(path)
+    return found
+
+
+def changed(before, after):
+    """The files added, removed or saved between two readings, sorted."""
+    return sorted(path for path in before.keys() | after.keys() if before.get(path) != after.get(path))
+
+
+def screens_crate(path):
+    """The folder a `.tsx` file's screens belong to: the one holding the nearest
+    `tsx` folder above the file. None for a file in no `tsx` folder."""
+    parts = os.path.normpath(path).split(os.sep)
+    for index in range(len(parts) - 2, -1, -1):
+        if parts[index] == "tsx":
+            return os.sep.join(parts[:index]) or os.sep
+    return None
+
+
+def steps_for(saved, check, screens):
+    """The commands to run before the build for these saved files, in order:
+    each `.tsx` file checked, then its screens converted, once a crate."""
+    commands = []
+    crates = []
+    for path in saved:
+        if not path.endswith(".tsx") or not os.path.exists(path):
+            continue
+        crate = screens_crate(path)
+        if check:
+            home = crate if crate is not None else os.path.dirname(path) or "."
+            commands.append([word.replace("{file}", path).replace("{crate}", home)
+                             for word in shlex.split(check)])
+        if crate is not None and crate not in crates:
+            crates.append(crate)
+    if screens:
+        for crate in crates:
+            commands.append([word.replace("{crate}", crate) for word in shlex.split(screens)])
+    return commands
+
+
+def trim(text):
+    """The end of `text` that fits in a notice: where a build says what failed."""
+    data = text.encode("utf-8", "replace")
+    if len(data) <= MAX_NOTICE:
+        return text
+    return "...\n" + data[-(MAX_NOTICE - 8):].decode("utf-8", "ignore")
+
+
+def run(command):
+    """Runs a step. Returns (whether it succeeded, what it printed)."""
+    try:
+        done = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, check=False)
+    except OSError as error:
+        return False, f"{command[0]}: {error}\n"
+    return done.returncode == 0, done.stdout.decode("utf-8", "replace")
+
+
+class Window:
+    def __init__(self, args):
+        self.args = args
+        self.program = None
+
+    def notice(self, text):
+        """Shows `text` above the screen in the window; empty clears it."""
+        request = urllib.request.Request(
+            f"http://127.0.0.1:{self.args.port}/notice",
+            data=trim(text).encode("utf-8"),
+            method="POST",
+            headers={"Host": "localhost", "X-NoWayOS-Dev": "1", "Content-Type": "text/plain"},
+        )
+        try:
+            urllib.request.urlopen(request, timeout=5).close()
+        except (urllib.error.URLError, OSError):
+            pass
+
+    def prepare(self, saved):
+        """Runs the steps for the saved files, then the build. Returns
+        (whether everything succeeded, what the failing step printed)."""
+        for command in steps_for(saved, self.args.check, self.args.screens):
+            ok, output = run(command)
+            if not ok:
+                return False, output
+        return run(shlex.split(self.args.build))
+
+    def stop(self):
+        if self.program is not None and self.program.poll() is None:
+            self.program.terminate()
+            try:
+                self.program.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self.program.kill()
+                self.program.wait()
+        self.program = None
+
+    def start(self):
+        address = "0.0.0.0" if self.args.all_addresses else "127.0.0.1"
+        command = [*self.args.program, "--listen", f"{address}:{self.args.port}", "--session", self.args.session]
+        self.program = subprocess.Popen(command)
+
+    def running(self):
+        return self.program is not None and self.program.poll() is None
+
+
+def main():
+    parser = argparse.ArgumentParser(description="An application in NoWayOS's dev window, rebuilt on every save.")
+    parser.add_argument("--build", required=True, help="the command that builds the dev program")
+    parser.add_argument("--watch", action="append", required=True, help="a folder of source to watch")
+    parser.add_argument("--check", default="", help="run for each saved .tsx file ({file})")
+    parser.add_argument("--screens", default="", help="run for each folder whose screens changed ({crate})")
+    parser.add_argument("--port", type=int, default=8017)
+    parser.add_argument("--all-addresses", action="store_true")
+    parser.add_argument("--session", default="build/dev/session")
+    parser.add_argument("program", nargs="+", help="after --: the dev program and its arguments")
+    args = parser.parse_args()
+
+    window = Window(args)
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+    os.makedirs(os.path.dirname(args.session) or ".", exist_ok=True)
+    # A new session each time make dev starts.
+    with open(args.session, "w", encoding="utf-8"):
+        pass
+
+    say("building")
+    ok, output = window.prepare([])
+    if not ok:
+        sys.stdout.write(output)
+        sys.exit(1)
+    seen = stamps(args.watch)
+    window.start()
+    say(f"open http://localhost:{args.port}/ - edit the source and the window follows; Ctrl-C stops")
+    try:
+        while True:
+            time.sleep(EVERY)
+            if not window.running():
+                say("the application stopped; starting it again")
+                window.start()
+            now = stamps(args.watch)
+            saved = changed(seen, now)
+            if not saved:
+                continue
+            started = time.monotonic()
+            ok, output = window.prepare(saved)
+            # The steps may write source themselves (converted screens).
+            seen = stamps(args.watch)
+            if ok:
+                window.stop()
+                window.start()
+                say(f"{', '.join(saved[:3])}{' ...' if len(saved) > 3 else ''}: "
+                    f"showing again in {time.monotonic() - started:.1f} s")
+            else:
+                sys.stdout.write(output)
+                sys.stdout.flush()
+                window.notice(output or "the build failed\n")
+                say("not built: the application is as it was")
+    except KeyboardInterrupt:
+        print()
+    finally:
+        window.stop()
+
+
+if __name__ == "__main__":
+    main()
