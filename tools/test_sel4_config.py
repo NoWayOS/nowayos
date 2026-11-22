@@ -8,8 +8,6 @@ Python 3.11 or later, standard library only.
 
 import contextlib
 import hashlib
-import importlib.machinery
-import importlib.util
 import io
 import json
 import os
@@ -19,16 +17,9 @@ import tempfile
 import textwrap
 import unittest
 
+from tool_testing import load
+
 HERE = os.path.dirname(os.path.abspath(__file__))
-
-
-def load(name):
-    """Import an extensionless script in this directory as a module."""
-    loader = importlib.machinery.SourceFileLoader(name.replace("-", "_"), os.path.join(HERE, name))
-    spec = importlib.util.spec_from_loader(loader.name, loader)
-    module = importlib.util.module_from_spec(spec)
-    loader.exec_module(module)
-    return module
 
 
 sel4_config = load("sel4-config")

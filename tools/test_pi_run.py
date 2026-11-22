@@ -37,17 +37,10 @@ import tty
 import unittest
 import zlib
 
+from tool_testing import load
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 SYSTEMS = os.path.join(HERE, os.pardir, "systems")
-
-
-def load(name):
-    """Import an extensionless script in this directory as a module."""
-    loader = importlib.machinery.SourceFileLoader(name.replace("-", "_"), os.path.join(HERE, name))
-    spec = importlib.util.spec_from_loader(loader.name, loader)
-    module = importlib.util.module_from_spec(spec)
-    loader.exec_module(module)
-    return module
 
 
 pi_run = load("pi-run")

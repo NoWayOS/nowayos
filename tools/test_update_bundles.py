@@ -15,8 +15,6 @@ Python 3.11 or later, standard library only; openssl on PATH (the dev image).
 
 import contextlib
 import glob
-import importlib.machinery
-import importlib.util
 import io
 import json
 import os
@@ -27,29 +25,13 @@ import tempfile
 import unittest
 import unittest.mock
 
+from tool_testing import GIT_ENV, load
+
 HERE = os.path.dirname(os.path.abspath(__file__))
-
-
-def load(name):
-    """Import an extensionless script in this directory as a module."""
-    loader = importlib.machinery.SourceFileLoader(name.replace("-", "_"), os.path.join(HERE, name))
-    spec = importlib.util.spec_from_loader(loader.name, loader)
-    module = importlib.util.module_from_spec(spec)
-    loader.exec_module(module)
-    return module
 
 
 BUNDLES = load("update-bundles")
 SCAN = load("secrets-scan")
-
-GIT_ENV = {
-    "GIT_AUTHOR_NAME": "Test",
-    "GIT_AUTHOR_EMAIL": "test@example.invalid",
-    "GIT_COMMITTER_NAME": "Test",
-    "GIT_COMMITTER_EMAIL": "test@example.invalid",
-    "GIT_CONFIG_GLOBAL": os.devnull,
-    "GIT_CONFIG_NOSYSTEM": "1",
-}
 
 
 class MadeOnce(unittest.TestCase):

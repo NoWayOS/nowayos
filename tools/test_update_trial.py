@@ -2,18 +2,15 @@
 """Tests for tools/update-trial: the harness's bootloader, its copy
 of the device's storage, and what it takes from a run's serial log. The
 runs themselves are `make update-trial-test`'s."""
-import importlib.machinery
-import importlib.util
 import os
 import struct
 import unittest
 import zlib
 
+from tool_testing import load
+
 HERE = os.path.dirname(os.path.abspath(__file__))
-_loader = importlib.machinery.SourceFileLoader("update_trial", os.path.join(HERE, "update-trial"))
-_spec = importlib.util.spec_from_loader("update_trial", _loader)
-trial = importlib.util.module_from_spec(_spec)
-_loader.exec_module(trial)
+trial = load("update-trial")
 ub = trial.ub
 
 LIST = bytes(trial.LIST_RECORD_LEN)

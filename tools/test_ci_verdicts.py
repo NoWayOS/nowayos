@@ -1,17 +1,14 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 """Tests for tools/ci-verdicts: a verdict holds exactly while its inputs do."""
-import importlib.machinery
-import importlib.util
 import os
 import tempfile
 import textwrap
 import unittest
 
+from tool_testing import load
+
 HERE = os.path.dirname(os.path.abspath(__file__))
-_loader = importlib.machinery.SourceFileLoader("ci_verdicts", os.path.join(HERE, "ci-verdicts"))
-_spec = importlib.util.spec_from_loader("ci_verdicts", _loader)
-ci_verdicts = importlib.util.module_from_spec(_spec)
-_loader.exec_module(ci_verdicts)
+ci_verdicts = load("ci-verdicts")
 
 LOCK = """\
 version = 4

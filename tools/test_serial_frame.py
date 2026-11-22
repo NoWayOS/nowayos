@@ -5,22 +5,14 @@ never an image of anything - saved whole, a broken line taken from the other
 copy, and a frame that cannot be made whole refused."""
 
 import base64
-import importlib.machinery
-import importlib.util
 import os
 import tempfile
 import unittest
 import zlib
 
+from tool_testing import load
+
 HERE = os.path.dirname(os.path.abspath(__file__))
-
-
-def load(name):
-    loader = importlib.machinery.SourceFileLoader(name.replace("-", "_"), os.path.join(HERE, name))
-    spec = importlib.util.spec_from_loader(loader.name, loader)
-    module = importlib.util.module_from_spec(spec)
-    loader.exec_module(module)
-    return module
 
 
 TOOL = load("serial-frame")
