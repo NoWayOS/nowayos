@@ -2,7 +2,7 @@
 <!--
     Budget-test.system with the looper's budget widened to its
     period - 10 ms in every 10 ms - and nothing else (make tools-test
-    checks): what every PD but one had before W3. The looper, above
+    checks): what every PD but one had before the budgets were narrowed. The looper, above
     the heartbeat, starts after the third beat and never stops, and the
     heartbeat below it stops with it: the expect file requires the third
     beat and forbids a fourth.

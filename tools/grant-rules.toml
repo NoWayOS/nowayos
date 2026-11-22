@@ -5,8 +5,9 @@
 #
 # A rule says which role it binds, which kind of grant it forbids - device
 # (device memory), irq, child, channel, call, paddr, map, smc (the SMC
-# capability, a PD's smc="true") or pd (the PD itself: the role may not run
-# at all, where the rule binds) - optionally only towards a peer of a given
+# capability, a PD's smc="true"), cached (a firmware framebuffer mapped
+# cached), restart (a parent's map of a child's restart image) or pd (the PD
+# itself: the role may not run at all, where the rule binds) - optionally only towards a peer of a given
 # role (peer_role), or towards any peer but those of the roles it names
 # (unless_peer_role: one role, or a list of them), or,
 # for device memory, only one device (device) and only with those rights
@@ -99,7 +100,7 @@ id = "ui-no-channel-to-security"
 role = "ui"
 grant = "channel"
 peer_role = "security"
-reason = "the security PD has no channel to the UI PD: other PDs receive outcomes, not secrets (Architecture -> Where Identity Lives)"
+reason = "the security PD has no channel to the UI PD: other PDs receive outcomes, not secrets"
 
 [[forbid]]
 id = "ui-no-physical-address"
@@ -369,7 +370,7 @@ id = "network-no-channel-to-ui"
 role = "network"
 grant = "channel"
 peer_role = "ui"
-reason = "the UI never owns the network path: it reaches the network only through the App PD's narrow typed requests (Architecture -> The Network Path)"
+reason = "the UI never owns the network path: it reaches the network only through the App PD's narrow typed requests"
 
 # A remote-display station: every hostile input is parsed
 # in a PD that holds nothing worth stealing. The session PD parses the remote

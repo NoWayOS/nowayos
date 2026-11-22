@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-    Spike S2, on the Raspberry Pi 5 only: can a display PD use the
+    On the Raspberry Pi 5 only: can a display PD use the
     framebuffer the Pi's firmware sets up when a monitor is attached at boot?
     One PD draws the display test pattern QEMU's display-test draws, scaled
     to fit and centred, into the board's framebuffer, reads it back and

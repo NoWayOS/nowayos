@@ -17,7 +17,7 @@ role ui ui
 # the broker and the UI, so a presented frame is shown at once; the broker
 # above the UI, so input is checked and counted however busy the UI is. Full
 # budgets: each PD runs only when notified, and each run is bounded - the
-# display copies one 800x480 frame, the broker drains at most two four-slot
+# display copies one frame, the broker drains at most two four-slot
 # rings - until the UI's frame budget is measured.
 pd virtio_input priority=4 budget=1000 period=1000
 pd display priority=3 budget=1000 period=1000
