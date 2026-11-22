@@ -4,6 +4,7 @@
 
 Usage: board-system --board BOARD [--platforms DIR]
                     [--source-date-epoch SECONDS] [--commit-repo DIR]...
+                    [--update-bundles DIR]
                     SOURCE.system OUT.system
 
 The Microkit tool has no include mechanism, so a system description in
@@ -42,8 +43,8 @@ the configuration, so the file needs no review of its own:
                                     of seconds since 1970-01-01T00:00:00Z
                                     - what nowayos_region::build_time()
                                     reads
-    prefill_path="device-NAME.bin"  the board's facts about its device NAME
-                                    , for the driver that holds it:
+    prefill_path="device-NAME.bin"  the board's facts about its device NAME,
+                                    for the driver that holds it:
                                     32-bit little-endian words - the
                                     record's version (1), the bytes of
                                     NAME's window that are registers (its
@@ -76,16 +77,16 @@ the configuration, so the file needs no review of its own:
                                     per destination its address's four
                                     bytes in order and its port - what
                                     nowayos_socket::AllowList::decode reads
-    prefill_path="tls-pin-HEX.bin"  a TLS client's one accepted server key
-                                    : HEX, 64 lower-case hex digits,
+    prefill_path="tls-pin-HEX.bin"  a TLS client's one accepted server key:
+                                    HEX, 64 lower-case hex digits,
                                     is SHA-256 of the server certificate's
                                     SubjectPublicKeyInfo, written as its 32
                                     bytes. All zeros means no pin: the client
                                     asks for one (a lab-only system is
                                     written with its lab host's pin)
     prefill_path="test-run-length-N.bin"
-                                    a test system's run length on the Pi 5
-                                    : N seconds, 1 to 86400, without
+                                    a test system's run length on the Pi 5:
+                                    N seconds, 1 to 86400, without
                                     leading zeros, as one little-endian
                                     32-bit word - read by the watchdog
                                     stand-in's ticker, which stops ticking
@@ -118,8 +119,8 @@ the configuration, so the file needs no review of its own:
                                     nowayos-update's state module lays it
                                     out - from DIR's state-initial.bin
     prefill_path="test-release-N.bin"
-                                    the release a test image says it is
-                                    : N, 1 to 9999, as a 32-bit
+                                    the release a test image says it is:
+                                    N, 1 to 9999, as a 32-bit
                                     little-endian number - so that two
                                     builds of update-trial differ, as two
                                     releases do
@@ -149,14 +150,16 @@ input or I/O error.
 
 import argparse
 import datetime
-import importlib.machinery
-import importlib.util
 import os
 import re
 import subprocess
 import sys
 import time
 import zlib
+
+sys.dont_write_bytecode = True  # keep tools/ free of __pycache__
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from tool_common import load_tool  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_PLATFORMS = os.path.join(HERE, os.pardir, "platforms")
@@ -211,11 +214,7 @@ PLACEHOLDER = re.compile(r"@([A-Za-z_][A-Za-z0-9_]*)(?:\[([0-9]+)\])?")
 
 def load_check_system():
     """check-system's board-file reader, so both tools read a board alike."""
-    loader = importlib.machinery.SourceFileLoader("check_system", os.path.join(HERE, "check-system"))
-    spec = importlib.util.spec_from_loader(loader.name, loader)
-    module = importlib.util.module_from_spec(spec)
-    loader.exec_module(module)
-    return module
+    return load_tool("check-system")
 
 
 def fill(name, value, devices, board):

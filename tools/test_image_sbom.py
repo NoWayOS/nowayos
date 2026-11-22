@@ -23,8 +23,6 @@ Python 3.11 or later, standard library only.
 
 import contextlib
 import hashlib
-import importlib.machinery
-import importlib.util
 import io
 import json
 import os
@@ -34,16 +32,9 @@ import tempfile
 import tomllib
 import unittest
 
+from tool_testing import load
+
 HERE = os.path.dirname(os.path.abspath(__file__))
-
-
-def load(name):
-    """Import an extensionless script in this directory as a module."""
-    loader = importlib.machinery.SourceFileLoader(name.replace("-", "_"), os.path.join(HERE, name))
-    spec = importlib.util.spec_from_loader(loader.name, loader)
-    module = importlib.util.module_from_spec(spec)
-    loader.exec_module(module)
-    return module
 
 
 image_sbom = load("image-sbom")
@@ -348,6 +339,8 @@ class ImageSbomTest(unittest.TestCase):
         self.assertIn("test-only stand-in", what)
         self.assertIn("refuses it outside a test system", what)
         self.assertIn("board-system", source)
+        _, anchors, _ = image_sbom.prefill_file("test-trust-anchors.bin")
+        self.assertNotIn("supervisor's counts", anchors)
 
     def test_a_devices_facts_are_named_as_the_board_files(self):
         name, what, source = image_sbom.prefill_file("device-debug_uart.bin")

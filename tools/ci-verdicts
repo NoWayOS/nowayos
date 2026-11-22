@@ -47,20 +47,19 @@ Makefile or a make fragment reaches no key: `make ci CI_SCOPE=full` and
 """
 import argparse
 import hashlib
-import importlib.machinery
-import importlib.util
 import json
 import os
 import re
 import sys
 import tomllib
 
+sys.dont_write_bytecode = True  # keep tools/ free of __pycache__
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from tool_common import load_tool  # noqa: E402
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 NOWAYOS = os.path.dirname(HERE)
-_loader = importlib.machinery.SourceFileLoader("ci_scope", os.path.join(HERE, "ci-scope"))
-_spec = importlib.util.spec_from_loader("ci_scope", _loader)
-ci_scope = importlib.util.module_from_spec(_spec)
-_loader.exec_module(ci_scope)
+ci_scope = load_tool("ci-scope")
 
 WORKSPACES = {"kani": ".", "miri": "pds", "fuzz": "fuzz"}
 SKIP_DIRS = {"target", ".git", "__pycache__"}

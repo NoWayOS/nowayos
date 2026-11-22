@@ -1,16 +1,13 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 """Tests for tools/dev-window: what a save sets off, and what it shows of a failure."""
-import importlib.machinery
-import importlib.util
 import os
 import tempfile
 import unittest
 
+from tool_testing import load
+
 HERE = os.path.dirname(os.path.abspath(__file__))
-_loader = importlib.machinery.SourceFileLoader("dev_window", os.path.join(HERE, "dev-window"))
-_spec = importlib.util.spec_from_loader("dev_window", _loader)
-dev_window = importlib.util.module_from_spec(_spec)
-_loader.exec_module(dev_window)
+dev_window = load("dev-window")
 
 
 def write(root, path, text="x"):

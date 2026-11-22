@@ -6,7 +6,7 @@
 //! UI tree → layout → `embedded-graphics` primitives → draw target →
 //! framebuffer — with no GPU, window system or C library involved. The same
 //! code draws into an in-memory framebuffer in CI (see `nowayos-testkit`)
-//! and, later, into a display PD's framebuffer.
+//! and into the framebuffer a UI PD shares with its display PD.
 //!
 //! * [`render`] repaints the whole viewport;
 //! * [`render_dirty`] repaints only the areas the tree has marked dirty, so
@@ -18,7 +18,7 @@
 //! * [`render_pointer`] draws the mouse pointer over a frame: the
 //!   UI loop's, never a tree's, so no golden image holds it;
 //! * [`Theme`] holds the colours, the type scale and the minimum target size —
-//!   the first cut of design tokens, with a [`Theme::light`] default and a
+//!   design tokens, with a [`Theme::light`] default and a
 //!   large-text [`Theme::high_contrast`] variant for accessibility. In every
 //!   theme ([`Theme::all`]) text meets WCAG 2's contrast minimum of 4.5:1,
 //!   control boundaries and the focus ring 3:1, and every focusable control
@@ -318,7 +318,7 @@ impl TypeScale {
 }
 
 /// Colours, the font, line widths and the minimum target size used to lay
-/// out and draw a tree — the first cut of design tokens. Every size is in
+/// out and draw a tree — design tokens. Every size is in
 /// layout units: at device scale 2 each is drawn twice as large
 /// ([`Theme::metrics_at`]).
 ///

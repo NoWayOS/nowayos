@@ -53,7 +53,7 @@ use nowayos_ip::{
     TcpRoom, TxMemory, storage,
 };
 use nowayos_ipc::{Consumer, Producer};
-use nowayos_net::arp::Mac;
+use nowayos_net::Mac;
 use nowayos_net::{BUFFERS, DATA_REGION_LEN};
 use nowayos_region::{
     Frame, NetQueue, ReadOnly, ReadWrite, RegionError, RingRx, RingTx, net_queue, read_only,

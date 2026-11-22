@@ -1,18 +1,15 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 """Tests for tools/ci-scope: what a change since a base can reach."""
-import importlib.machinery
-import importlib.util
 import os
 import subprocess
 import tempfile
 import textwrap
 import unittest
 
+from tool_testing import load
+
 HERE = os.path.dirname(os.path.abspath(__file__))
-_loader = importlib.machinery.SourceFileLoader("ci_scope", os.path.join(HERE, "ci-scope"))
-_spec = importlib.util.spec_from_loader("ci_scope", _loader)
-ci_scope = importlib.util.module_from_spec(_spec)
-_loader.exec_module(ci_scope)
+ci_scope = load("ci-scope")
 
 
 def write(root, path, text):

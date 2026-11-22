@@ -80,8 +80,8 @@ const UNKNOWN_CLIENT: u64 = 7;
 
 /// Monotonic time: nanoseconds since the timer started counting, at boot,
 /// never decreasing. Defined in `nowayos-time` beside wall-clock time, which
-/// it never mixes with, and re-exported here, so
-/// `nowayos_timer_api::Instant` keeps working wherever it is used.
+/// it never mixes with, and re-exported here because this crate's API
+/// returns it.
 pub use nowayos_time::Instant;
 
 /// What a client can ask the timer PD.

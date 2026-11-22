@@ -51,12 +51,14 @@ git.
 """
 
 import argparse
-import importlib.machinery
-import importlib.util
 import os
 import re
 import subprocess
 import sys
+
+sys.dont_write_bytecode = True  # keep tools/ free of __pycache__
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from tool_common import load_tool  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 EXIT_PASS = 0
@@ -76,16 +78,8 @@ CO_AUTHOR = re.compile(r"(?im)^co-authored-by:[ \t]*(.+?)[ \t]*$")
 ORDER = ("term", "link", "assistant-file", "wiki-reference")
 
 
-def load_secrets_scan():
-    """tools/secrets-scan, for its read-only git plumbing."""
-    loader = importlib.machinery.SourceFileLoader("secrets_scan", os.path.join(HERE, "secrets-scan"))
-    spec = importlib.util.spec_from_loader(loader.name, loader)
-    module = importlib.util.module_from_spec(spec)
-    loader.exec_module(module)
-    return module
-
-
-scan_git = load_secrets_scan()
+# tools/secrets-scan, for its read-only git plumbing.
+scan_git = load_tool("secrets-scan")
 InputError = scan_git.InputError
 
 

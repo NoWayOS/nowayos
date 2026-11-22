@@ -8,15 +8,20 @@
 
 #![allow(clippy::unwrap_used, reason = "test code: a failed check panics")]
 
-use std::path::PathBuf;
-
 use embedded_graphics::pixelcolor::Rgb888;
 use nowayos_display::{DeviceScale, Rect};
 use nowayos_input::{InputEvent, KeyCode};
-use nowayos_render_eg::{Theme, render};
-use nowayos_testkit::{Framebuffer, check_snapshot};
+use nowayos_render_eg::Theme;
+use nowayos_testkit::check_snapshot;
 use nowayos_ui::builder::{Layout, UiBuilder};
 use nowayos_ui::{ActionId, FieldId, Input, TextRole, TextStyle, Tree};
+
+#[path = "common/frame.rs"]
+mod frame_helper;
+use frame_helper::frame;
+#[path = "common/golden.rs"]
+mod golden_path;
+use golden_path::golden;
 
 fn screen(viewport: Rect, scale: DeviceScale, theme: &Theme<Rgb888>) -> Tree<32> {
     let mut tree: Tree<32> = Tree::new();
@@ -49,17 +54,6 @@ fn screen(viewport: Rect, scale: DeviceScale, theme: &Theme<Rgb888>) -> Tree<32>
     tree
 }
 
-fn frame(tree: &Tree<32>, theme: &Theme<Rgb888>) -> Framebuffer {
-    let size = tree.viewport().size;
-    let mut fb = Framebuffer::new(size.width, size.height).unwrap();
-    {
-        nowayos_testkit::glyph_store!(glyphs__);
-        render(tree, &mut fb, theme, &mut glyphs__)
-    }
-    .unwrap();
-    fb
-}
-
 #[test]
 fn one_form_at_100_150_and_200_percent_as_approved() {
     let theme = Theme::<Rgb888>::light();
@@ -71,9 +65,7 @@ fn one_form_at_100_150_and_200_percent_as_approved() {
     ] {
         let scale = DeviceScale::from_quarters(quarters).unwrap();
         let tree = screen(viewport, scale, &theme);
-        let golden = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/snapshots")
-            .join(image);
+        let golden = golden(image);
         check_snapshot(&frame(&tree, &theme), &golden).unwrap();
     }
 }

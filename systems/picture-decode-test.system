@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-    pictures received at run time, decoded in a PD of their own (#10084).
+    pictures received at run time, decoded in a PD of their own.
     show, a test UI, sends decoder five pictures one at a time - NoWayOS's
     sample JPEG, a PNG whose header claims 100000 x 100000 pixels, the JPEG
     cut in half, a 1024 x 1024 PNG larger than decoder's heap, and the

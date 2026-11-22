@@ -11,13 +11,21 @@
     reason = "test code: a failed check panics, and tests index and compute on known data"
 )]
 
-use std::path::PathBuf;
-
 use embedded_graphics::pixelcolor::Rgb888;
 use nowayos_display::Rect;
-use nowayos_render_eg::{Theme, render, render_dirty};
-use nowayos_testkit::{Framebuffer, check_snapshot};
+use nowayos_render_eg::{Theme, render_dirty};
+use nowayos_testkit::check_snapshot;
 use nowayos_ui::{SlotId, Style, Surface, Tree};
+
+#[path = "common/frame.rs"]
+mod frame_helper;
+use frame_helper::frame;
+#[path = "common/golden.rs"]
+mod golden_path;
+use golden_path::golden;
+#[path = "common/glyphs.rs"]
+mod glyph_helper;
+use glyph_helper::with_glyphs;
 
 const FUEL: SlotId = SlotId::new(1);
 const PUMP: SlotId = SlotId::new(2);
@@ -46,23 +54,6 @@ fn screen(theme: &Theme<Rgb888>, width: u32, height: u32, scale: u32) -> Tree<8>
     tree
 }
 
-fn golden(name: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/snapshots")
-        .join(name)
-}
-
-fn full_frame(tree: &Tree<8>, theme: &Theme<Rgb888>) -> Framebuffer {
-    let size = tree.viewport().size;
-    let mut fb = Framebuffer::new(size.width, size.height).unwrap();
-    {
-        nowayos_testkit::glyph_store!(glyphs__);
-        render(tree, &mut fb, theme, &mut glyphs__)
-    }
-    .unwrap();
-    fb
-}
-
 #[test]
 fn a_progress_bar_matches_its_golden_images_in_each_theme() {
     for (theme, scale, image) in [
@@ -80,7 +71,7 @@ fn a_progress_bar_matches_its_golden_images_in_each_theme() {
         tree.set_progress(FUEL, 2, 5).unwrap();
         tree.set_progress(PUMP, 9, 10).unwrap();
         assert_eq!(tree.progress_of(FUEL), Some(400));
-        check_snapshot(&full_frame(&tree, &theme), &golden(image)).unwrap();
+        check_snapshot(&frame(&tree, &theme), &golden(image)).unwrap();
     }
 }
 
@@ -89,7 +80,7 @@ fn moving_the_fill_repaints_only_between_its_ends() {
     let theme = Theme::<Rgb888>::light();
     let mut tree = screen(&theme, 320, 160, 2);
     let bar = tree.get(tree.find_progress(FUEL).unwrap()).unwrap().rect();
-    let mut incremental = full_frame(&tree, &theme);
+    let mut incremental = frame(&tree, &theme);
     tree.clear_dirty();
     for litres in (0..=40).chain((0..40).rev()).chain([1, 1]) {
         tree.set_progress(FUEL, litres, 40).unwrap();
@@ -99,17 +90,9 @@ fn moving_the_fill_repaints_only_between_its_ends() {
             // side, not the whole bar.
             assert!(rect.size.width <= bar.size.width / 40 + 2 * bar.size.height + 1);
         }
-        {
-            nowayos_testkit::glyph_store!(glyphs__);
-            render_dirty(&tree, &mut incremental, &theme, &mut glyphs__)
-        }
-        .unwrap();
+        with_glyphs(|g| render_dirty(&tree, &mut incremental, &theme, g)).unwrap();
         tree.clear_dirty();
-        assert_eq!(
-            incremental.diff(&full_frame(&tree, &theme)),
-            None,
-            "{litres}"
-        );
+        assert_eq!(incremental.diff(&frame(&tree, &theme)), None, "{litres}");
     }
     // The same value again marks nothing; past the whole is all of it; a
     // whole of 0 is none; and the session's wipe empties it.

@@ -12,8 +12,6 @@ Python 3.11 or later, standard library only.
 """
 
 import contextlib
-import importlib.machinery
-import importlib.util
 import io
 import os
 import re
@@ -21,17 +19,10 @@ import sys
 import unittest
 from unittest import mock
 
+from tool_testing import load
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 NOWAYOS = os.path.dirname(HERE)
-
-
-def load(name):
-    """Import an extensionless script in this directory as a module."""
-    loader = importlib.machinery.SourceFileLoader(name.replace("-", "_"), os.path.join(HERE, name))
-    spec = importlib.util.spec_from_loader(loader.name, loader)
-    module = importlib.util.module_from_spec(spec)
-    loader.exec_module(module)
-    return module
 
 
 MUTATION = load("kani-mutation")
@@ -178,7 +169,6 @@ class KaniMutationTest(unittest.TestCase):
         self.assertEqual([call.args[0] for call in runs.call_args_list], list(MUTATION.MUTATIONS))
         self.assertEqual(stdout.getvalue().count("kani-mutation: PASS"), len(MUTATION.MUTATIONS) - 1)
         self.assertIn("kani-mutation: FAIL - data-region-bounds", stderr.getvalue())
-
 
 
 SPLIT_AT_LOG = """Checking harness proofs::decode_action_any_input...

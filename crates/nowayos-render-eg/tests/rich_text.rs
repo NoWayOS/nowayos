@@ -11,16 +11,21 @@
     reason = "test code: a failed check panics, and tests compute on known data"
 )]
 
-use std::path::PathBuf;
-
 use embedded_graphics::pixelcolor::Rgb888;
 use embedded_graphics::prelude::DrawTarget;
 use nowayos_display::Rect;
 use nowayos_input::{InputEvent, KeyCode};
-use nowayos_render_eg::{Theme, render, render_area};
-use nowayos_testkit::{Framebuffer, check_snapshot};
+use nowayos_render_eg::{Theme, render_area};
+use nowayos_testkit::check_snapshot;
 use nowayos_ui::builder::{Layout, Run, UiBuilder};
 use nowayos_ui::{ActionId, Colour, Surface, TextStyle, Tree};
+
+#[path = "common/frame.rs"]
+mod frame_helper;
+use frame_helper::frame;
+#[path = "common/golden.rs"]
+mod golden_path;
+use golden_path::golden;
 
 const RUNS: &[Run] = &[
     Run::new("Press "),
@@ -62,17 +67,6 @@ fn screen(theme: &Theme<Rgb888>) -> Tree<16> {
     tree
 }
 
-fn frame(tree: &Tree<16>, theme: &Theme<Rgb888>) -> Framebuffer {
-    let size = tree.viewport().size;
-    let mut fb = Framebuffer::new(size.width, size.height).unwrap();
-    {
-        nowayos_testkit::glyph_store!(glyphs__);
-        render(tree, &mut fb, theme, &mut glyphs__)
-    }
-    .unwrap();
-    fb
-}
-
 #[test]
 fn runs_of_every_kind_as_approved_and_repainted_whole() {
     for (theme, image) in [
@@ -85,9 +79,7 @@ fn runs_of_every_kind_as_approved_and_repainted_whole() {
             tree.handle(InputEvent::KeyDown(KeyCode::TAB));
         }
         let full = frame(&tree, &theme);
-        let golden = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/snapshots")
-            .join(image);
+        let golden = golden(image);
         check_snapshot(&full, &golden).unwrap();
         let mut part = full.clone();
         part.clear(Rgb888::new(1, 2, 3)).unwrap();

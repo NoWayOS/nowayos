@@ -14,16 +14,21 @@
     reason = "test code: a failed check panics, and tests compute on known data"
 )]
 
-use std::path::PathBuf;
-
 use embedded_graphics::pixelcolor::Rgb888;
 use embedded_graphics::prelude::{DrawTarget, RgbColor};
 use nowayos_display::Rect;
-use nowayos_render_eg::{Theme, render, render_area};
-use nowayos_testkit::{Framebuffer, check_snapshot};
+use nowayos_render_eg::{Theme, render_area};
+use nowayos_testkit::check_snapshot;
 use nowayos_ui::builder::{Layout, UiBuilder};
 use nowayos_ui::pictures::{Fit, samples};
 use nowayos_ui::{Colour, Elevation, Gradient, Look, Surface, Tree};
+
+#[path = "common/frame.rs"]
+mod frame_helper;
+use frame_helper::frame;
+#[path = "common/golden.rs"]
+mod golden_path;
+use golden_path::golden;
 
 fn screen(theme: &Theme<Rgb888>) -> Tree<32> {
     let mut tree: Tree<32> = Tree::new();
@@ -115,23 +120,12 @@ fn screen(theme: &Theme<Rgb888>) -> Tree<32> {
     tree
 }
 
-fn frame<const N: usize>(tree: &Tree<N>, theme: &Theme<Rgb888>) -> Framebuffer {
-    let size = tree.viewport().size;
-    let mut fb = Framebuffer::new(size.width, size.height).unwrap();
-    {
-        nowayos_testkit::glyph_store!(glyphs__);
-        render(tree, &mut fb, theme, &mut glyphs__)
-    }
-    .unwrap();
-    fb
-}
-
 #[test]
 fn shadows_gradients_and_opacity_as_approved_and_repainted_whole() {
     let theme = Theme::<Rgb888>::light();
     let tree = screen(&theme);
     let full = frame(&tree, &theme);
-    let golden = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/snapshots/effects.png");
+    let golden = golden("effects.png");
     check_snapshot(&full, &golden).unwrap();
     let mut part = full.clone();
     part.clear(Rgb888::new(1, 2, 3)).unwrap();

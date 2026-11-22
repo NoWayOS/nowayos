@@ -1,5 +1,4 @@
 # The approved-`unsafe` list: the answer to "where is all the unsafe code?"
-# (unsafe; CI stage 5, Development Workflow).
 #
 # tools/check-unsafe (make unsafe-audit, part of make container-ci) fails if:
 # * `unsafe` code, or an attribute that relaxes the `unsafe_code` lint

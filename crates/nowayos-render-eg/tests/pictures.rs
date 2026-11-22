@@ -12,8 +12,6 @@
     reason = "test code: a failed check panics, and tests index and compute on known data"
 )]
 
-use std::path::PathBuf;
-
 use embedded_graphics::pixelcolor::Rgb888;
 use embedded_graphics::prelude::{DrawTarget, RgbColor};
 use nowayos_display::{DeviceScale, Rect};
@@ -21,6 +19,13 @@ use nowayos_render_eg::{Theme, render, render_area};
 use nowayos_testkit::{Framebuffer, check_snapshot};
 use nowayos_ui::pictures::{Fit, samples};
 use nowayos_ui::{Align, Length, NodeKind, Style, Surface, Tree};
+
+#[path = "common/golden.rs"]
+mod golden_path;
+use golden_path::golden;
+#[path = "common/glyphs.rs"]
+mod glyph_helper;
+use glyph_helper::with_glyphs;
 
 /// A row's surface, and each picture's fit and style, if any.
 type Row = (Option<Surface>, [(Fit, Option<Style>); 4]);
@@ -88,12 +93,6 @@ fn screen(theme: &Theme<Rgb888>, scale: DeviceScale) -> Tree<32> {
     tree
 }
 
-fn golden(name: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/snapshots")
-        .join(name)
-}
-
 #[test]
 fn the_samples_match_their_golden_images_at_each_scale() {
     let theme = Theme::<Rgb888>::light();
@@ -106,11 +105,7 @@ fn the_samples_match_their_golden_images_at_each_scale() {
         let tree = screen(&theme, scale);
         let size = tree.viewport().size;
         let mut full = Framebuffer::new(size.width, size.height).unwrap();
-        {
-            nowayos_testkit::glyph_store!(glyphs__);
-            render(&tree, &mut full, &theme, &mut glyphs__)
-        }
-        .unwrap();
+        with_glyphs(|g| render(&tree, &mut full, &theme, g)).unwrap();
         check_snapshot(&full, &golden(image)).unwrap();
         // A repaint of any part gives the same pixels.
         let mut part = full.clone();
@@ -140,11 +135,7 @@ fn at_its_own_scale_a_picture_is_copied_and_its_alpha_shows_the_ground() {
     let tree = screen(&theme, DeviceScale::ONE);
     let mut frame =
         Framebuffer::new(tree.viewport().size.width, tree.viewport().size.height).unwrap();
-    {
-        nowayos_testkit::glyph_store!(glyphs__);
-        render(&tree, &mut frame, &theme, &mut glyphs__)
-    }
-    .unwrap();
+    with_glyphs(|g| render(&tree, &mut frame, &theme, g)).unwrap();
     let images: Vec<_> = tree
         .paint_order()
         .filter(|(_, node)| matches!(node.kind(), NodeKind::Image { .. }))

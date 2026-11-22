@@ -37,17 +37,10 @@ import tty
 import unittest
 import zlib
 
+from tool_testing import load
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 SYSTEMS = os.path.join(HERE, os.pardir, "systems")
-
-
-def load(name):
-    """Import an extensionless script in this directory as a module."""
-    loader = importlib.machinery.SourceFileLoader(name.replace("-", "_"), os.path.join(HERE, name))
-    spec = importlib.util.spec_from_loader(loader.name, loader)
-    module = importlib.util.module_from_spec(spec)
-    loader.exec_module(module)
-    return module
 
 
 pi_run = load("pi-run")
@@ -194,7 +187,7 @@ class FakeBoard:
                  echo_wrong_after=None, ignore_interrupt_on_line=False, lab_mode=False, mid_boot_at=None,
                  watchdog_at_go=None, go_returns_after=None, crossing=b"", garbled_reboot_after=None,
                  silent_reset=None, go_delay=0.0, go_return_text="## Application terminated, rc = 0x0\r\n",
-                 crossing_delay=0.0, go_echo_delay=0.0, keyed=False):
+                 crossing_delay=0.0, go_echo_delay=0.0, keyed=True):
         self.master, self.slave = os.openpty()
         tty.setraw(self.slave)
         self.device = os.ttyname(self.slave)
@@ -381,8 +374,8 @@ class FakeBoard:
                     continue
                 if self.garbled_reboot_after is not None and since >= self.garbled_reboot_after:
                     self.running_since = None
-                    self.send("  0.77 RPx: BXOTSYS relXase VERSION:5855b10b\r\n\r\nU-Boot 2026.07\r\n"
-                              "\x1b[2K\rHit any key to stop autoboot: 0 \r\n"
+                    self.send("  0.77 RPx: BXOTSYS relXase VERSION:5855b10b\r\n\r\nU-Boot 2026.07\r\n" +
+                              (KEYED_COUNTDOWN if self.keyed else "\x1b[2K\rHit any key to stop autoboot: 0 \r\n") +
                               "Lab mode: the board waits at this prompt for the runner\r\n" + PROMPT)
                     self.state = "prompt"
                     continue
@@ -1437,7 +1430,7 @@ class Session(unittest.TestCase):
         # U-Boot stops only for its stop word; a space or Ctrl-C would
         # leave it counting down, and the board would boot its card.
         log = os.path.join(self.dir, "uboot.log")
-        with FakeBoard(at_prompt=False, mid_boot_at=1.0, keyed=True) as board:
+        with FakeBoard(at_prompt=False, mid_boot_at=1.0) as board:
             status, output = self.pi_run(board, "uboot", "--log", log, "--wait-boot", "version", timeout=30)
         self.assertEqual(status, 0, output)
         self.assertIn("waiting for U-Boot's countdown", output)
@@ -1446,7 +1439,7 @@ class Session(unittest.TestCase):
         self.assertTrue(board.stopped_by[0].endswith(b"stopboot"), board.stopped_by)
 
     def test_a_series_on_a_keyed_board_stops_each_countdown_and_parks(self):
-        with FakeBoard(keyed=True) as board:
+        with FakeBoard() as board:
             status, output, _ = self.run_series(
                 board, f"ipc-demo@{make_image(self.dir, 'ipc-demo')}",
                 f"supervisor-test@{make_image(self.dir, 'supervisor-test')}")
@@ -1460,7 +1453,7 @@ class Session(unittest.TestCase):
     def test_an_any_key_countdown_is_stopped_with_a_space(self):
         # A card whose U-Boot predates the stop word: a space, as before.
         log = os.path.join(self.dir, "uboot.log")
-        with FakeBoard(at_prompt=False, mid_boot_at=1.0) as board:
+        with FakeBoard(at_prompt=False, mid_boot_at=1.0, keyed=False) as board:
             status, output = self.pi_run(board, "uboot", "--log", log, "--wait-boot", "version", timeout=30)
         self.assertEqual(status, 0, output)
         self.assertEqual(board.stopped_by, [b" "])

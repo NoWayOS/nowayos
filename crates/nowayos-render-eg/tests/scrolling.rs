@@ -12,15 +12,23 @@
     reason = "test code: a failed check panics, and tests index and compute on known data"
 )]
 
-use std::path::PathBuf;
-
 use embedded_graphics::pixelcolor::Rgb888;
 use nowayos_display::Rect;
-use nowayos_render_eg::{Theme, render, render_dirty, to_eg};
+use nowayos_render_eg::{Theme, render_dirty, to_eg};
 use nowayos_testkit::{Framebuffer, check_snapshot};
 use nowayos_ui::builder::{Layout, UiBuilder};
 use nowayos_ui::{ActionId, NodeId, ScrollAxes, Surface, Tree};
 use proptest::prelude::*;
+
+#[path = "common/frame.rs"]
+mod frame_helper;
+use frame_helper::frame;
+#[path = "common/golden.rs"]
+mod golden_path;
+use golden_path::golden;
+#[path = "common/glyphs.rs"]
+mod glyph_helper;
+use glyph_helper::with_glyphs;
 
 type Screen = Tree<96>;
 
@@ -72,35 +80,14 @@ fn screen(theme: &Theme<Rgb888>) -> (Box<Screen>, [NodeId; 3]) {
     (tree, [tall, sideways, both])
 }
 
-fn full_frame(tree: &Screen, theme: &Theme<Rgb888>) -> Framebuffer {
-    let size = tree.viewport().size;
-    let mut fb = Framebuffer::new(size.width, size.height).unwrap();
-    {
-        nowayos_testkit::glyph_store!(glyphs__);
-        render(tree, &mut fb, theme, &mut glyphs__)
-    }
-    .unwrap();
-    fb
-}
-
 /// Moves what the tree says moved, then repaints what it marked, as a UI
 /// PD does.
 fn present(tree: &mut Screen, fb: &mut Framebuffer, theme: &Theme<Rgb888>) {
     for made in tree.moves().to_vec() {
         fb.move_area(&to_eg(made.area), made.dx, made.dy);
     }
-    {
-        nowayos_testkit::glyph_store!(glyphs__);
-        render_dirty(tree, fb, theme, &mut glyphs__)
-    }
-    .unwrap();
+    with_glyphs(|g| render_dirty(tree, fb, theme, g)).unwrap();
     tree.clear_dirty();
-}
-
-fn golden(name: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/snapshots")
-        .join(name)
 }
 
 #[test]
@@ -114,7 +101,7 @@ fn views_inside_views_scroll_with_their_scrollbars_as_approved() {
     tree.scroll_view_to(tall, 0, 40).unwrap();
     tree.scroll_view_to(sideways, 30, 0).unwrap();
     tree.scroll_view_to(both, 25, 35).unwrap();
-    check_snapshot(&full_frame(&tree, &theme), &golden("scrolling.png")).unwrap();
+    check_snapshot(&frame(&tree, &theme), &golden("scrolling.png")).unwrap();
 }
 
 proptest! {
@@ -127,7 +114,7 @@ proptest! {
     ) {
         let theme = Theme::<Rgb888>::light();
         let (mut tree, views) = screen(&theme);
-        let mut fb = full_frame(&tree, &theme);
+        let mut fb = frame(&tree, &theme);
         tree.clear_dirty();
         for (view, x, y) in steps {
             tree.scroll_view_to(views[view], x, y).unwrap();
@@ -137,6 +124,6 @@ proptest! {
             }
         }
         present(&mut tree, &mut fb, &theme);
-        prop_assert!(full_frame(&tree, &theme).diff(&fb).is_none());
+        prop_assert!(frame(&tree, &theme).diff(&fb).is_none());
     }
 }

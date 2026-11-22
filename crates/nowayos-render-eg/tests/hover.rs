@@ -13,10 +13,14 @@
 use embedded_graphics::pixelcolor::Rgb888;
 use nowayos_display::Rect;
 use nowayos_input::InputEvent;
-use nowayos_render_eg::{Theme, render, render_area};
+use nowayos_render_eg::{Theme, render_area};
 use nowayos_testkit::Framebuffer;
 use nowayos_ui::builder::{Layout, UiBuilder};
 use nowayos_ui::{ActionId, ButtonVariant, FieldId, Input, NodeId, Tree};
+
+#[path = "common/frame.rs"]
+mod frame_helper;
+use frame_helper::frame;
 
 fn screen(theme: &Theme<Rgb888>) -> (Tree<16>, [NodeId; 3]) {
     let mut tree: Tree<16> = Tree::new();
@@ -34,17 +38,6 @@ fn screen(theme: &Theme<Rgb888>) -> (Tree<16>, [NodeId; 3]) {
     tree.layout(Rect::new(0, 0, 320, 320), &theme.metrics())
         .unwrap();
     (tree, [button, input, choice])
-}
-
-fn frame(tree: &Tree<16>, theme: &Theme<Rgb888>) -> Framebuffer {
-    let size = tree.viewport().size;
-    let mut fb = Framebuffer::new(size.width, size.height).unwrap();
-    {
-        nowayos_testkit::glyph_store!(glyphs__);
-        render(tree, &mut fb, theme, &mut glyphs__)
-    }
-    .unwrap();
-    fb
 }
 
 fn to(tree: &mut Tree<16>, x: i64, y: i64) {

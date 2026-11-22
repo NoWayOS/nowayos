@@ -27,6 +27,15 @@
 #               the device's registers, when fewer than size: a driver reads
 #               no further (a multiple of 4; default: size)
 #   note        (optional) anything a reviewer granting it should know
+#   framebuffer (optional) for a framebuffer the firmware set up and scans
+#               out: its mode as the devicetree's simple-framebuffer binding
+#               describes one (width, height, stride, format) and the first
+#               row the window holds, with the bytes the firmware reserves
+#               for it (reserved) if it says; registers are then the pixels
+#   pci_bar0    (optional) for a PCI function its driver places itself: the
+#               bus address this file chose for the window, BAR 0
+#   dma_offset  (optional) for a device that sees memory at other addresses
+#               than the CPU's: the bus address of physical address 0
 #
 # A system description that maps a physical address or takes an interrupt not
 # listed here fails the check. Add a device only with its source.
@@ -35,7 +44,9 @@
 # size: only its interrupts (the CPU's EL1 physical timer, below).
 #
 # Not listed: the GIC and the timers the kernel keeps for itself, the
-# secure-world UART and GPIO, flash, PCIe and the platform bus; and the
+# secure-world UART and GPIO, flash, the rest of PCIe (only the two
+# qemu-xhci functions' configuration pages and BARs are listed, below) and the
+# platform bus; and the
 # real-time clock (PL031) and the GPIO controller (PL061), which no system
 # uses.
 

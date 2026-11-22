@@ -4,7 +4,7 @@
 //!
 //! The board's facts give the framebuffer's window and mode
 //! (`firmware_fb` in `platforms/rpi5b_2gb.toml`: a `simple-framebuffer`,
-//! 1920 x 1080 `r5g6b5`, its window the whole of it). [`bind_window`] reads
+//! 1920 x 1080 `x8r8g8b8`, its window the whole of it). [`bind_window`] reads
 //! them from the facts region (`nowayos_region::device_facts`, read-only
 //! region 5) and binds the window (`nowayos_hw::Scanout`, from device N's
 //! symbols); [`bind`] also places a frame of the given size on the screen
@@ -566,7 +566,7 @@ mod tests {
 
     /// A window that is the whole screen is the monitor's every row: a frame
     /// its size is shown at its own pixels from row 0, its rows counted
-    /// from the monitor's top, and the kiosk's frame centred as before.
+    /// from the monitor's top, and the 800 x 480 kiosk frame centred.
     #[test]
     fn a_window_from_row_0_shows_a_frame_on_every_row() {
         assert_eq!(window_size(&pi5_whole()), Size::new(1920, 1080));

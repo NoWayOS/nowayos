@@ -1,9 +1,10 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 """Tests for the tools in this directory: qemu-test and check-serial (and
 the rules they share, serial_expect.py), check-system, board-system,
-check-unsafe, check-std-crates, check-crates-absent and check-baseline. Each check must pass on good input
-and fail, with its reason, on each kind of bad input; board-system also writes each image's build time
-.
+restart-image, check-unsafe, check-std-crates, check-crates-absent,
+check-backends and check-baseline. Each check must pass on good input and
+fail, with its reason, on each kind of bad input; board-system also writes
+each image's build time.
 
 Run: python3 -m unittest discover -s tools -p 'test_*.py'   (make tools-test)
 Python 3.11 or later, standard library only.
@@ -12,8 +13,6 @@ Python 3.11 or later, standard library only.
 import contextlib
 import fnmatch
 import glob
-import importlib.machinery
-import importlib.util
 import io
 import json
 import os
@@ -29,16 +28,9 @@ import unittest
 import xml.etree.ElementTree as ET
 import zlib
 
+from tool_testing import GIT_ENV, load
+
 HERE = os.path.dirname(os.path.abspath(__file__))
-
-
-def load(name):
-    """Import an extensionless script in this directory as a module."""
-    loader = importlib.machinery.SourceFileLoader(name.replace("-", "_"), os.path.join(HERE, name))
-    spec = importlib.util.spec_from_loader(loader.name, loader)
-    module = importlib.util.module_from_spec(spec)
-    loader.exec_module(module)
-    return module
 
 
 def run_main(module, argv):
@@ -3014,8 +3006,6 @@ class NetworkPath(unittest.TestCase):
             self.assertEqual(strip(other.read()), strip(one.read()))
 
 
-
-
 class SmpTest(unittest.TestCase):
     """Smp-test puts each spinner on a core of its own, above the
     heartbeat, with a full budget, and boots only in an SMP configuration
@@ -4668,7 +4658,6 @@ class BoardSystem(unittest.TestCase):
         self.assertEqual(offenders, [])
 
 
-
 RESTART_SDF = mutated(mutated(mutated(SDF,
     '<memory_region name="control" size="0x1000" />',
     '<memory_region name="control" size="0x1000" />\n'
@@ -5006,7 +4995,7 @@ class RestartImage(unittest.TestCase):
 
     def test_only_test_systems_have_a_restart_image(self):
         """Every restartable PD in NoWayOS's systems is in a test system:
-        the restart test's worker, and the picture decoder (#10084)."""
+        the restart test's worker, and the picture decoder."""
         found = []
         for path in sorted(glob.glob(os.path.join(HERE, os.pardir, "systems", "*.system"))):
             with open(path, encoding="utf-8") as handle:
@@ -5023,14 +5012,6 @@ class BoardSystemBuildTime(unittest.TestCase):
     machine's clock is refused, naming both."""
 
     tool = load("board-system")
-    GIT_ENV = {
-        "GIT_CONFIG_NOSYSTEM": "1",
-        "GIT_CONFIG_GLOBAL": os.devnull,
-        "GIT_AUTHOR_NAME": "Test",
-        "GIT_AUTHOR_EMAIL": "test@example.invalid",
-        "GIT_COMMITTER_NAME": "Test",
-        "GIT_COMMITTER_EMAIL": "test@example.invalid",
-    }
     SOURCE = textwrap.dedent("""\
         <?xml version="1.0" encoding="UTF-8"?>
         <system>
@@ -5047,7 +5028,7 @@ class BoardSystemBuildTime(unittest.TestCase):
         """A clone whose one commit was made at `when`, seconds since 1970."""
         path = os.path.join(tmp, name)
         stamp = f"@{when} +0000"
-        env = {**os.environ, **self.GIT_ENV, "GIT_AUTHOR_DATE": stamp, "GIT_COMMITTER_DATE": stamp}
+        env = {**os.environ, **GIT_ENV, "GIT_AUTHOR_DATE": stamp, "GIT_COMMITTER_DATE": stamp}
         for args in (["init", "-q", "-b", "main", path],
                      ["-C", path, "-c", "commit.gpgsign=false", "commit", "-q", "--allow-empty", "-m", "change"]):
             subprocess.run(["git", *args], env=env, check=True, capture_output=True)

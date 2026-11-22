@@ -19,7 +19,9 @@ use std::num::NonZeroU64;
 use std::sync::atomic::AtomicU8;
 
 use nowayos_ip::{Event, Lease, Link, Queues, RxMemory, Stack, StackSeed, TxMemory, storage};
-use nowayos_net::arp::{Ipv4, Mac};
+use std::net::Ipv4Addr;
+
+use nowayos_net::Mac;
 use nowayos_net::{BUFFER_SIZE, Consumer, Descriptor, InMemoryQueue, MAX_FRAME_LEN, Producer};
 use nowayos_time::Instant;
 use proptest::prelude::*;
@@ -257,9 +259,9 @@ fn the_stack_takes_a_lease_from_a_dhcp_server() {
     // ACK: the lease.
     driver.deliver(&reply(ACK, xid, OFFERED));
     let lease = Lease {
-        address: Ipv4(OFFERED),
+        address: Ipv4Addr::from(OFFERED),
         prefix_len: 24,
-        gateway: Some(Ipv4(SERVER)),
+        gateway: Some(Ipv4Addr::from(SERVER)),
     };
     assert_eq!(
         stack.poll(&mut link, at(3 * MS)),

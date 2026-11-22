@@ -13,35 +13,23 @@
     reason = "test code: a failed check panics, and tests index and compute on known data"
 )]
 
-use std::path::PathBuf;
-
 use embedded_graphics::pixelcolor::Rgb888;
 use embedded_graphics::prelude::{DrawTarget, OriginDimensions, Point, RgbColor};
 use nowayos_display::Rect;
-use nowayos_render_eg::{Theme, render, render_dirty};
+use nowayos_render_eg::{Theme, render_dirty};
 use nowayos_testkit::{Framebuffer, check_snapshot};
 use nowayos_ui::builder::{Layout, UiBuilder};
 use nowayos_ui::motion::{Animation, MotionSetting, Property};
 use nowayos_ui::{ActionId, Colour, LayerId, SlotId, Surface, Tree, icons};
 
+#[path = "common/frame.rs"]
+mod frame_helper;
+use frame_helper::frame;
+#[path = "common/golden.rs"]
+mod golden_path;
+use golden_path::golden;
+
 const ASK: LayerId = LayerId(1);
-
-fn golden(name: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/snapshots")
-        .join(name)
-}
-
-fn frame(tree: &Tree<24>, theme: &Theme<Rgb888>) -> Framebuffer {
-    let size = tree.viewport().size;
-    let mut fb = Framebuffer::new(size.width, size.height).unwrap();
-    {
-        nowayos_testkit::glyph_store!(glyphs__);
-        render(tree, &mut fb, theme, &mut glyphs__)
-    }
-    .unwrap();
-    fb
-}
 
 fn dialog_screen(theme: &Theme<Rgb888>) -> Tree<24> {
     let mut tree: Tree<24> = Tree::new();

@@ -23,9 +23,12 @@
 
 #![no_main]
 
+use std::net::Ipv4Addr;
+
 use libfuzzer_sys::fuzz_target;
 use nowayos_fuzz::Input;
-use nowayos_net::arp::{self, Arp, ArpError, Ipv4, MIN_FRAME_LEN, Mac, Operation};
+use nowayos_net::Mac;
+use nowayos_net::arp::{self, Arp, ArpError, MIN_FRAME_LEN, Operation};
 
 /// The longest frame tried: a buffer's length, and more.
 const MAX: usize = 2100;
@@ -82,7 +85,7 @@ fn expected(frame: &[u8]) -> Result<Arp, ArpError> {
         operation => return Err(ArpError::UnknownOperation { operation }),
     };
     let mac = |at| field::<6>(frame, at).map(Mac).ok_or(too_short);
-    let ip = |at| field::<4>(frame, at).map(Ipv4).ok_or(too_short);
+    let ip = |at| field::<4>(frame, at).map(Ipv4Addr::from).ok_or(too_short);
     Ok(Arp {
         destination: mac(0)?,
         source: mac(6)?,

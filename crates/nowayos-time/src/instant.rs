@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Monotonic time: [`Instant`], moved here from `nowayos-timer-api`, which
-//! re-exports it.
+//! Monotonic time: [`Instant`]; `nowayos-timer-api` re-exports it.
 
 /// A point in monotonic time: nanoseconds since the timer started counting,
 /// at boot.

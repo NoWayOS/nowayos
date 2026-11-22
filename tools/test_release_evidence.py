@@ -13,8 +13,6 @@ Python 3.11 or later, standard library only; needs git.
 """
 
 import hashlib
-import importlib.machinery
-import importlib.util
 import json
 import os
 import re
@@ -22,23 +20,13 @@ import subprocess
 import tempfile
 import unittest
 
+from tool_testing import GIT_ENV, load
+
 HERE = os.path.dirname(os.path.abspath(__file__))
-
-
-def load(name):
-    """Import an extensionless script in this directory as a module."""
-    loader = importlib.machinery.SourceFileLoader(name.replace("-", "_"), os.path.join(HERE, name))
-    spec = importlib.util.spec_from_loader(loader.name, loader)
-    module = importlib.util.module_from_spec(spec)
-    loader.exec_module(module)
-    return module
 
 
 EVIDENCE = load("release-evidence")
 CHECK_SYSTEM = load("check-system")
-GIT_ENV = {"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_AUTHOR_NAME": "Test",
-           "GIT_AUTHOR_EMAIL": "test@example.invalid", "GIT_COMMITTER_NAME": "Test",
-           "GIT_COMMITTER_EMAIL": "test@example.invalid"}
 
 
 def git(path, *args):
@@ -220,6 +208,15 @@ class ReleaseEvidenceTest(unittest.TestCase):
         self.assertEqual({name for name, _path, _what in EVIDENCE.WORKSPACES}, sbom_names)
         for name, path, _what in EVIDENCE.WORKSPACES:
             self.assertTrue(os.path.isfile(os.path.join(HERE, os.pardir, path, "Cargo.lock")), name)
+
+    def test_the_pins_hold_every_workspace_lock_and_deny_file_and_each_exists(self):
+        names = EVIDENCE.pinned_names()
+        for name in names:
+            self.assertTrue(os.path.isfile(os.path.join(EVIDENCE.NOWAYOS, name)), name)
+        for _name, path, _what in EVIDENCE.WORKSPACES:
+            for file in ("Cargo.lock", "deny.toml"):
+                self.assertIn(os.path.normpath(os.path.join(path, file)), names)
+        self.assertEqual(len(names), len(set(names)), names)
 
     def test_an_sbom_of_a_workspace_crypto_does_not_read_is_refused(self):
         sboms = os.path.join(self.root, "sbom")

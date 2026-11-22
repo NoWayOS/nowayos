@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-    The frame bench (#10077): one PD that times the renderer drawing two
+    The frame bench: one PD that times the renderer drawing two
     screens at 1080p, 1440p and 4K in 16 and 32 bits into a framebuffer-
     sized region, and copying each frame to a second region as the display
     PD copies a frame to the screen; it prints each time. Two memory

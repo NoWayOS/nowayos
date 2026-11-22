@@ -17,8 +17,6 @@
     reason = "test code: a failed check panics, and tests index and compute on known data"
 )]
 
-use std::path::PathBuf;
-
 use embedded_graphics::mono_font::iso_8859_1::FONT_6X10;
 use embedded_graphics::pixelcolor::{Rgb565, Rgb888, RgbColor};
 use embedded_graphics::prelude::{DrawTarget, OriginDimensions, Pixel, Size};
@@ -32,6 +30,16 @@ use nowayos_ui::{
     ActionId, Align, FieldId, Length, Navigator, NodeId, NodeKind, ScreenId, SlotId, Style,
     TextRole, TextStyle, Tree, UiError, UiEvent,
 };
+
+#[path = "common/frame.rs"]
+mod frame_helper;
+use frame_helper::frame;
+#[path = "common/golden.rs"]
+mod golden_path;
+use golden_path::golden;
+#[path = "common/glyphs.rs"]
+mod glyph_helper;
+use glyph_helper::with_glyphs;
 
 const CONTINUE: ActionId = ActionId(1);
 const HELP: ActionId = ActionId(2);
@@ -92,23 +100,6 @@ fn welcome_at(theme: &Theme<Rgb888>, width: u32, height: u32, scale: u32) -> Wel
     }
 }
 
-fn full_frame(tree: &Tree<16>, theme: &Theme<Rgb888>) -> Framebuffer {
-    let size = tree.viewport().size;
-    let mut fb = Framebuffer::new(size.width, size.height).unwrap();
-    {
-        nowayos_testkit::glyph_store!(glyphs__);
-        render(tree, &mut fb, theme, &mut glyphs__)
-    }
-    .unwrap();
-    fb
-}
-
-fn golden(name: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/snapshots")
-        .join(name)
-}
-
 fn key(tree: &mut Tree<16>, key: KeyCode) -> Option<UiEvent> {
     tree.handle(InputEvent::KeyDown(key))
 }
@@ -130,7 +121,7 @@ fn type_text(tree: &mut Tree<16>, text: &str) {
 fn welcome_screen_matches_golden_image() {
     let theme = Theme::light();
     let screen = welcome(&theme, WIDTH, HEIGHT);
-    let fb = full_frame(&screen.tree, &theme);
+    let fb = frame(&screen.tree, &theme);
     check_snapshot(&fb, &golden("welcome.png")).unwrap();
 }
 
@@ -169,14 +160,14 @@ fn themes() -> [(Theme<Rgb888>, u32, u32, &'static str); 2] {
 fn focused_input_with_text_matches_golden_images_in_every_theme() {
     for (theme, width, height, suffix) in themes() {
         let screen = welcome_typing(&theme, width, height);
-        let fb = full_frame(&screen.tree, &theme);
+        let fb = frame(&screen.tree, &theme);
         check_snapshot(&fb, &golden(&format!("welcome-typing{suffix}.png"))).unwrap();
     }
 }
 
 /// The bitmap fonts stay for bring-up and debug screens: the light
-/// theme's colours with the 6x10 font draw exactly what the first cut drew
-/// before the atlases, at its size.
+/// theme's colours with the 6x10 font draw the approved bring-up image, at
+/// its size.
 #[test]
 fn the_bring_up_font_draws_as_before() {
     let theme = Theme {
@@ -188,7 +179,7 @@ fn the_bring_up_font_draws_as_before() {
         (6, 10)
     );
     let screen = welcome(&theme, 160, 120);
-    let fb = full_frame(&screen.tree, &theme);
+    let fb = frame(&screen.tree, &theme);
     check_snapshot(&fb, &golden("welcome-bring-up.png")).unwrap();
 }
 
@@ -216,7 +207,7 @@ fn dirty_repaint_equals_full_repaint_in(
     let theme = *theme;
     let mut screen = welcome_at(&theme, width, height, scale);
     let (width, height) = (width * scale, height * scale);
-    let mut incremental = full_frame(&screen.tree, &theme);
+    let mut incremental = frame(&screen.tree, &theme);
     screen.tree.clear_dirty();
 
     let continue_centre = screen
@@ -261,13 +252,9 @@ fn dirty_repaint_equals_full_repaint_in(
             dirty_area < u64::from(width * height),
             "step {index} repainted the whole screen"
         );
-        {
-            nowayos_testkit::glyph_store!(glyphs__);
-            render_dirty(&screen.tree, &mut incremental, &theme, &mut glyphs__)
-        }
-        .unwrap();
+        with_glyphs(|g| render_dirty(&screen.tree, &mut incremental, &theme, g)).unwrap();
         screen.tree.clear_dirty();
-        let full = full_frame(&screen.tree, &theme);
+        let full = frame(&screen.tree, &theme);
         assert_eq!(
             incremental.diff(&full),
             None,
@@ -286,12 +273,12 @@ fn dirty_repaint_equals_full_repaint_in(
 fn at_scale_2_a_screen_is_drawn_at_its_own_pixels() {
     let theme = Theme::light();
     let large = welcome_typing_at(&theme, WIDTH, HEIGHT, 2);
-    let crisp = full_frame(&large.tree, &theme);
+    let crisp = frame(&large.tree, &theme);
     assert_eq!(crisp.size(), Size::new(2 * WIDTH, 2 * HEIGHT));
     check_snapshot(&crisp, &golden("welcome-typing-2x.png")).unwrap();
 
     let small = welcome_typing(&theme, WIDTH, HEIGHT);
-    let one = full_frame(&small.tree, &theme);
+    let one = frame(&small.tree, &theme);
     let pixels = (0..2 * HEIGHT)
         .flat_map(|y| (0..2 * WIDTH).map(move |x| (x, y)))
         .map(|(x, y)| one.pixel(x / 2, y / 2).unwrap())
@@ -340,11 +327,7 @@ fn painting_an_area_touches_nothing_outside_it() {
     let marker = Rgb888::new(0xFF, 0x00, 0xFF);
     let mut fb = Framebuffer::filled(WIDTH, HEIGHT, marker).unwrap();
     let area = Rect::new(20, 30, 50, 25);
-    {
-        nowayos_testkit::glyph_store!(glyphs__);
-        render_area(&screen.tree, &mut fb, &theme, area, &mut glyphs__)
-    }
-    .unwrap();
+    with_glyphs(|g| render_area(&screen.tree, &mut fb, &theme, area, g)).unwrap();
     for y in 0..HEIGHT {
         for x in 0..WIDTH {
             let inside = area.contains(nowayos_display::Point::new(x as i32, y as i32));
@@ -358,16 +341,16 @@ fn painting_an_area_touches_nothing_outside_it() {
 fn focus_and_press_are_visible() {
     let theme = Theme::light();
     let mut screen = welcome(&theme, WIDTH, HEIGHT);
-    let before = full_frame(&screen.tree, &theme);
+    let before = frame(&screen.tree, &theme);
     assert_eq!(before.count(theme.focus), 0);
     // Focus alone shows no ring until a key.
     screen.tree.set_focus(Some(screen.help)).unwrap();
-    assert_eq!(full_frame(&screen.tree, &theme).count(theme.focus), 0);
+    assert_eq!(frame(&screen.tree, &theme).count(theme.focus), 0);
     // Tab shows it.
     screen.tree.set_focus(None).unwrap();
     key(&mut screen.tree, KeyCode::TAB);
     assert_eq!(screen.tree.focused(), Some(screen.name));
-    let focused = full_frame(&screen.tree, &theme);
+    let focused = frame(&screen.tree, &theme);
     assert!(focused.count(theme.focus) > 0);
     screen.tree.set_focus(Some(screen.help)).unwrap();
     let centre = screen.tree.get(screen.help).unwrap().rect().center();
@@ -379,7 +362,7 @@ fn focus_and_press_are_visible() {
         button: 0,
         down: true,
     });
-    let pressed = full_frame(&screen.tree, &theme);
+    let pressed = frame(&screen.tree, &theme);
     assert!(pressed.count(theme.button_pressed) > 0);
     // A click hides the ring.
     assert!(!screen.tree.focus_visible());
@@ -399,10 +382,10 @@ fn focus_and_press_are_visible() {
 fn a_tree_s_frame_never_holds_the_pointer() {
     let theme = Theme::light();
     let mut screen = welcome(&theme, WIDTH, HEIGHT);
-    let before = full_frame(&screen.tree, &theme);
+    let before = frame(&screen.tree, &theme);
     screen.tree.handle(InputEvent::PointerMove { x: 40, y: 30 });
     assert!(screen.tree.pointer_shown().is_some());
-    assert_eq!(full_frame(&screen.tree, &theme), before);
+    assert_eq!(frame(&screen.tree, &theme), before);
 }
 
 #[test]
@@ -421,7 +404,7 @@ fn high_contrast_theme_uses_the_large_text() {
     let mut screen = welcome(&theme, LARGE_WIDTH, LARGE_HEIGHT);
     screen.tree.set_focus(Some(screen.name)).unwrap();
     screen.tree.set_focus_visible(true);
-    let fb = full_frame(&screen.tree, &theme);
+    let fb = frame(&screen.tree, &theme);
     assert!(fb.count(Rgb888::BLACK) > 0);
     assert!(fb.count(theme.focus) > 0);
     // Taller text makes taller controls.
@@ -467,7 +450,7 @@ fn slot_text_matches_golden_image() {
     let mut tree = review(&theme);
     tree.set_slot(NAME_SLOT, "Sam Sample").unwrap();
     tree.set_slot(REFERENCE_SLOT, "TS-0042-K").unwrap();
-    check_snapshot(&full_frame(&tree, &theme), &golden("review-slots.png")).unwrap();
+    check_snapshot(&frame(&tree, &theme), &golden("review-slots.png")).unwrap();
 }
 
 /// Setting a slot's text repaints only within the slot - only the part
@@ -477,7 +460,7 @@ fn slot_text_matches_golden_image() {
 fn slot_text_repaints_only_its_area() {
     let theme = Theme::light();
     let mut tree = review(&theme);
-    let mut incremental = full_frame(&tree, &theme);
+    let mut incremental = frame(&tree, &theme);
     tree.clear_dirty();
     let slot = tree.find_slot(NAME_SLOT).unwrap();
     let slot_rect = tree.get(slot).unwrap().rect();
@@ -493,30 +476,14 @@ fn slot_text_repaints_only_its_area() {
             !dirty.is_empty() && dirty.iter().all(|rect| slot_rect.contains_rect(rect)),
             "{text:?}: {dirty:?} outside {slot_rect:?}"
         );
-        {
-            nowayos_testkit::glyph_store!(glyphs__);
-            render_dirty(&tree, &mut incremental, &theme, &mut glyphs__)
-        }
-        .unwrap();
+        with_glyphs(|g| render_dirty(&tree, &mut incremental, &theme, g)).unwrap();
         tree.clear_dirty();
-        assert_eq!(
-            incremental.diff(&full_frame(&tree, &theme)),
-            None,
-            "{text:?}"
-        );
+        assert_eq!(incremental.diff(&frame(&tree, &theme)), None, "{text:?}");
     }
     tree.set_slot(NAME_SLOT, "Sam").unwrap();
     tree.clear_slots();
-    {
-        nowayos_testkit::glyph_store!(glyphs__);
-        render_dirty(&tree, &mut incremental, &theme, &mut glyphs__)
-    }
-    .unwrap();
-    assert_eq!(
-        incremental.diff(&full_frame(&tree, &theme)),
-        None,
-        "cleared"
-    );
+    with_glyphs(|g| render_dirty(&tree, &mut incremental, &theme, g)).unwrap();
+    assert_eq!(incremental.diff(&frame(&tree, &theme)), None, "cleared");
 }
 
 /// A live figure - pounds counting up, as a pump's do - repaints
@@ -541,7 +508,7 @@ fn a_live_figure_repaints_only_the_digits_that_change() {
         let body = metrics.for_style(TextStyle::BODY);
         let strip = body.text_width("00") + 2 * (body.line_height() / 2);
         tree.set_slot(NAME_SLOT, "£0.00").unwrap();
-        let mut incremental = full_frame(&tree, &theme);
+        let mut incremental = frame(&tree, &theme);
         tree.clear_dirty();
         for pence in 1..=150_u32 {
             let text = format!("£{}.{:02}", pence / 100, pence % 100);
@@ -552,14 +519,10 @@ fn a_live_figure_repaints_only_the_digits_that_change() {
                     assert!(rect.size.width <= strip, "{text}: {rect:?} at {scale}x");
                 }
             }
-            {
-                nowayos_testkit::glyph_store!(glyphs__);
-                render_dirty(&tree, &mut incremental, &theme, &mut glyphs__)
-            }
-            .unwrap();
+            with_glyphs(|g| render_dirty(&tree, &mut incremental, &theme, g)).unwrap();
             tree.clear_dirty();
             assert_eq!(
-                incremental.diff(&full_frame(&tree, &theme)),
+                incremental.diff(&frame(&tree, &theme)),
                 None,
                 "{text} at {scale}x"
             );
@@ -604,7 +567,7 @@ fn fresh_frame(screen: ScreenId, theme: &Theme<Rgb888>, keyed: bool) -> Framebuf
     nav.show_start(&mut tree, flow_screen).unwrap();
     // After keys, the focus ring shows.
     tree.set_focus_visible(keyed);
-    full_frame(&tree, theme)
+    frame(&tree, theme)
 }
 
 /// Switching screens repaints the whole viewport: drawing only the dirty
@@ -618,15 +581,11 @@ fn switching_screens_leaves_no_pixel_of_the_old_one() {
     let mut tree: Tree<16> = Tree::new();
     nav.show_start(&mut tree, flow_screen).unwrap();
     type_text(&mut tree, "Sam");
-    let mut screen = full_frame(&tree, &theme);
+    let mut screen = frame(&tree, &theme);
     tree.clear_dirty();
 
     nav.go(CHECK, &mut tree, flow_screen).unwrap();
-    {
-        nowayos_testkit::glyph_store!(glyphs__);
-        render_dirty(&tree, &mut screen, &theme, &mut glyphs__)
-    }
-    .unwrap();
+    with_glyphs(|g| render_dirty(&tree, &mut screen, &theme, g)).unwrap();
     tree.clear_dirty();
     assert_eq!(
         screen.diff(&fresh_frame(CHECK, &theme, true)),
@@ -635,18 +594,10 @@ fn switching_screens_leaves_no_pixel_of_the_old_one() {
     );
 
     tree.set_slot(NAME_SLOT, "Sam").unwrap();
-    {
-        nowayos_testkit::glyph_store!(glyphs__);
-        render_dirty(&tree, &mut screen, &theme, &mut glyphs__)
-    }
-    .unwrap();
+    with_glyphs(|g| render_dirty(&tree, &mut screen, &theme, g)).unwrap();
     tree.clear_dirty();
     assert!(nav.back(&mut tree, flow_screen).unwrap());
-    {
-        nowayos_testkit::glyph_store!(glyphs__);
-        render_dirty(&tree, &mut screen, &theme, &mut glyphs__)
-    }
-    .unwrap();
+    with_glyphs(|g| render_dirty(&tree, &mut screen, &theme, g)).unwrap();
     assert_eq!(
         screen.diff(&fresh_frame(FORM, &theme, true)),
         None,
@@ -694,7 +645,7 @@ fn field_errors_match_golden_images_in_every_theme() {
     ] {
         let mut tree = details(&theme, width, height);
         tree.set_field_error(CODE, "Use digits only").unwrap();
-        let frame = full_frame(&tree, &theme);
+        let frame = frame(&tree, &theme);
         check_snapshot(&frame, &golden(image)).unwrap();
         // The marker: error-coloured, with the background showing through
         // its `!` - wholly where the glyph covers a pixel fully - so the
@@ -724,37 +675,25 @@ fn field_errors_match_golden_images_in_every_theme() {
 fn clearing_a_field_error_repaints_only_its_line() {
     let theme = Theme::light();
     let mut tree = details(&theme, WIDTH, HEIGHT);
-    let mut incremental = full_frame(&tree, &theme);
+    let mut incremental = frame(&tree, &theme);
     let before = incremental.clone();
     tree.clear_dirty();
     tree.set_field_error(NAME, "Enter your name").unwrap();
     tree.set_field_error(CODE, "Use digits only").unwrap();
-    {
-        nowayos_testkit::glyph_store!(glyphs__);
-        render_dirty(&tree, &mut incremental, &theme, &mut glyphs__)
-    }
-    .unwrap();
+    with_glyphs(|g| render_dirty(&tree, &mut incremental, &theme, g)).unwrap();
     tree.clear_dirty();
-    assert_eq!(incremental.diff(&full_frame(&tree, &theme)), None);
+    assert_eq!(incremental.diff(&frame(&tree, &theme)), None);
     tree.clear_field_error(CODE).unwrap();
     let line = tree
         .get(tree.paint_order().map(|(id, _)| id).last().unwrap())
         .unwrap()
         .rect();
     assert_eq!(tree.dirty_rects(), &[line], "one line, not the screen");
-    {
-        nowayos_testkit::glyph_store!(glyphs__);
-        render_dirty(&tree, &mut incremental, &theme, &mut glyphs__)
-    }
-    .unwrap();
+    with_glyphs(|g| render_dirty(&tree, &mut incremental, &theme, g)).unwrap();
     tree.clear_dirty();
-    assert_eq!(incremental.diff(&full_frame(&tree, &theme)), None);
+    assert_eq!(incremental.diff(&frame(&tree, &theme)), None);
     tree.clear_field_error(NAME).unwrap();
-    {
-        nowayos_testkit::glyph_store!(glyphs__);
-        render_dirty(&tree, &mut incremental, &theme, &mut glyphs__)
-    }
-    .unwrap();
+    with_glyphs(|g| render_dirty(&tree, &mut incremental, &theme, g)).unwrap();
     assert_eq!(incremental.diff(&before), None, "gone without a trace");
 }
 
@@ -805,7 +744,7 @@ fn choice_controls_match_golden_images_in_every_theme() {
         let group = tree.paint_order().map(|(id, _)| id).last().unwrap();
         tree.set_focus(Some(group)).unwrap();
         tree.set_focus_visible(true);
-        check_snapshot(&full_frame(&tree, &theme), &golden(image)).unwrap();
+        check_snapshot(&frame(&tree, &theme), &golden(image)).unwrap();
     }
 }
 
@@ -834,7 +773,7 @@ fn choice_state_is_shown_by_a_mark_not_colour_alone() {
         let mut tree = choices(&theme, width, height);
         tree.set_checked(COPY, true).unwrap();
         tree.set_selected(TIME, Some(1)).unwrap();
-        let frame = full_frame(&tree, &theme);
+        let frame = frame(&tree, &theme);
         let side = theme.metrics().line_height();
         let mark_in = |area: Rect| {
             let top = area.top() + i64::from(area.size.height.saturating_sub(side) / 2);
@@ -904,7 +843,7 @@ fn choice_marks_keep_clear_of_the_focus_ring_and_of_each_other() {
         let (copy, time) = (ids[2], ids[4]);
         for focused in [copy, time] {
             tree.set_focus(Some(focused)).unwrap();
-            let frame = full_frame(&tree, &theme);
+            let frame = frame(&tree, &theme);
             // The band one pixel wide just inside the ring.
             let band = tree
                 .get(focused)
@@ -928,7 +867,7 @@ fn choice_marks_keep_clear_of_the_focus_ring_and_of_each_other() {
             }
         }
         tree.set_focus(None).unwrap();
-        let frame = full_frame(&tree, &theme);
+        let frame = frame(&tree, &theme);
         let group = tree.get(time).unwrap();
         // The rows of an option's mark - in the square one line high that
         // leads the row - that hold anything but background.
@@ -959,7 +898,7 @@ fn choice_marks_keep_clear_of_the_focus_ring_and_of_each_other() {
 fn choices_repaint_only_the_control() {
     let theme = Theme::light();
     let mut tree = choices(&theme, WIDTH, HEIGHT);
-    let mut incremental = full_frame(&tree, &theme);
+    let mut incremental = frame(&tree, &theme);
     tree.clear_dirty();
     let ids: Vec<_> = tree.paint_order().map(|(id, _)| id).collect();
     let (copy, time) = (ids[2], ids[4]);
@@ -1003,14 +942,10 @@ fn choices_repaint_only_the_control() {
         for dirty in tree.dirty_rects() {
             assert!(controls.contains(dirty), "step {index} repainted {dirty:?}");
         }
-        {
-            nowayos_testkit::glyph_store!(glyphs__);
-            render_dirty(&tree, &mut incremental, &theme, &mut glyphs__)
-        }
-        .unwrap();
+        with_glyphs(|g| render_dirty(&tree, &mut incremental, &theme, g)).unwrap();
         tree.clear_dirty();
         assert_eq!(
-            incremental.diff(&full_frame(&tree, &theme)),
+            incremental.diff(&frame(&tree, &theme)),
             None,
             "after step {index}"
         );
@@ -1029,36 +964,24 @@ fn a_reset_draws_the_start_screen_with_no_pixel_of_the_session() {
         let mut nav: Navigator<2> = Navigator::new(FORM, viewport, theme.metrics());
         let mut tree: Tree<16> = Tree::new();
         nav.show_start(&mut tree, flow_screen).unwrap();
-        let mut screen = full_frame(&tree, &theme);
+        let mut screen = frame(&tree, &theme);
         tree.clear_dirty();
         type_text(&mut tree, "Sam");
         tree.set_checked(COPY, true).unwrap();
         if reset_on == CHECK {
-            {
-                nowayos_testkit::glyph_store!(glyphs__);
-                render_dirty(&tree, &mut screen, &theme, &mut glyphs__)
-            }
-            .unwrap();
+            with_glyphs(|g| render_dirty(&tree, &mut screen, &theme, g)).unwrap();
             tree.clear_dirty();
             nav.go(CHECK, &mut tree, flow_screen).unwrap();
             tree.set_slot(NAME_SLOT, "Sam").unwrap();
         }
-        {
-            nowayos_testkit::glyph_store!(glyphs__);
-            render_dirty(&tree, &mut screen, &theme, &mut glyphs__)
-        }
-        .unwrap();
+        with_glyphs(|g| render_dirty(&tree, &mut screen, &theme, g)).unwrap();
         tree.clear_dirty();
         assert!(!tree.is_wiped());
 
         nav.reset(&mut tree, flow_screen).unwrap();
         assert!(tree.is_wiped(), "every value's storage zeroed");
         assert_eq!(tree.dirty_rects(), &[viewport], "a full repaint");
-        {
-            nowayos_testkit::glyph_store!(glyphs__);
-            render_dirty(&tree, &mut screen, &theme, &mut glyphs__)
-        }
-        .unwrap();
+        with_glyphs(|g| render_dirty(&tree, &mut screen, &theme, g)).unwrap();
         check_snapshot(&screen, &golden("reset-start.png")).unwrap();
         assert_eq!(
             screen.diff(&fresh_frame(FORM, &theme, false)),
@@ -1211,11 +1134,7 @@ fn renders_to_other_colour_types() {
     let theme: Theme<Rgb565> = Theme::light();
     let screen = welcome(&Theme::light(), WIDTH, HEIGHT);
     let mut target = Rgb565Buffer::new(WIDTH, HEIGHT);
-    {
-        nowayos_testkit::glyph_store!(glyphs__);
-        render(&screen.tree, &mut target, &theme, &mut glyphs__)
-    }
-    .unwrap();
+    with_glyphs(|g| render(&screen.tree, &mut target, &theme, g)).unwrap();
     assert!(target.pixels.contains(&theme.button));
     assert!(target.pixels.contains(&theme.background));
 }
@@ -1233,19 +1152,15 @@ fn rgb565_frames_match_golden_images_in_every_theme() {
             Theme::high_contrast()
         };
         let mut target = Rgb565Buffer::new(width, height);
-        {
-            nowayos_testkit::glyph_store!(glyphs__);
-            render(&screen.tree, &mut target, &narrow, &mut glyphs__)
-        }
-        .unwrap();
-        let frame = target.widened();
+        with_glyphs(|g| render(&screen.tree, &mut target, &narrow, g)).unwrap();
+        let widened = target.widened();
         check_snapshot(
-            &frame,
+            &widened,
             &golden(&format!("welcome-typing{suffix}-rgb565.png")),
         )
         .unwrap();
-        let wide = full_frame(&screen.tree, &theme);
-        for (narrow, wide) in frame.pixels().iter().zip(wide.pixels()) {
+        let wide = frame(&screen.tree, &theme);
+        for (narrow, wide) in widened.pixels().iter().zip(wide.pixels()) {
             for (a, b, step) in [
                 (narrow.r(), wide.r(), 9),
                 (narrow.g(), wide.g(), 5),
@@ -1309,7 +1224,7 @@ fn every_text_role_matches_its_approved_images() {
         ),
     ] {
         let tree = type_scale(&theme, width, height, scale);
-        let full = full_frame(&tree, &theme);
+        let full = frame(&tree, &theme);
         check_snapshot(&full, &golden(&format!("{name}.png"))).unwrap();
         // The caption is muted, the body is ink.
         let caption = tree.paint_order().nth(8).unwrap().1.rect();
@@ -1322,11 +1237,7 @@ fn every_text_role_matches_its_approved_images() {
         // Each line repainted alone gives the full frame's pixels there.
         for (_, node) in tree.paint_order().skip(1) {
             let mut part = Framebuffer::new(width * scale, height * scale).unwrap();
-            {
-                nowayos_testkit::glyph_store!(glyphs__);
-                render_area(&tree, &mut part, &theme, node.rect(), &mut glyphs__)
-            }
-            .unwrap();
+            with_glyphs(|g| render_area(&tree, &mut part, &theme, node.rect(), g)).unwrap();
             let area = node.rect();
             for y in area.top()..area.bottom() {
                 for x in area.left()..area.right() {
@@ -1438,17 +1349,6 @@ fn look(theme: &Theme<Rgb888>, width: u32, height: u32, scale: u32) -> (Tree<32>
     (tree, [quiet, secondary, primary, home])
 }
 
-fn frame_of<const N: usize>(tree: &Tree<N>, theme: &Theme<Rgb888>) -> Framebuffer {
-    let size = tree.viewport().size;
-    let mut fb = Framebuffer::new(size.width, size.height).unwrap();
-    {
-        nowayos_testkit::glyph_store!(glyphs__);
-        render(tree, &mut fb, theme, &mut glyphs__)
-    }
-    .unwrap();
-    fb
-}
-
 /// Presses `id` with the pointer and holds it down.
 fn hold<const N: usize>(tree: &mut Tree<N>, id: NodeId) {
     let centre = tree.get(id).unwrap().rect().center();
@@ -1485,7 +1385,7 @@ fn surfaces_and_button_variants_match_their_approved_images() {
         tree.set_focus(Some(primary)).unwrap();
         tree.set_focus_visible(true);
         assert_eq!(tree.pressed(), Some(secondary), "{name}");
-        let full = frame_of(&tree, &theme);
+        let full = frame(&tree, &theme);
         check_snapshot(&full, &golden(&format!("{name}.png"))).unwrap();
         // Text on a surface never shows the background: its edges are
         // blended over the surface's fill.
@@ -1516,11 +1416,7 @@ fn surfaces_and_button_variants_match_their_approved_images() {
         for (_, node) in tree.paint_order() {
             let size = tree.viewport().size;
             let mut part = Framebuffer::new(size.width, size.height).unwrap();
-            {
-                nowayos_testkit::glyph_store!(glyphs__);
-                render_area(&tree, &mut part, &theme, node.rect(), &mut glyphs__)
-            }
-            .unwrap();
+            with_glyphs(|g| render_area(&tree, &mut part, &theme, node.rect(), g)).unwrap();
             let area = node.rect();
             for y in area.top()..area.bottom() {
                 for x in area.left()..area.right() {
@@ -1538,11 +1434,7 @@ fn surfaces_and_button_variants_match_their_approved_images() {
             down: false,
         });
         tree.set_focus(Some(quiet)).unwrap();
-        {
-            nowayos_testkit::glyph_store!(glyphs__);
-            render_dirty(&tree, &mut dirty, &theme, &mut glyphs__)
-        }
-        .unwrap();
-        assert_eq!(dirty, frame_of(&tree, &theme), "{name}");
+        with_glyphs(|g| render_dirty(&tree, &mut dirty, &theme, g)).unwrap();
+        assert_eq!(dirty, frame(&tree, &theme), "{name}");
     }
 }

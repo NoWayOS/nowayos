@@ -2478,8 +2478,7 @@ mod tests {
         );
         assert_eq!(t.value(FieldId(1)), Some("ok"));
         // Printable Latin-1 is fine. Fixed text with a
-        // character outside the glyph atlases' set is refused as well,
-        // where the first cut drew it as the built-in font's question mark.
+        // character outside the glyph atlases' set is refused as well.
         assert!(t.text("Grüße, Zoë").is_ok());
         assert_eq!(t.text("Grüße, Zoë — 東京"), Err(UiError::NoGlyph));
     }

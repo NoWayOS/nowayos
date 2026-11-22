@@ -50,7 +50,7 @@ use nowayos_hw::cpu::{counter, counter_frequency};
 use nowayos_hw::gem::{Gem, SELF_TEST_LEN};
 use nowayos_hw::rp1::release_phy_reset;
 use nowayos_hw::{DmaRegion, HwError, device, dma_region, io_region};
-use nowayos_net::arp::Mac;
+use nowayos_net::Mac;
 use nowayos_net::{
     BUFFERS, BufferSet, Consumer, DATA_REGION_LEN, DataRegion, Descriptor, ETHERNET_HEADER_LEN,
     MAX_FRAME_LEN, Producer, QueueError,

@@ -231,7 +231,7 @@ may change.
 | `tools/container/` | The dev container: Microkit SDK, QEMU, Rust toolchains, cargo-deny (see its README) |
 | `tools/make/` | Make fragments: `container.mk` (shared by the NoWayOS repositories) and `system.mk` (NoWayOS's container, QEMU and check targets) |
 | `tools/qemu-test` | Boots a system image headless in QEMU and checks its serial output |
-| `tools/check-serial` | Checks a serial log captured from a board against the same expect file, by the same rules (`tools/serial_expect.py`, shared with `qemu-test`) |
+| `tools/check-serial` | Checks a serial log captured from a board against the same expect file, by the same rules (`tools/serial_expect.py`, shared with `qemu-test`). `tools/tool_common.py` is what other tools share (loading one tool from another); `tools/tool_testing.py` is what the tools' tests share |
 | `tools/check-system`, `tools/check-unsafe`, `tools/check-std-crates`, `tools/check-crates-absent` | The grants, `unsafe` and standard-library checks, and the check that no device workspace's cargo tree holds the rasteriser (`make atlases-check`; a tree it cannot read fails too) - `tools/test_tools.py` tests them |
 | `tools/baseline.toml`, `tools/check-baseline` | The lint, profile and cargo-deny settings every NoWayOS workspace must have, and their check (each repo's `make deny`) |
 | `tools/unsafe-allowlist.toml` | The approved-`unsafe` list |

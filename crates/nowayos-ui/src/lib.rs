@@ -1,16 +1,15 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! NoWayOS's declarative UI core — **first cut**.
+//! NoWayOS's declarative UI core.
 //!
 //! A deliberately small UI model that a secure appliance can afford to own:
-//! not a DOM, not CSS. A screen is a bounded [`Tree`] of
-//! nodes — layout containers ([`NodeKind::Column`], [`NodeKind::Row`],
-//! [`NodeKind::Stack`]), content ([`NodeKind::Text`], and
-//! [`NodeKind::Slot`] for text the application sets at run time), controls
-//! ([`NodeKind::Button`], [`NodeKind::TextInput`], [`NodeKind::Checkbox`],
-//! [`NodeKind::RadioGroup`]), the on-screen [`NodeKind::Keyboard`]
-//! ([`keyboard`]), error lines ([`NodeKind::FieldError`]),
-//! groups the application shows or hides ([`NodeKind::Group`]) and
-//! [`NodeKind::Spacer`]. The tree provides:
+//! not a DOM, not CSS. A screen is a bounded [`Tree`] of nodes, each a
+//! [`NodeKind`]: layout containers (column, row, stack and scroll view);
+//! text, fixed or set by the application at run time, rich or long;
+//! controls (button, text input and area, checkbox, radio group and list
+//! picker); the on-screen keyboard ([`keyboard`]) and error lines; icons,
+//! images, pictures the application supplies each frame and progress bars;
+//! groups and switches the application shows, hides or sets; layers drawn
+//! over the screen ([`layer`]); and spacers. The tree provides:
 //!
 //! * **layout** — padding, gaps, cross-axis alignment, and fixed, intrinsic
 //!   or fill sizes along each axis ([`Tree::layout`]);
@@ -71,7 +70,8 @@
 //!
 //! # Status
 //!
-//! Text is one line per node, and every character of every text a node
+//! Text is one line unless its style lets it wrap, up to [`MAX_LINES`]
+//! lines, and every character of every text a node
 //! shows must be one the glyph atlases draw and a person can see
 //! ([`text::check_printable`]): a control character such as `'\n'`, an
 //! invisible one such as a direction override, or one outside the atlases'
@@ -79,8 +79,8 @@
 //! its node is added, text set later ([`Tree::set_slot`],
 //! [`Tree::set_value`], [`Tree::set_text`], [`Tree::set_field_error`]) when
 //! it is set, the previous text staying. Layout measures text with the
-//! metrics it is given ([`TextMetrics`]): a glyph atlas's advances, kerning
-//! and line height, or a built-in monospace font's. Layout accepts
+//! metrics it is given ([`TextMetrics`]): a face's advances, kerning and
+//! line height, or a built-in monospace font's. Layout accepts
 //! viewports up to [`MAX_VIEWPORT_SIZE`] each way within
 //! [`MAX_VIEWPORT_OFFSET`] of the origin, which keeps every coordinate a
 //! renderer draws at far from the ends of the `i32` range. [`Tree::clear`]
@@ -89,12 +89,9 @@
 //! the nodes, so [`Tree::is_wiped`] can check every byte, and a session
 //! reset ([`Navigator::reset`]) starts with it.
 //!
-//! Provisional: this whole API may change. Known gaps,
-//! by design for a first cut: single-line text, no text cursor (inputs
-//! append and delete at the end), no scrolling or clipping containers, no
-//! images, no select control, and only the first touch contact interacts.
-//! `nowayos-render-eg`'s themes draw text from the glyph atlases, and lay
-//! it out with the same atlas's metrics.
+//! Provisional: this whole API may change. Only the first touch contact
+//! interacts. `nowayos-render-eg`'s themes draw text from the glyph
+//! outlines, and lay it out with the same face's metrics.
 
 #![cfg_attr(not(test), no_std)]
 #![forbid(unsafe_code)]

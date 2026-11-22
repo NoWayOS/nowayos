@@ -3,8 +3,7 @@
 //!
 //! Screen Compiler converts a supported subset of React/TSX into Rust that builds a
 //! screen through the [`UiBuilder`] trait, importing this module as `ui`
-//! (Screen Compiler's builder contract v1; v0's six calls are unchanged, so screens
-//! generated for v0 still build). Construction is **children first**: a
+//! Construction is **children first**: a
 //! container is created from the handles of children that already exist, so
 //! every node is complete when it is created. Every call is fallible — a full
 //! arena is an error propagated with `?`, never a panic — and text is
@@ -37,128 +36,46 @@
 //! different arguments; the inherent ones are for hand-written code, and the
 //! trait methods are what generated code calls through `B: UiBuilder`.
 //!
-//! Contract v1 adds what form screens need:
-//! application text in a [`UiBuilder::slot`];
-//! content shown or hidden by the application, [`UiBuilder::group`] and
-//! [`UiBuilder::either`]; and the value-holding controls, each bound to a
-//! field number - [`UiBuilder::input`] (a text input with its own `max_len`
-//! and [`InputMode`]), [`UiBuilder::checkbox`] and
-//! [`UiBuilder::radio_group`]. A generated screen numbers its fields, slots
-//! and groups from 1 in document order, as it numbers actions. [`Tree`]'s
-//! implementation refuses a field or slot number used twice in one tree
-//! ([`UiError::DuplicateField`], [`UiError::DuplicateSlot`]); several groups
-//! may share a number, the one prop that shows them all
-//! ([`Tree::set_visible`]).
+//! What a generated screen builds, by kind of call:
 //!
-//! Contract v2 adds text in a role of the type scale and a weight:
-//! [`UiBuilder::text_styled`] and [`UiBuilder::slot_styled`], with
-//! [`TextStyle`], [`TextRole`] and [`Weight`]. Text in the display role may
-//! use only what its atlases draw ([`crate::text::is_display`]); the tree
-//! refuses any other with [`UiError::NoGlyph`].
+//! * **Containers and surfaces:** [`UiBuilder::column`] and [`UiBuilder::row`]
+//!   with their [`Layout`] - gaps and padding in pixels or the theme's
+//!   spacing ([`Space`]), sizes, [`Align`] and [`Justify`];
+//!   [`UiBuilder::column_on`] and [`UiBuilder::row_on`], drawn on a
+//!   [`Surface`] in a [`Tone`]; [`UiBuilder::spacer_space`].
+//! * **Text:** [`UiBuilder::text`] and [`UiBuilder::text_styled`] in a
+//!   [`TextStyle`] - a role, weight, lines, alignment and colour; text the
+//!   application sets, [`UiBuilder::slot`], [`UiBuilder::slot_styled`] and,
+//!   between literal text, [`UiBuilder::slot_template`];
+//!   [`UiBuilder::long_text`]; [`UiBuilder::rich_text`], runs with a look of
+//!   their own ([`Run`]).
+//! * **Controls**, each value-holding one bound to a field number:
+//!   [`UiBuilder::input`], [`UiBuilder::text_area`], [`UiBuilder::checkbox`],
+//!   [`UiBuilder::radio_group`] and [`UiBuilder::list_picker`] ([`Picker`]);
+//!   buttons, [`UiBuilder::button`], [`UiBuilder::button_with`] in a
+//!   [`ButtonVariant`] and [`UiBuilder::button_look`];
+//!   [`UiBuilder::field_error`]; the on-screen [`UiBuilder::keyboard`];
+//!   [`UiBuilder::progress`], [`UiBuilder::icon`] ([`icons`]) and
+//!   [`UiBuilder::image`] ([`Fit`]).
+//! * **Conditions:** [`UiBuilder::group`], [`UiBuilder::either`] and
+//!   [`UiBuilder::unless`], shown or hidden by the application;
+//!   [`UiBuilder::case`] and [`UiBuilder::case_or`], on a switch's case.
+//! * **Scrolling and lists:** [`UiBuilder::scroll_view`] and
+//!   [`UiBuilder::scroll_view_axes`] ([`ScrollAxes`]);
+//!   [`UiBuilder::virtual_list`] ([`ListId`]).
+//! * **Layers** over the screen ([`LayerId`]): [`UiBuilder::dialog`],
+//!   [`UiBuilder::menu`], [`UiBuilder::popover`] and [`UiBuilder::tooltip`].
+//! * **Look and motion:** a [`Look`] - fill, border, corners, a shadow
+//!   ([`Elevation`]), a [`Gradient`], opacity, a [`Transition`] and an
+//!   [`Animation`]; [`TextStyle::selectable`](crate::TextStyle::selectable);
+//!   [`UiBuilder::context_action`] and [`UiBuilder::cursor`].
 //!
-//! Contract v3 adds the look of buttons and surfaces:
-//! [`UiBuilder::button_with`], a button in a [`ButtonVariant`] - primary,
-//! secondary or quiet - and [`UiBuilder::column_on`] and
-//! [`UiBuilder::row_on`], a container drawn on a [`Surface`]: a card, a
-//! header bar or a notice in a [`Tone`]. Every button's label is Bold.
-//!
-//! Contract v4 adds text set on several lines: a [`TextStyle`]'s
-//! [`lines`](TextStyle::lines), up to [`MAX_LINES`], on `text_styled` or
-//! `slot_styled`.
-//!
-//! Contract v5 adds [`UiBuilder::progress`], a progress bar the
-//! application fills, bound to a slot number of its own.
-//!
-//! Contract v6 adds [`UiBuilder::icon`], one of Lucide's icons
-//! from [`icons`], tinted by the theme.
-//!
-//! Contract v7 adds a text's alignment, [`TextStyle::align`] with a
-//! [`TextAlign`], and the theme's spacing tokens ([`Space`]): a gap or
-//! padding named by size ([`Layout::gap_space`], [`Layout::padding_space`])
-//! and [`UiBuilder::spacer_space`], each measured against the theme's
-//! spacing when the tree is laid out, so the large-text theme spaces half
-//! again as much.
-//!
-//! Contract v8 adds what a screen's `style={{...}}` declares: on a
-//! `Layout`, a fixed [`width`](Layout::width) and [`height`](Layout::height),
-//! a least and greatest width, children's [`Align`] across and [`Justify`]
-//! along the main axis, and a [`Look`] - a fill, a border and its width,
-//! rounded corners - in the theme's [`Colour`]s; a text's colour,
-//! [`TextStyle::colour`]; and [`UiBuilder::button_look`], a button with a
-//! fill or label colour of its own.
-//!
-//! Contract v10 adds [`UiBuilder::list_picker`]: one choice of up
-//! to 64 options, in a list a [`Picker`] shapes - its placeholder and how
-//! many rows show - that scrolls inside itself.
-//!
-//! Contract v9 adds [`UiBuilder::scroll_view`]: one child - a
-//! column - shown through a clipped view that scrolls, at most one in a
-//! screen and never nested.
-//!
-//! Contract v11 adds [`UiBuilder::keyboard`]: the on-screen
-//! keyboard, its keys typing into the focused text input in a layout for
-//! its mode; at most one in a screen.
-//!
-//! Contract v12 adds [`UiBuilder::field_error`]: the line where the
-//! errors the application sets for a field show, one per field.
-//!
-//! Contract v13 adds conditions beyond one prop's truth:
-//! [`UiBuilder::unless`], a child shown while a group is hidden (React's
-//! `!cond && <X/>`), and switches - [`UiBuilder::case`] and
-//! [`UiBuilder::case_or`] - a child shown while a switch the application
-//! sets is on one case (`step === "review" && <X/>`), every switch of one
-//! number moving together.
-//!
-//! Contract v14 adds [`UiBuilder::slot_template`] and
-//! [`UiBuilder::slot_template_styled`]: a slot shown between literal text
-//! compiled in (React's `<Text>Hello, {props.name}!</Text>`), the
-//! application setting only its part.
-//!
-//! Contract v15 adds [`UiBuilder::image`]: a picture converted at build
-//! time, by its static from the product's generated module, fitted to its
-//! box by a [`Fit`] and with words saying what it shows (React's
-//! `<img src alt style={{ objectFit }} />`).
-//!
-//! Contract v16 adds [`UiBuilder::long_text`]: paragraphs the application
-//! sets at run time, up to a capacity the screen gives, kept in the tree's
-//! text store - `T` bytes of a [`Tree<N, T>`](Tree) - so nothing allocates
-//! (React's `<Text maxLength={10240}>{props.article}</Text>`).
-//!
-//! Contract v17 adds [`UiBuilder::scroll_view_axes`]: scroll views that
-//! scroll down, across or both ways ([`ScrollAxes`]), any number of them,
-//! one inside another (CSS's `overflow`, `overflowX`, `overflowY`).
-//!
-//! Contract v18 adds [`UiBuilder::virtual_list`]: a list of as many items
-//! as the application counts, shown through a pool of rows built once and
-//! rebound as it scrolls ([`ListId`]).
-//!
-//! Contract v19 adds [`UiBuilder::text_area`]: several lines a person
-//! types, kept in the tree's text store (React's `<textarea rows
-//! maxLength>`).
-//!
-//! Contract v20 adds layers over the screen ([`LayerId`]):
-//! [`UiBuilder::dialog`], [`UiBuilder::menu`], [`UiBuilder::popover`] and
-//! [`UiBuilder::tooltip`] (HTML's `<dialog>`, and menus, popovers and
-//! tooltips beside a control).
-//!
-//! Contract v21 adds [`UiBuilder::rich_text`]: one paragraph of runs, each
-//! with its own weight, italics, colour, code or link ([`Run`]; React's
-//! `<strong>`, `<em>`, `<code>`, `<a onClick>` and `<span>` inside a text).
-//!
-//! Contract v22 adds to [`Look`] a theme's shadow ([`Elevation`]), a
-//! [`Gradient`] between the theme's colours and an opacity (CSS's
-//! `boxShadow`, `linear-gradient`, `radial-gradient` and `opacity`).
-//!
-//! Contract v23 adds to [`Look`] a [`Transition`] - how a node comes into
-//! view when a condition shows it - and an [`Animation`] of its own (CSS's
-//! `transition` and `animation`).
-//!
-//! Contract v24 adds [`TextStyle::selectable`](crate::TextStyle::selectable):
-//! text a press selects, for Ctrl+C to copy (CSS's `userSelect: "text"`).
-//!
-//! Contract v25 adds [`UiBuilder::context_action`] - an action a right
-//! click or a long press reports (React's `onContextMenu`) - and
-//! [`UiBuilder::cursor`], the pointer's shape over a node (CSS's `cursor`).
+//! A generated screen numbers its actions, fields, slots and groups from 1
+//! in document order. [`UiBuilder::text_input`] is the oldest call; the
+//! generator never writes it. Each item names the contract version that
+//! added it: this module tracks Screen Compiler's `contract::VERSION`, and
+//! `make screen-compiler-check` here and Screen Compiler's
+//! `make contract-check` hold the two together.
 //!
 //! Provisional: tracks Screen Compiler's contract; both sides change together.
 
@@ -459,7 +376,8 @@ pub trait UiBuilder {
     /// The builder's error, for example when it is full.
     fn text(&mut self, text: &'static str) -> Result<Self::Node, Self::Error>;
 
-    /// A button labelled `label` that emits `action` when pressed.
+    /// A button labelled `label` that emits `action` when pressed. Every
+    /// button's label is Bold.
     ///
     /// # Errors
     ///
@@ -655,8 +573,9 @@ pub trait UiBuilder {
     /// The builder's error: for example when too many nodes have one.
     fn cursor(&mut self, node: Self::Node, cursor: Cursor) -> Result<(), Self::Error>;
 
-    /// One choice of `options` bound to `field`, in a list `picker` shapes
-    /// (contract v10).
+    /// One choice of `options` bound to `field`, up to
+    /// [`MAX_LIST_OPTIONS`](crate::MAX_LIST_OPTIONS) of them, in a list
+    /// `picker` shapes (contract v10).
     ///
     /// # Errors
     ///

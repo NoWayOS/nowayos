@@ -30,7 +30,7 @@ use std::sync::atomic::AtomicU8;
 use libfuzzer_sys::fuzz_target;
 use nowayos_fuzz::Input;
 use nowayos_ip::{Link, Queues, RxMemory, Stack, StackSeed, TxMemory, storage};
-use nowayos_net::arp::Mac;
+use nowayos_net::Mac;
 use nowayos_net::{
     BUFFER_SIZE, Consumer, Descriptor, ETHERNET_HEADER_LEN, InMemoryQueue, MAX_FRAME_LEN, Producer,
 };

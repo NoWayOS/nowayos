@@ -82,8 +82,6 @@ input error. Python 3.11 or later (tomllib), standard library only.
 import argparse
 import fnmatch
 import hashlib
-import importlib.machinery
-import importlib.util
 import json
 import os
 import platform
@@ -97,6 +95,10 @@ try:
     import tomllib
 except ModuleNotFoundError:  # Python before 3.11
     tomllib = None
+
+sys.dont_write_bytecode = True  # keep tools/ free of __pycache__
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from tool_common import load_tool  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 NOWAYOS = os.path.dirname(HERE)
@@ -138,16 +140,8 @@ CRATE_SOURCES = ("crates.io", "rust-sel4", "microkit", "rust")
 HEX = {40: re.compile(r"[0-9a-f]{40}"), 64: re.compile(r"[0-9a-f]{64}")}
 
 
-def load_sbom():
-    """tools/sbom, for its CycloneDX helpers and structure check."""
-    loader = importlib.machinery.SourceFileLoader("sbom", os.path.join(HERE, "sbom"))
-    spec = importlib.util.spec_from_loader(loader.name, loader)
-    module = importlib.util.module_from_spec(spec)
-    loader.exec_module(module)
-    return module
-
-
-sbom = load_sbom()
+# tools/sbom, for its CycloneDX helpers and structure check.
+sbom = load_tool("sbom")
 InputError = sbom.InputError
 
 
@@ -262,8 +256,7 @@ def licence_parts(expression):
     properties = []
     if not avoids_gpl(expression):
         properties.append({"name": "nowayos:source-offer", "value": (
-            f"required: {expression} - every shipment carries an offer of this part's source "
-            "")})
+            f"required: {expression} - every shipment carries an offer of this part's source")})
     return [{"expression": expression}], properties
 
 
@@ -479,18 +472,18 @@ DEVICE_FACTS = re.compile(r"device-[A-Za-z_][A-Za-z0-9_]*\.bin")
 
 def prefill_file(name):
     """(name, what it is, where it comes from) for a prefill file: a PD's
-    restart image, a test-only stand-in, the image's build time
-    , a device's facts, or configuration board-system writes."""
+    restart image, a test-only stand-in, the image's build time, a device's
+    facts, or configuration board-system writes."""
     if name == "build-time.bin":
         return (name, "The image's build time, in seconds since 1970 UTC: the floor below which the clock PD never "
                       "puts wall-clock time",
                 "written by tools/board-system from SOURCE_DATE_EPOCH, or else the latest commit time of the repo "
                 "built and of NoWayOS")
     if name.startswith(TEST_PREFILL):
-        return (name, "A test-only stand-in the Microkit tool prefills into a memory region (prefill_path): a "
-                      "supervisor's counts until a store is built; the grants check refuses it "
-                      "outside a test system",
-                "written by tools/board-system from its file name")
+        return (name, "A test-only stand-in the Microkit tool prefills into a memory region (prefill_path); "
+                      "the grants check refuses it outside a test system",
+                "written by tools/board-system (from tools/update-bundles' output for the update tests' anchors and "
+                "state, otherwise from its file name)")
     if DEVICE_FACTS.fullmatch(name):
         return (name, "The board's facts about one of its devices, for the driver that holds it: its compatible "
                       "string and how many bytes of its window are registers (nowayos_region::device_facts)",
@@ -820,8 +813,8 @@ def build_sbom(args, components, graph, metadata, lock, containerfile, position)
     notice = glyphs["notice"]
     beside = os.path.join(args.dir, notice)
     if not os.path.isfile(beside):
-        raise InputError(f"{beside} is missing: make image puts the glyph atlases' notice beside every image "
-                         f", from {relative_name(os.path.join(args.glyphs, notice))}")
+        raise InputError(f"{beside} is missing: make image puts the glyph atlases' notice beside every image, "
+                         f"from {relative_name(os.path.join(args.glyphs, notice))}")
     notice_sha = sha256_file(beside)
     if notice_sha != sha256_file(os.path.join(args.glyphs, notice)):
         raise InputError(f"{beside} differs from {relative_name(os.path.join(args.glyphs, notice))}: "
