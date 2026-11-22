@@ -11,14 +11,19 @@
     reason = "test code: a failed check panics, and tests index and compute on known data"
 )]
 
-use std::path::PathBuf;
-
 use embedded_graphics::pixelcolor::Rgb888;
 use embedded_graphics::prelude::DrawTarget;
 use nowayos_display::Rect;
 use nowayos_render_eg::{Theme, render, render_area};
 use nowayos_testkit::{Framebuffer, check_snapshot};
 use nowayos_ui::{Style, Surface, Tree, icons};
+
+#[path = "common/golden.rs"]
+mod golden_path;
+use golden_path::golden;
+#[path = "common/glyphs.rs"]
+mod glyph_helper;
+use glyph_helper::with_glyphs;
 
 /// Every icon in a row on the background, then on a card, then on a header
 /// bar, laid out in `width` x `height` with `theme`'s metrics at `scale`.
@@ -46,12 +51,6 @@ fn screen(theme: &Theme<Rgb888>, width: u32, height: u32, scale: u32) -> Tree<32
     tree
 }
 
-fn golden(name: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/snapshots")
-        .join(name)
-}
-
 #[test]
 fn every_icon_matches_its_golden_images_in_each_theme() {
     for (theme, scale, image) in [
@@ -66,11 +65,7 @@ fn every_icon_matches_its_golden_images_in_each_theme() {
         let tree = screen(&theme, 240, 160, scale);
         let size = tree.viewport().size;
         let mut full = Framebuffer::new(size.width, size.height).unwrap();
-        {
-            nowayos_testkit::glyph_store!(glyphs__);
-            render(&tree, &mut full, &theme, &mut glyphs__)
-        }
-        .unwrap();
+        with_glyphs(|g| render(&tree, &mut full, &theme, g)).unwrap();
         check_snapshot(&full, &golden(image)).unwrap();
         // Each icon is its mask's size at the scale, inked in the colour of
         // text where it stands, and a repaint of any part gives the same

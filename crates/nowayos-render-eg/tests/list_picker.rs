@@ -17,6 +17,10 @@ use nowayos_testkit::Framebuffer;
 use nowayos_ui::builder::{Layout, Picker, UiBuilder};
 use nowayos_ui::{FieldId, Tree};
 
+#[path = "common/glyphs.rs"]
+mod glyph_helper;
+use glyph_helper::with_glyphs;
+
 const OPTIONS: &[&str] = &[
     "Bag", "Phone", "Keys", "Wallet", "Glasses", "Umbrella", "Coat",
 ];
@@ -53,11 +57,7 @@ fn the_header_shows_the_placeholder_then_the_choice() {
             .unwrap();
         let draw = |tree: &Tree<8>| {
             let mut fb = Framebuffer::new(360, 300).unwrap();
-            {
-                nowayos_testkit::glyph_store!(glyphs__);
-                render(tree, &mut fb, &theme, &mut glyphs__)
-            }
-            .unwrap();
+            with_glyphs(|g| render(tree, &mut fb, &theme, g)).unwrap();
             fb
         };
         let header = tree.get(picker).unwrap().list_row(0).unwrap();

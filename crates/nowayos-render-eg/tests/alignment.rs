@@ -14,9 +14,13 @@
 
 use embedded_graphics::pixelcolor::Rgb888;
 use nowayos_display::Rect;
-use nowayos_render_eg::{Theme, render};
+use nowayos_render_eg::Theme;
 use nowayos_testkit::Framebuffer;
 use nowayos_ui::{NodeId, NodeKind, Style, TextAlign, TextStyle, Tree};
+
+#[path = "common/frame.rs"]
+mod frame_helper;
+use frame_helper::frame;
 
 /// The leftmost and rightmost columns, relative to `rect`'s left, in which
 /// any of `rect`'s pixels differs from the background - where its text's
@@ -66,17 +70,6 @@ fn screen(theme: &Theme<Rgb888>, width: u32) -> (Tree<16>, [NodeId; 4]) {
     tree.layout(Rect::new(0, 0, width, 240), &theme.metrics())
         .unwrap();
     (tree, ids)
-}
-
-fn frame(tree: &Tree<16>, theme: &Theme<Rgb888>) -> Framebuffer {
-    let size = tree.viewport().size;
-    let mut fb = Framebuffer::new(size.width, size.height).unwrap();
-    {
-        nowayos_testkit::glyph_store!(glyphs__);
-        render(tree, &mut fb, theme, &mut glyphs__)
-    }
-    .unwrap();
-    fb
 }
 
 #[test]

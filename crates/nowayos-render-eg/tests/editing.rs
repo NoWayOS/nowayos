@@ -13,16 +13,21 @@
     reason = "test code: a failed check panics, and tests index and compute on known data"
 )]
 
-use std::path::PathBuf;
-
 use embedded_graphics::pixelcolor::Rgb888;
 use embedded_graphics::prelude::DrawTarget;
 use nowayos_display::Rect;
 use nowayos_input::{InputEvent, KeyCode};
-use nowayos_render_eg::{Theme, render, render_area};
-use nowayos_testkit::{Framebuffer, check_snapshot};
+use nowayos_render_eg::{Theme, render_area};
+use nowayos_testkit::check_snapshot;
 use nowayos_ui::builder::{Layout, UiBuilder};
 use nowayos_ui::{FieldId, Input, TextStyle, Tree};
+
+#[path = "common/frame.rs"]
+mod frame_helper;
+use frame_helper::frame;
+#[path = "common/golden.rs"]
+mod golden_path;
+use golden_path::golden;
 
 fn key(tree: &mut Tree<16, 512>, code: KeyCode) {
     tree.handle(InputEvent::KeyDown(code));
@@ -66,23 +71,6 @@ fn screen(theme: &Theme<Rgb888>) -> Tree<16, 512> {
     tree.set_focus(Some(name)).unwrap();
     shifted(&mut tree, KeyCode::LEFT, 8);
     tree
-}
-
-fn golden(name: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/snapshots")
-        .join(name)
-}
-
-fn frame(tree: &Tree<16, 512>, theme: &Theme<Rgb888>) -> Framebuffer {
-    let size = tree.viewport().size;
-    let mut fb = Framebuffer::new(size.width, size.height).unwrap();
-    {
-        nowayos_testkit::glyph_store!(glyphs__);
-        render(tree, &mut fb, theme, &mut glyphs__)
-    }
-    .unwrap();
-    fb
 }
 
 #[test]

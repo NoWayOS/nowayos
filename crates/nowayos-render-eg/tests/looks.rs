@@ -13,10 +13,14 @@
 
 use embedded_graphics::pixelcolor::Rgb888;
 use nowayos_display::Rect;
-use nowayos_render_eg::{Theme, render};
+use nowayos_render_eg::Theme;
 use nowayos_testkit::Framebuffer;
 use nowayos_ui::builder::UiBuilder;
 use nowayos_ui::{ActionId, ButtonVariant, Colour, Look, NodeId, NodeKind, Style, TextStyle, Tree};
+
+#[path = "common/frame.rs"]
+mod frame_helper;
+use frame_helper::frame;
 
 /// A filled, bordered column holding a coloured text, and a button with a
 /// look of its own.
@@ -54,17 +58,6 @@ fn screen(theme: &Theme<Rgb888>) -> (Tree<16>, NodeId, NodeId, NodeId) {
     tree.layout(Rect::new(0, 0, 320, 200), &theme.metrics())
         .unwrap();
     (tree, panel, text, button)
-}
-
-fn frame(tree: &Tree<16>, theme: &Theme<Rgb888>) -> Framebuffer {
-    let size = tree.viewport().size;
-    let mut fb = Framebuffer::new(size.width, size.height).unwrap();
-    {
-        nowayos_testkit::glyph_store!(glyphs__);
-        render(tree, &mut fb, theme, &mut glyphs__)
-    }
-    .unwrap();
-    fb
 }
 
 fn at(fb: &Framebuffer, x: i64, y: i64) -> Rgb888 {

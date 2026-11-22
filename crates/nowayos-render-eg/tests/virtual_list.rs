@@ -12,15 +12,23 @@
     reason = "test code: a failed check panics, and tests index and compute on known data"
 )]
 
-use std::path::PathBuf;
-
 use embedded_graphics::pixelcolor::Rgb888;
 use nowayos_display::Rect;
-use nowayos_render_eg::{Theme, render, render_dirty, to_eg};
+use nowayos_render_eg::{Theme, render_dirty, to_eg};
 use nowayos_testkit::{Framebuffer, check_snapshot};
 use nowayos_ui::builder::{Layout, UiBuilder};
 use nowayos_ui::{ListId, NodeId, SlotId, Surface, Tree};
 use proptest::prelude::*;
+
+#[path = "common/frame.rs"]
+mod frame_helper;
+use frame_helper::frame;
+#[path = "common/glyphs.rs"]
+mod glyph_helper;
+use glyph_helper::with_glyphs;
+#[path = "common/golden.rs"]
+mod golden_path;
+use golden_path::golden;
 
 const LIST: ListId = ListId(1);
 const POOL: u16 = 16;
@@ -55,26 +63,11 @@ fn bind(tree: &mut Tree<96>) {
     }
 }
 
-fn full_frame(tree: &Tree<96>, theme: &Theme<Rgb888>) -> Framebuffer {
-    let size = tree.viewport().size;
-    let mut fb = Framebuffer::new(size.width, size.height).unwrap();
-    {
-        nowayos_testkit::glyph_store!(glyphs__);
-        render(tree, &mut fb, theme, &mut glyphs__)
-    }
-    .unwrap();
-    fb
-}
-
 fn present(tree: &mut Tree<96>, fb: &mut Framebuffer, theme: &Theme<Rgb888>) {
     for made in tree.moves().to_vec() {
         fb.move_area(&to_eg(made.area), made.dx, made.dy);
     }
-    {
-        nowayos_testkit::glyph_store!(glyphs__);
-        render_dirty(tree, fb, theme, &mut glyphs__)
-    }
-    .unwrap();
+    with_glyphs(|g| render_dirty(tree, fb, theme, g)).unwrap();
     tree.clear_dirty();
 }
 
@@ -86,8 +79,8 @@ fn ten_thousand_items_scrolled_far_as_approved() {
     let view = tree.find_list(LIST).unwrap();
     tree.scroll_view_to(view, 0, 4_321 * 40 + 13).unwrap();
     bind(&mut tree);
-    let golden = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/snapshots/virtual-list.png");
-    check_snapshot(&full_frame(&tree, &theme), &golden).unwrap();
+    let golden = golden("virtual-list.png");
+    check_snapshot(&frame(&tree, &theme), &golden).unwrap();
 }
 
 proptest! {
@@ -100,7 +93,7 @@ proptest! {
         let theme = Theme::<Rgb888>::light();
         let mut tree = screen(&theme);
         bind(&mut tree);
-        let mut fb = full_frame(&tree, &theme);
+        let mut fb = frame(&tree, &theme);
         tree.clear_dirty();
         let view = tree.find_list(LIST).unwrap();
         for y in steps {
@@ -108,6 +101,6 @@ proptest! {
             bind(&mut tree);
             present(&mut tree, &mut fb, &theme);
         }
-        prop_assert!(full_frame(&tree, &theme).diff(&fb).is_none());
+        prop_assert!(frame(&tree, &theme).diff(&fb).is_none());
     }
 }

@@ -16,6 +16,10 @@ use nowayos_testkit::Framebuffer;
 use nowayos_ui::builder::{self as ui, UiBuilder};
 use nowayos_ui::{SlotId, TextAlign, TextStyle, Tree};
 
+#[path = "common/glyphs.rs"]
+mod glyph_helper;
+use glyph_helper::with_glyphs;
+
 const NAME: SlotId = SlotId(1);
 const PLACE: ui::Template = ui::Template {
     before: "Your table is ready, ",
@@ -52,11 +56,7 @@ fn drawn(
     tree.layout(Rect::new(0, 0, WIDTH, HEIGHT), &theme.metrics())
         .unwrap();
     let mut frame = Framebuffer::new(WIDTH, HEIGHT).unwrap();
-    {
-        nowayos_testkit::glyph_store!(glyphs__);
-        render(&tree, &mut frame, theme, &mut glyphs__)
-    }
-    .unwrap();
+    with_glyphs(|g| render(&tree, &mut frame, theme, g)).unwrap();
     frame
 }
 

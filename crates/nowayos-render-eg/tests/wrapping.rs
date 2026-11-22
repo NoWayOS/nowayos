@@ -12,15 +12,23 @@
     reason = "test code: a failed check panics, and tests index and compute on known data"
 )]
 
-use std::path::PathBuf;
-
 use embedded_graphics::pixelcolor::Rgb888;
 use nowayos_display::Rect;
-use nowayos_render_eg::{Theme, render, render_dirty};
-use nowayos_testkit::{Framebuffer, check_snapshot};
+use nowayos_render_eg::{Theme, render_dirty};
+use nowayos_testkit::check_snapshot;
 use nowayos_ui::{
     ActionId, Align, NodeKind, SlotId, Style, Surface, TextRole, TextStyle, Tone, Tree,
 };
+
+#[path = "common/frame.rs"]
+mod frame_helper;
+use frame_helper::frame;
+#[path = "common/golden.rs"]
+mod golden_path;
+use golden_path::golden;
+#[path = "common/glyphs.rs"]
+mod glyph_helper;
+use glyph_helper::with_glyphs;
 
 const NOTE: SlotId = SlotId::new(1);
 
@@ -70,23 +78,6 @@ fn screen(theme: &Theme<Rgb888>, width: u32, height: u32) -> Tree<16> {
     tree
 }
 
-fn golden(name: &str) -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("tests/snapshots")
-        .join(name)
-}
-
-fn full_frame(tree: &Tree<16>, theme: &Theme<Rgb888>) -> Framebuffer {
-    let size = tree.viewport().size;
-    let mut fb = Framebuffer::new(size.width, size.height).unwrap();
-    {
-        nowayos_testkit::glyph_store!(glyphs__);
-        render(tree, &mut fb, theme, &mut glyphs__)
-    }
-    .unwrap();
-    fb
-}
-
 #[test]
 fn wrapped_text_draws_on_its_lines_in_each_theme() {
     for (theme, width, height, image) in [
@@ -103,17 +94,13 @@ fn wrapped_text_draws_on_its_lines_in_each_theme() {
         for (_, node) in tree.paint_order() {
             assert_eq!(node.cut_text(&metrics), None, "{image}: {node:?}");
         }
-        let mut fb = full_frame(&tree, &theme);
+        let mut fb = frame(&tree, &theme);
         check_snapshot(&fb, &golden(image)).unwrap();
         // The slot's text changes to fewer lines: a dirty repaint gives the
         // pixels of a full one.
         tree.clear_dirty();
         tree.set_slot(NOTE, "Wiped").unwrap();
-        {
-            nowayos_testkit::glyph_store!(glyphs__);
-            render_dirty(&tree, &mut fb, &theme, &mut glyphs__)
-        }
-        .unwrap();
-        assert!(full_frame(&tree, &theme).diff(&fb).is_none(), "{image}");
+        with_glyphs(|g| render_dirty(&tree, &mut fb, &theme, g)).unwrap();
+        assert!(frame(&tree, &theme).diff(&fb).is_none(), "{image}");
     }
 }

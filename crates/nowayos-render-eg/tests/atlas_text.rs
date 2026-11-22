@@ -33,6 +33,10 @@ use nowayos_ui::{
 };
 use proptest::prelude::*;
 
+#[path = "common/glyphs.rs"]
+mod glyph_helper;
+use glyph_helper::with_glyphs;
+
 /// A frame of any colour type, read pixel by pixel.
 trait Frame<C> {
     fn at(&self, x: i64, y: i64) -> C;
@@ -434,11 +438,7 @@ fn text_is_its_coverage_blended_over_its_nodes_known_background() {
         let metrics = wide.metrics();
         let (tree, nodes) = screen(&metrics, width, height);
         let mut frame = Framebuffer::new(width, height).unwrap();
-        {
-            nowayos_testkit::glyph_store!(glyphs__);
-            render(&tree, &mut frame, &wide, &mut glyphs__)
-        }
-        .unwrap();
+        with_glyphs(|g| render(&tree, &mut frame, &wide, g)).unwrap();
         for line in lines(&tree, nodes, &wide, &metrics) {
             let (metrics, font) = face(&wide, &metrics, &line);
             check_line(&frame, &metrics, font, &line);
@@ -447,11 +447,7 @@ fn text_is_its_coverage_blended_over_its_nodes_known_background() {
             size: Size::new(width, height),
             pixels: vec![Rgb565::BLACK; (width * height) as usize],
         };
-        {
-            nowayos_testkit::glyph_store!(glyphs__);
-            render(&tree, &mut frame, &narrow, &mut glyphs__)
-        }
-        .unwrap();
+        with_glyphs(|g| render(&tree, &mut frame, &narrow, g)).unwrap();
         for line in lines(&tree, nodes, &narrow, &metrics) {
             let (metrics, font) = face(&narrow, &metrics, &line);
             check_line(&frame, &metrics, font, &line);
@@ -557,7 +553,7 @@ proptest! {
         }
         let rect = tree.get(node).unwrap().rect();
         let mut full = Framebuffer::filled(300, 140, Rgb888::new(1, 2, 3)).unwrap();
-        { nowayos_testkit::glyph_store!(glyphs__); render(&tree, &mut full, &theme, &mut glyphs__) }.unwrap();
+        with_glyphs(|g| render(&tree, &mut full, &theme, g)).unwrap();
         for y in 0..140_u32 {
             for x in 0..300_u32 {
                 let inside = rect.contains(Point::new(x as i32, y as i32));
@@ -569,7 +565,7 @@ proptest! {
         for (x, y, w, h) in areas {
             let area = Rect::new(x, y, w, h);
             let mut part = Framebuffer::filled(300, 140, Rgb888::new(1, 2, 3)).unwrap();
-            { nowayos_testkit::glyph_store!(glyphs__); render_area(&tree, &mut part, &theme, area, &mut glyphs__) }.unwrap();
+            with_glyphs(|g| render_area(&tree, &mut part, &theme, area, g)).unwrap();
             for py in 0..140_u32 {
                 for px in 0..300_u32 {
                     let want = if area.contains(Point::new(px as i32, py as i32)) {

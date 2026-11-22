@@ -28,18 +28,14 @@ use nowayos_ui::{
 };
 use proptest::prelude::*;
 
-const CAP: usize = 24;
+#[path = "common/frame.rs"]
+mod frame_helper;
+use frame_helper::frame;
+#[path = "common/glyphs.rs"]
+mod glyph_helper;
+use glyph_helper::with_glyphs;
 
-fn full<const N: usize>(tree: &Tree<N>, theme: &Theme<Rgb888>) -> Framebuffer {
-    let size = tree.viewport().size;
-    let mut fb = Framebuffer::new(size.width, size.height).unwrap();
-    {
-        nowayos_testkit::glyph_store!(glyphs__);
-        render(tree, &mut fb, theme, &mut glyphs__)
-    }
-    .unwrap();
-    fb
-}
+const CAP: usize = 24;
 
 /// Pixels of `fb` (whose origin is the viewport's) that differ from the
 /// background and lie outside every rectangle in `allowed`.
@@ -100,7 +96,7 @@ fn a_label_shorter_than_a_line_draws_only_inside_its_rect() {
         .unwrap();
     assert_eq!(tree.get(squashed).unwrap().rect(), Rect::new(0, 0, 80, 12));
 
-    let mut incremental = full(&tree, &theme);
+    let mut incremental = frame(&tree, &theme);
     assert_eq!(
         stray_pixels(&incremental, theme.background, &drawing_rects(&tree)),
         []
@@ -115,12 +111,8 @@ fn a_label_shorter_than_a_line_draws_only_inside_its_rect() {
 
     tree.clear_dirty();
     tree.set_text(below, "c").unwrap();
-    {
-        nowayos_testkit::glyph_store!(glyphs__);
-        render_dirty(&tree, &mut incremental, &theme, &mut glyphs__)
-    }
-    .unwrap();
-    assert_eq!(incremental.diff(&full(&tree, &theme)), None);
+    with_glyphs(|g| render_dirty(&tree, &mut incremental, &theme, g)).unwrap();
+    assert_eq!(incremental.diff(&frame(&tree, &theme)), None);
 }
 
 #[test]
@@ -141,7 +133,7 @@ fn the_caret_of_a_narrow_input_stays_inside_the_input() {
     tree.layout(Rect::new(0, 0, 40, 30), &theme.metrics())
         .unwrap();
     tree.set_focus(Some(input)).unwrap();
-    let fb = full(&tree, &theme);
+    let fb = frame(&tree, &theme);
     assert_eq!(
         stray_pixels(&fb, theme.background, &drawing_rects(&tree)),
         []
@@ -166,7 +158,7 @@ fn text_cut_at_a_dirty_edge_matches_a_full_repaint() {
             .unwrap();
         tree.set_value(FieldId(1), "synthetic value, jumbled")
             .unwrap();
-        let expected = full(&tree, &theme);
+        let expected = frame(&tree, &theme);
         let columns = (0..100).map(|x| Rect::new(x * 3 + 1, 0, 7, height));
         let rows = (0..33).map(|y| Rect::new(0, y * 3 + 1, width, 5));
         for area in columns.chain(rows) {
@@ -296,16 +288,8 @@ fn extreme_layouts_render_without_overflow_in(theme: &Theme<Rgb888>) {
             tree.set_selected(FieldId(3), Some(1)).unwrap();
             tree.set_field_error(FieldId(1), "Wrong").unwrap();
             let mut sink = Sink { pixels: 0 };
-            {
-                nowayos_testkit::glyph_store!(glyphs__);
-                render(&tree, &mut sink, &theme, &mut glyphs__)
-            }
-            .unwrap();
-            {
-                nowayos_testkit::glyph_store!(glyphs__);
-                render_dirty(&tree, &mut sink, &theme, &mut glyphs__)
-            }
-            .unwrap();
+            with_glyphs(|g| render(&tree, &mut sink, &theme, g)).unwrap();
+            with_glyphs(|g| render_dirty(&tree, &mut sink, &theme, g)).unwrap();
             assert!(tree.get(label).is_some());
             // With ordinary styles the controls are on screen and drawn, so
             // the drawing code is really exercised at these coordinates;
@@ -577,7 +561,7 @@ fn check_changes(
     {
         return Ok(());
     }
-    let mut incremental = full(&tree, &theme);
+    let mut incremental = frame(&tree, &theme);
     prop_assert_eq!(
         stray_pixels(&incremental, theme.background, &drawing_rects(&tree)),
         vec![]
@@ -585,13 +569,9 @@ fn check_changes(
     tree.clear_dirty();
     for (index, change) in changes.iter().enumerate() {
         apply(&mut tree, ids, change);
-        {
-            nowayos_testkit::glyph_store!(glyphs__);
-            render_dirty(&tree, &mut incremental, &theme, &mut glyphs__)
-        }
-        .unwrap();
+        with_glyphs(|g| render_dirty(&tree, &mut incremental, &theme, g)).unwrap();
         tree.clear_dirty();
-        let expected = full(&tree, &theme);
+        let expected = frame(&tree, &theme);
         prop_assert_eq!(
             incremental.diff(&expected),
             None,
