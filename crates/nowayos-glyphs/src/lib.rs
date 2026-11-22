@@ -6,7 +6,8 @@
 //! `nowayos-raster` draws on the device at any size.
 //!
 //! **Provisional**: `nowayos-ui` lays text out with these metrics,
-//! and `nowayos-render-eg` draws text from these glyphs, anti-aliased;
+//! and `nowayos-render-eg`'s tests measure the text it draws from
+//! outlines against these glyphs;
 //! either may change this API.
 //!
 //! Each [`Atlas`] is one face at one size: a [`Glyph`] for every character

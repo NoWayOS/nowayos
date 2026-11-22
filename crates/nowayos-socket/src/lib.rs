@@ -55,11 +55,9 @@
 //!
 //! **The contract's version is its records'.** The data records are at
 //! layout version 2: up to 976 bytes in a 992-byte slot, 32 slots
-//! to a ring, each ring's messages in 32 KiB ([`RING_REGION_LEN`]), so a
-//! connection's bytes cross in a quarter of the records version 1's 240
-//! bytes took, and a ring holds sixteen times the bytes. Every other
-//! record is at version 1, unchanged. A peer still on version 1 has its data
-//! records refused by their headers, and a system that still gives each
+//! to a ring, each ring's messages in 32 KiB ([`RING_REGION_LEN`]). Every
+//! other record is at version 1. A record of another version is refused by
+//! its header, and a system that still gives each
 //! ring's messages a page fails as its PDs bind the rings.
 //!
 //! A record is copied out of its ring slot into private memory before it is

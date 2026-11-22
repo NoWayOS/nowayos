@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! The update records: what the update PD reads before it trusts anything
-//! about an update.
+//! The update records, the update state and the updater's decisions: what
+//! the update PD reads before it trusts anything about an update, what it
+//! keeps, and what it decides.
 //!
 //! An update is a whole system image and a manifest an image key signs, and
 //! which keys may sign images, configuration and the next trust list is the
@@ -8,8 +9,9 @@
 //! The update
 //! PD receives each record from a PD it does not trust, copies it into its
 //! own memory, and decodes it here; only a record that decodes is checked
-//! further. Checking a record's signatures, and deciding whether to take
-//! it, belong to the update PD's logic, not to this crate.
+//! further. Which trust list and manifest to take, and when an image is
+//! marked good, are decided here too ([`updater`]); checking signatures,
+//! hashing and storage stay the update PD's.
 //!
 //! The records so far:
 //!
@@ -72,7 +74,7 @@
 //!
 //! # Status
 //!
-//! Provisional: ahead of the update PD. No expiry: a
+//! Provisional. No expiry: a
 //! list or manifest that expires needs trusted time, and would come as a new
 //! layout version. The record kinds are the update PD's
 //! channel's own: 1 the trust list, 2 the manifest, 3 a chunk; and 4 the

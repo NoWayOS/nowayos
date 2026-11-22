@@ -36,9 +36,8 @@ pub const RESOLVED_KIND: u16 = 0x0585;
 /// [`Connect`] and [`Failed`].
 const VERSION: u16 = 1;
 
-/// The layout version of [`SendData`] and [`ReceivedData`]: 2 since they
-/// carry up to [`MAX_DATA`] = 976 bytes in a 992-byte slot;
-/// version 1 carried 240 in a 256-byte slot.
+/// The layout version of [`SendData`] and [`ReceivedData`], which carry up
+/// to [`MAX_DATA`] = 976 bytes in a 992-byte slot.
 const DATA_VERSION: u16 = 2;
 
 /// The most stream bytes one [`SendData`] or [`ReceivedData`] carries: the

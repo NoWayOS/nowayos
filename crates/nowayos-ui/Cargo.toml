@@ -1,6 +1,6 @@
 [package]
 name = "nowayos-ui"
-description = "First cut of NoWayOS's declarative UI core: bounded node tree, layout, hit-testing, focus and actions"
+description = "NoWayOS's declarative UI core: bounded node tree, layout, hit-testing, focus and actions"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

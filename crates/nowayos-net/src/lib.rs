@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! The network path's lowest boundary:
-//! the queues between a NIC driver PD and
+//! the queues between a NIC driver PD (virtio-net, gem-net) and
 //! its one client, the network stack PD, and the Ethernet frames that cross
 //! them.
 //!
@@ -19,8 +19,7 @@
 //! device by physical address and never maps them, is `nowayos-hw`'s. This
 //! crate has no `unsafe` code.
 //!
-//! Provisional: the first NIC driver and its test client. The
-//! network stack PD's link over these queues is `nowayos-ip`'s, and
+//! Provisional. The network stack PD's link over these queues is `nowayos-ip`'s, and
 //! the socket records between the stack PD and its clients are
 //! `nowayos-socket`'s.
 

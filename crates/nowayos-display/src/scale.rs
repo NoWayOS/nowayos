@@ -58,8 +58,8 @@ impl Placement {
     /// centred, and starts no higher than row `top`: the frame keeps clear
     /// of the screen's first `top` rows, and as many below it - a smaller
     /// scale if need be. How a display PD places a frame where the
-    /// rows above `top` are not its to write: on the Pi 5, whose firmware
-    /// framebuffer's first 16 rows hold the kernel's objects, an
+    /// rows above `top` are not its to write, on a board whose window
+    /// starts below row 0: on a 1920 x 1080 screen with `top` 16, an
     /// 800 x 480 frame is still shown at 2x, but a 960 x 540 one at 1x, as
     /// 2x would need all 1080 rows. `None` if no scale fits.
     ///
@@ -91,10 +91,10 @@ impl Placement {
     /// Where a display PD shows `frame` on `screen` when the screen's first
     /// `top` rows are not its to write: centred, clear of them, at
     /// the largest whole-number scale ([`centred_below`](Self::centred_below)),
-    /// as the kiosk's 800 x 480 is shown at 2x on the Pi 5; or, a frame too
-    /// tall for that, at its own size in the rows below them, centred
-    /// across and down those rows, as a 1920 x 1064 frame is shown from
-    /// row 16 of a 1920 x 1080 screen with no border. `None` if it fits
+    /// as an 800 x 480 frame is shown at 2x below row 16 of a 1920 x 1080
+    /// screen; or, a frame too tall for that, at its own size in the rows
+    /// below them, centred across and down those rows, as a 1920 x 1064
+    /// frame is shown from row 16 of a 1920 x 1080 screen with no border. `None` if it fits
     /// neither way.
     ///
     /// ```

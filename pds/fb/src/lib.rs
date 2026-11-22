@@ -4,7 +4,7 @@
 //!
 //! The board's facts give the framebuffer's window and mode
 //! (`firmware_fb` in `platforms/rpi5b_2gb.toml`: a `simple-framebuffer`,
-//! 1920 x 1080 `r5g6b5`, its window the whole of it). [`bind_window`] reads
+//! 1920 x 1080 `x8r8g8b8`, its window the whole of it). [`bind_window`] reads
 //! them from the facts region (`nowayos_region::device_facts`, read-only
 //! region 5) and binds the window (`nowayos_hw::Scanout`, from device N's
 //! symbols); [`bind`] also places a frame of the given size on the screen

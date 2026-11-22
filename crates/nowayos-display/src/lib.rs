@@ -16,14 +16,13 @@
 //!   display test pattern every display PD draws first.
 //! * [`DirtyRegion`] — a bounded set of rectangles that need redrawing, so a
 //!   software renderer repaints only what changed.
-//! * The **UI-to-display contract, v0** — [`Configure`] (version 2, which
+//! * The **UI-to-display contract, v0** — [`Configure`] (version 3, which
 //!   carries the display's device scale), [`Present`] and
 //!   [`PresentDone`], the `nowayos-ipc` records between the UI PD and a
 //!   display PD, and the two ends that check them, [`UiEnd`] and
 //!   [`DisplayEnd`]. The UI owns its framebuffer, the display maps it
 //!   read-only, and the UI holds no device capability.
-//!   Provisional: the first display PD may revisit
-//!   it.
+//!   Provisional.
 //!
 //! Coordinates follow the usual screen convention: `x` grows right, `y` grows
 //! down, and a rectangle covers `x .. x + width` (right and bottom edges

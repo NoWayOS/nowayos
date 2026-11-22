@@ -13,9 +13,9 @@
 //!   and the back ends write nothing into the caller's buffer. A request
 //!   over [`MAX_REQUEST`] bytes is refused, and so is every request after
 //!   the [`RESEED_INTERVAL`]th since the last seed, until the next.
-//! * The seed comes from the entropy PD; until that PD exists, a
-//!   test instrument seeds it with a fixed, public test value
-//!   (`systems/getrandom-test.system`).
+//! * The seed comes from the entropy PD (`pds/entropy-source`);
+//!   `systems/getrandom-test.system` seeds it instead with a fixed, public
+//!   test value, as a test instrument.
 //!
 //! Every PD workspace builds with `--cfg getrandom_backend="custom"`
 //! (`pds/.cargo/config.toml`), so getrandom 0.3 and 0.4 call this crate's

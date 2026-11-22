@@ -16,7 +16,7 @@
 //!
 //! The screen is the Raspberry Pi 5's HDMI monitor - all 1920 × 1080 of its
 //! pixels - drawn at its own pixels at device scale 2:
-//! a 960 × 540 screen in layout units, its text from the atlases twice the
+//! a 960 × 540 screen in layout units, its text from the outlines twice the
 //! size: 36 px for the light theme's 18 px body text, in which the
 //! session's frames are drawn, and 48 px for the large-text theme's 24.
 //! QEMU's runs show the same screen. Every tap and click lands on the same

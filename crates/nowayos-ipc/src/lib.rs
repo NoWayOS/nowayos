@@ -45,8 +45,9 @@
 //!
 //! # Status
 //!
-//! Provisional: this API may change, including whether NoWayOS adopts
-//! the seL4 Device Driver Framework's queue layout as-is (an open question). The views of real Microkit regions
+//! Provisional: this API may change. The network queues are the seL4
+//! Device Driver Framework's, byte for byte, in `nowayos-net`; this crate's
+//! typed rings are NoWayOS's own layout. The views of real Microkit regions
 //! need `unsafe` and live in an approved-`unsafe` crate (`nowayos-region`
 //! in the `pds` workspace), not here; this crate has none.
 
