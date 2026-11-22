@@ -2,7 +2,7 @@
 //! The mouse pointer: an arrow, black outline and white fill, so it
 //! shows on any ground, drawn over the screen by the UI loop and never part
 //! of a tree - so never in a golden image. Its shape says what a press will
-//! do there (#10082, [`Cursor`]): an arrow, a hand, an I-beam or
+//! do there ([`Cursor`]): an arrow, a hand, an I-beam or
 //! not-allowed.
 //!
 //! Each shape is a mask in layout units with a hot spot - the arrow's tip,

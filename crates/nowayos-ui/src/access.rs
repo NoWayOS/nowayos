@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! What a screen reader would be told (#10085, a spike; provisional): each
+//! What a screen reader would be told (provisional): each
 //! thing on the screen a person can perceive or use, with its role, its
 //! name, its state and its value - the accessibility tree.
 //!
@@ -184,7 +184,7 @@ impl fmt::Display for Access<'_> {
 }
 
 impl<const N: usize, const T: usize> Tree<N, T> {
-    /// The accessibility tree (#10085, provisional): each thing showing a
+    /// The accessibility tree (provisional): each thing showing a
     /// person can perceive or use, in reading order - the screen, then
     /// each layer open over it - with how deep it is, passed to `each`.
     pub fn access(&self, mut each: impl FnMut(&Access<'_>)) {

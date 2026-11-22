@@ -41,7 +41,7 @@ pub const HEIGHT: u32 = 1080;
 pub const SCALE: nowayos_display::DeviceScale = nowayos_display::DeviceScale::TWO;
 /// The screen, in pixels: what the session's taps and clicks are placed on.
 pub const SCREEN: Rect = Rect::new(0, 0, WIDTH, HEIGHT);
-/// The keyboard layout the demo's keys type on (#10081).
+/// The keyboard layout the demo's keys type on.
 pub const LAYOUT: Layout = Layout::Uk;
 
 /// Space around the screen's edge, in layout units.
@@ -258,7 +258,7 @@ const UNFOCUSED_KEYS: [InputEvent; 2] = [
     InputEvent::KeyDown(key('q')),
     InputEvent::KeyDown(KeyCode::ENTER),
 ];
-/// The name input clicked, so the mouse rests on it, hovering it (#10082),
+/// The name input clicked, so the mouse rests on it, hovering it,
 /// as a click in QEMU leaves it.
 const CLICK_NAME: [InputEvent; 3] = click(400, 260);
 const TYPE_NAME: [InputEvent; 5] = [

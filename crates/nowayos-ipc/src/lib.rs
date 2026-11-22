@@ -3,8 +3,7 @@
 //!
 //! Protection domains (PDs) on Microkit exchange data through shared memory
 //! regions signalled by notifications.
-//! This crate is the typed layer on top, following the
-//! message rules: messages are **explicit,
+//! This crate is the typed layer on top: messages are **explicit,
 //! bounded, versioned and validated on receipt**, and no object graphs cross
 //! a PD boundary.
 //!

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Key-to-character mapping: the keyboard layouts a system names (#10081).
+//! Key-to-character mapping: the keyboard layouts a system names.
 //!
 //! A [`Keymap`] turns the canonical key events a UI receives into the
 //! characters they type on its [`Layout`] - US, UK or US International -

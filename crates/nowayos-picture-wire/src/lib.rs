@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! The records between a client (the UI PD, or a PD that fetches
-//! pictures) and the picture decoder PD (#10084): a picture to decode, and
+//! pictures) and the picture decoder PD: a picture to decode, and
 //! its outcome.
 //!
 //! A picture received at run time is hostile input, so decoding it is the

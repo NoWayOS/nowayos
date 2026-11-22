@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Composing in bounded tiles (#10079, ADR-0027): an area holding a shadow
+//! Composing in bounded tiles: an area holding a shadow
 //! or a see-through node is drawn tile by tile into a buffer the renderer
 //! may read back, then copied to the target. Everything else is drawn
-//! straight to the target, as before.
+//! straight to the target.
 //!
 //! A tile is at most [`TILE_WIDTH`] x [`TILE_HEIGHT`] pixels; a see-through
 //! group keeps one copy of it, at most [`GROUPS`] deep. Nothing grows with

@@ -112,7 +112,7 @@ impl FrameMemory for Frame<ReadWrite> {
     }
 
     /// Within the frame, as the bytes copy within themselves: what a scroll
-    /// moves of what is drawn (#10073), rather than drawing it again.
+    /// moves of what is drawn, rather than drawing it again.
     fn copy_within(&mut self, from: usize, to: usize, len: usize) -> bool {
         let mut shared = self.bytes;
         shared.copy_within(from, to, len)

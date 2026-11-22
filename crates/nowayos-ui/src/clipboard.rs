@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Copy and paste inside the application (#10080): a clipboard the tree -
+//! Copy and paste inside the application: a clipboard the tree -
 //! the UI PD - holds alone.
 //!
 //! Ctrl+C and Ctrl+X copy or cut the selection in a text input or area, or
@@ -8,8 +8,7 @@
 //! fits and every character is one the input takes. What is copied is
 //! wiped in place - at a session wipe, when the tree is cleared, and once
 //! it is older than the life a product sets ([`Tree::set_clipboard_life`]);
-//! its `Debug` never shows it, so it never reaches a log. A masked field
-//! (#8356) will copy nothing.
+//! its `Debug` never shows it, so it never reaches a log.
 
 use core::fmt;
 

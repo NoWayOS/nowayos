@@ -3,7 +3,7 @@
 //! advance from the signed-off font at every size the themes use, so the
 //! device draws proportional text without ever parsing a font file. And
 //! each face's outlines ([`Face`], [`Outline`]), from the same tool, which
-//! `nowayos-raster` draws on the device at any size (ADR-0026).
+//! `nowayos-raster` draws on the device at any size.
 //!
 //! **Provisional**: `nowayos-ui` lays text out with these metrics,
 //! and `nowayos-render-eg` draws text from these glyphs, anti-aliased;

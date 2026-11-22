@@ -1,6 +1,6 @@
 [package]
 name = "nowayos-picture-decoder"
-description = "The picture decoder PD (#10084): decodes PNG and JPEG received at run time, within bounds, on a heap of its own, holding nothing else; restartable"
+description = "The picture decoder PD: decodes PNG and JPEG received at run time, within bounds, on a heap of its own, holding nothing else; restartable"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

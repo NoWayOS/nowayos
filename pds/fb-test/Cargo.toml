@@ -1,6 +1,6 @@
 [package]
 name = "nowayos-fb-test"
-description = "Spike S2: the display test pattern on the Pi 5's firmware framebuffer, from seL4 - the QEMU display PD's pattern with only the framebuffer's acquisition changed"
+description = "The display test pattern on the Pi 5's firmware framebuffer, from seL4 - the QEMU display PD's pattern with only the framebuffer's acquisition changed"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

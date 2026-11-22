@@ -57,7 +57,7 @@ pub(crate) struct Paint<C> {
     pub ground: C,
 }
 
-/// A gradient filling a shape (#10079): between two colours over an area,
+/// A gradient filling a shape: between two colours over an area,
 /// along a line at an angle or out from its centre.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct GradientFill<C> {
@@ -150,7 +150,7 @@ impl Rounded {
         self.draw_shaded(target, clip, paint, inside, raster, None)
     }
 
-    /// As [`draw`](Self::draw), its inside filled with `gradient` (#10079)
+    /// As [`draw`](Self::draw), its inside filled with `gradient`
     /// rather than the paint's fill.
     pub(crate) fn draw_gradient<D>(
         self,

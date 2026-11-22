@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! The frame bench on the host (#10077): each screen at each size and
+//! The frame bench on the host: each screen at each size and
 //! depth, its steps timed in microseconds, and a frame's copy - what the
 //! display PD does with each frame. Run it optimised:
 //! `cargo run --release -p nowayos-frame-times --example host`.

@@ -15,7 +15,7 @@ nowayos-display.workspace = true
 # names with the font.
 nowayos-glyphs.workspace = true
 # Our own: draws each glyph from its outline at the size and scale the
-# text needs (ADR-0026, proposed).
+# text needs.
 nowayos-raster.workspace = true
 nowayos-ui.workspace = true
 embedded-graphics.workspace = true

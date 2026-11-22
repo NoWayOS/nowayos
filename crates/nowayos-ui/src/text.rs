@@ -60,7 +60,7 @@ pub fn is_invisible(ch: char) -> bool {
 /// Latin-1 - the space to `~` and the no-break space to `ÿ`, less the soft
 /// hyphen - which is also the repertoire of the built-in ISO 8859-1 fonts.
 /// Every atlas holds exactly these characters, and a test keeps the two the
-/// same. Provisional, until W4 decides the supported scripts.
+/// same. Provisional.
 #[must_use]
 pub const fn is_printable(ch: char) -> bool {
     matches!(ch, ' '..='~' | '\u{A0}'..='\u{FF}') && ch != '\u{AD}'

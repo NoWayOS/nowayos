@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! The mouse (#10082): the control the pointer hovers, marked only when it
+//! The mouse: the control the pointer hovers, marked only when it
 //! changes and never while a finger touches; the pointer's shape over each
 //! kind of thing, a node's own and beneath a dialog; and a context action
 //! on a right click or a long press, a menu then opened for its control

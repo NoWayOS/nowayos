@@ -114,7 +114,7 @@ pub enum UiError {
     },
     /// No virtual list of this number in the tree.
     UnknownList(crate::ListId),
-    /// No layer of this number in the tree (#10076).
+    /// No layer of this number in the tree.
     UnknownLayer(crate::LayerId),
     /// The layer is inside a hidden group or a closed layer, so cannot
     /// open.
@@ -124,10 +124,10 @@ pub enum UiError {
     /// A layer of this number is in the tree already.
     DuplicateLayer(crate::LayerId),
     /// [`MAX_RUNNING`](crate::motion::MAX_RUNNING) animations are running
-    /// already (#10086).
+    /// already.
     TooManyAnimations,
     /// [`MAX_MOUSE_NODES`](crate::mouse::MAX_MOUSE_NODES) nodes have a
-    /// context action, or a cursor, already (#10082).
+    /// context action, or a cursor, already.
     TooManyMouseNodes,
     /// A long text holds from 1 to
     /// [`MAX_LONG_TEXT`](crate::long_text::MAX_LONG_TEXT) bytes.

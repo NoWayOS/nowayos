@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Zoom (#10083): Ctrl and plus, minus or zero ask for the whole interface
+//! Zoom: Ctrl and plus, minus or zero ask for the whole interface
 //! larger, smaller or as the display has it, a quarter at a time within 1
 //! to 4; laid out again at another scale, the tree keeps its focus and each
 //! scroll view its place, in proportion.

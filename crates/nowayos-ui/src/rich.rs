@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Rich text (#10078, builder contract v21): one paragraph of runs, each
+//! Rich text (builder contract v21): one paragraph of runs, each
 //! with its own weight, italics, theme colour, code or link, wrapped as one
 //! text - React's `<Text>Press <strong>Save</strong>, or read
 //! <a onClick={…}>the guide</a>.</Text>`.

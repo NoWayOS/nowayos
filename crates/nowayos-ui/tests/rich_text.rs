@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Rich text (#10078): runs wrap as one paragraph; each link is a tab stop
+//! Rich text: runs wrap as one paragraph; each link is a tab stop
 //! of its own, Enter or Space reports its action, a press on it does too,
 //! and a press on the rest of the text does nothing.
 

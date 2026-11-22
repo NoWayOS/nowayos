@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Pictures - photographs and illustrations - converted at build time
-//! (ADR-0012): the device parses no image file. `tools/pictures` decodes
+//! Pictures - photographs and illustrations - converted at build time:
+//! the device parses no image file. `tools/pictures` decodes
 //! each PNG or JPEG a crate's `pictures.toml` pins, resamples it to each
 //! device scale the product uses and writes its pixels beside a generated
 //! module of statics ([`Picture`]), one a picture, so a program links only
@@ -129,7 +129,7 @@ impl Pixels {
 }
 
 /// Pixels borrowed for drawing: a picture's [`Pixels`], or one decoded at
-/// run time (#10084) and held in memory of the program's own - premultiplied
+/// run time and held in memory of the program's own - premultiplied
 /// RGBA, four bytes a pixel, row by row.
 #[derive(Debug, Clone, Copy)]
 pub struct View<'a> {

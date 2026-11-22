@@ -1,6 +1,6 @@
 [package]
 name = "nowayos-picture-show"
-description = "Test instrument (#10084): the picture decoder PD's client and parent - sends it pictures, restarts it when it faults, and shows what it decodes through the UI loop"
+description = "Test instrument: the picture decoder PD's client and parent - sends it pictures, restarts it when it faults, and shows what it decodes through the UI loop"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

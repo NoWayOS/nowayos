@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Layers over the screen (#10076): dialogs, menus, popovers and tooltips.
+//! Layers over the screen: dialogs, menus, popovers and tooltips.
 //!
 //! A layer is built with the screen, where it is written, and takes no
 //! place there: it is laid out against the viewport - a dialog in the
@@ -38,7 +38,7 @@ pub const LAYER_MARGIN: u32 = 16;
 /// units.
 pub const POPUP_GAP: u32 = 4;
 
-/// How far past a node its shadow may reach, in layout units (#10079): a
+/// How far past a node its shadow may reach, in layout units: a
 /// theme's shadows fall, spread and blur within it, and what changes a
 /// node with a shadow marks this much around it for repainting.
 pub const SHADOW_REACH: u32 = 48;
@@ -158,7 +158,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
         self.mark_layer(id);
         let first = self.focus_order().next();
         self.move_focus(first);
-        // Its default transition, as the motion setting allows (#10086).
+        // Its default transition, as the motion setting allows.
         if let Some(kind) = self.layer_kind(id) {
             self.transition_in(id, kind);
         }
@@ -451,7 +451,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
         if let Some(anchor) = anchor {
             self.node(anchor)?;
         }
-        // Each on a card that casts a shadow (#10079): a dialog's the
+        // Each on a card that casts a shadow: a dialog's the
         // deepest.
         let (style, elevation) = match kind {
             LayerKind::Dialog => (
@@ -582,8 +582,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
     /// Where control `id` shows: its area, within every scroll view around
     /// it.
     fn anchor_rect(&self, id: NodeId) -> Option<Rect> {
-        // Opened in answer to a context action on it: at the point pressed
-        // (#10082).
+        // Opened in answer to a context action on it: at the point pressed.
         if let Some(at) = self.context_anchor(id) {
             return Some(at);
         }

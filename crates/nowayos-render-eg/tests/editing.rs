@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Editing text (#10075), as the golden images show: a text input with a
+//! Editing text, as the golden images show: a text input with a
 //! word selected on the selection colour and the caret after it, a long
 //! value scrolled to keep its caret in view, and a text area of several
 //! lines with a selection across two of them; and a repaint of any part
 //! gives the pixels of a full one. Selectable text, pressed, on the
-//! selection colour (#10080).
+//! selection colour.
 
 #![allow(
     clippy::unwrap_used,

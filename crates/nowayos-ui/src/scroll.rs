@@ -406,7 +406,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
             .unwrap_or(false)
     }
 
-    /// Before the tree is laid out again at scale `to` - zoomed (#10083) -
+    /// Before the tree is laid out again at scale `to` - zoomed -
     /// moves each scroll view's offset from the scale it was laid out at to
     /// `to`, in proportion, so it shows the same place; the layout then
     /// keeps it in range. Laid out at the same scale, nothing changes.
@@ -435,11 +435,11 @@ impl<const N: usize, const T: usize> Tree<N, T> {
     /// and slows. Whether a fling is still moving - so the loop calls again
     /// at its next frame.
     pub fn advance(&mut self, elapsed: u32) -> bool {
-        // Transitions and animations step on too (#10086), and what was
-        // copied ages (#10080).
+        // Transitions and animations step on too, and what was
+        // copied ages.
         let moving = self.step_motion(elapsed);
         self.pass_time(elapsed);
-        // A finger resting on a control is timed (#10082).
+        // A finger resting on a control is timed.
         self.rest_for(elapsed);
         self.advance_fling(elapsed) || moving
     }

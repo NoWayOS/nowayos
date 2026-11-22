@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Editing text anywhere (#10075): a caret moved by the arrows, Home and
+//! Editing text anywhere: a caret moved by the arrows, Home and
 //! End, a word at a time with Ctrl, and placed by the pointer; a selection
 //! made with Shift, a drag or a double click, which typing replaces and
 //! Backspace and Delete remove; text areas of several lines, Enter starting

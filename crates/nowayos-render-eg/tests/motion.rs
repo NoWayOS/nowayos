@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Motion (#10086), as the golden images show: a dialog's default
+//! Motion, as the golden images show: a dialog's default
 //! transition - fading and growing - at fixed steps of the runtime's
 //! clock; a spinning icon, a pulsing card, an indeterminate progress bar
 //! and a shimmering placeholder at one moment; repaints of only what moved

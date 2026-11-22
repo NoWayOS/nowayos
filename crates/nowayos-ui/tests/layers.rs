@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Layers over the screen (#10076): a dialog opens in the middle, holding
+//! Layers over the screen: a dialog opens in the middle, holding
 //! focus, nothing beneath it reachable, until the application closes it; a
 //! menu or popover opens beside its control on whichever side has room and
 //! closes on Escape or a press outside, a menu also on a choice; focus

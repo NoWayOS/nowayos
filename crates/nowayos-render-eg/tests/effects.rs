@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Shadows, gradients and opacity (#10079), as the golden image shows:
+//! Shadows, gradients and opacity, as the golden image shows:
 //! cards casting each of the theme's shadows over a picture, a linear and
 //! a radial gradient between theme colours, and a card drawn half
-//! see-through over a picture; a repaint of any part, composed in tiles
-//! (ADR-0027), gives the full repaint's pixels; and no band shows in a
+//! see-through over a picture; a repaint of any part, composed in tiles,
+//! gives the full repaint's pixels; and no band shows in a
 //! gradient at 32 bits.
 
 #![allow(

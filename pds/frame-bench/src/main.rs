@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! The frame bench (#10077): `nowayos-frame-bench`'s two screens - a
+//! The frame bench: `nowayos-frame-bench`'s two screens - a
 //! launcher and an article - drawn at 1920 x 1080, 2560 x 1440 and
 //! 3840 x 2160, in 16 and 32 bits a pixel, into a framebuffer-sized
 //! region: a first and a second full redraw, a scroll step, a press and a

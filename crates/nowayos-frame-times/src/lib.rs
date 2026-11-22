@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Frame times (#10077): how long NoWayOS's renderer takes to draw two
+//! Frame times: how long NoWayOS's renderer takes to draw two
 //! screens - a launcher of cards, and a text-heavy article - at 1920 x
 //! 1080, 2560 x 1440 and 3840 x 2160, in 16 and 32 bits a pixel: a full
 //! redraw, a scroll step, a press and a slot change. The same code runs on

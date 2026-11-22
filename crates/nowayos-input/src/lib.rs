@@ -6,7 +6,7 @@
 //! an external sanitising microcontroller on hardened hardware. So applications never parse USB HID, PS/2
 //! or any device protocol. An input protection domain turns whatever the
 //! device sends into a small, bounded [`InputEvent`], and that is all the UI
-//! receives (Architecture → Stable Messages).
+//! receives.
 //!
 //! This crate provides:
 //!

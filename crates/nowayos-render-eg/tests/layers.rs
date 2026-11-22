@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Layers over the screen (#10076), as the golden images show: a menu on
+//! Layers over the screen, as the golden images show: a menu on
 //! a card beside its button, and a dialog over the screen, which is veiled
 //! beneath it - its picture too; and with layers open, a repaint of any
 //! part, or of what opening and closing them marked, gives the pixels of a

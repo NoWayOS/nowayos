@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! `nowayos-fb-test`: spike S2 - can a display PD use the
+//! `nowayos-fb-test`: can a display PD use the
 //! framebuffer the Raspberry Pi 5's firmware sets up?
 //!
 //! It draws the display test pattern QEMU's ramfb display PD draws

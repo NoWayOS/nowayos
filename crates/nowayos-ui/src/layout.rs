@@ -636,7 +636,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
         };
         self.arrange(root, root_rect, units, 0)?;
         self.viewport = viewport;
-        // Each layer against the viewport, over the screen (#10076).
+        // Each layer against the viewport, over the screen.
         self.place_layers(metrics)?;
         self.metrics = Some(*metrics);
         self.scale = units.scale;

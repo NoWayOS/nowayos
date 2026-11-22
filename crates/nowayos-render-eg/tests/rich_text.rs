@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Rich text (#10078), as the golden image shows: runs in Bold, italics
+//! Rich text, as the golden image shows: runs in Bold, italics
 //! (the face slanted), a theme colour, code on its tint and links,
 //! underlined, the focused one ringed - on the background, on a card and
 //! on a header bar; and a repaint of any part gives the full repaint's

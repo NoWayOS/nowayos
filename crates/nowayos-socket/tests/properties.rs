@@ -630,7 +630,7 @@ proptest! {
     }
 
     #[test]
-    fn the_four_refusals_the_story_names(steps in prop::collection::vec(step(), 0..64)) {
+    fn the_four_refusals(steps in prop::collection::vec(step(), 0..64)) {
         // Whatever came before: a record naming a connection not open, data
         // before Connected or after its sender's end, and a Connect beyond
         // the capacity are each refused, and change nothing.

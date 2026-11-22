@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! `nowayos-input-broker`: the input broker PD between the input drivers and
-//! the UI (DP-08). It merges the canonical events of every input
+//! the UI. It merges the canonical events of every input
 //! source into one stream, checks each against the screen, and holds each
 //! source to its own rate, so that a hostile or faulty device cannot flood
 //! or confuse the UI, whichever driver it comes through.

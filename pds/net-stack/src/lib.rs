@@ -31,7 +31,7 @@
 //! rings gets the DHCP lease and nothing more.
 //!
 //! Its MAC address is fixed - the one each system's `.qemu` file gives the
-//! card - until the driver hands the card's own over (Known Issues).
+//! card - until the driver hands the card's own over.
 //!
 //! The socket storage smoltcp borrows, and the connections' buffers
 //! (`TcpRoom`, 272 KiB: a 64 KiB window each), live in `init`'s frame,

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Decoding pictures received at run time (#10084): NoWayOS's sample JPEG
+//! Decoding pictures received at run time: NoWayOS's sample JPEG
 //! and PNG decode to their size, premultiplied; hostile pictures - a
 //! header claiming a huge size, a decompression bomb, truncated or
 //! corrupted bytes, the wrong format - are refused with a typed reason,
