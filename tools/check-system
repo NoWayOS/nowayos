@@ -364,9 +364,6 @@ class Device:
         # the bus address of physical address 0.
         self.dma_offset = dma_offset
 
-    def contains(self, paddr):
-        return self.address is not None and self.address <= paddr < self.address + self.size
-
 
 def is_int(value):
     return isinstance(value, int) and not isinstance(value, bool)

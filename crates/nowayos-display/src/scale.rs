@@ -14,10 +14,6 @@
 
 use crate::{DEFAULT_LAYOUT, DeviceScale, FramebufferLayout, PixelFormat, Size, scale_for};
 
-/// The smallest screen, in layout units, NoWayOS's screens are made for:
-/// the kiosk's 800 x 480, the Raspberry Pi Touch Display's.
-pub const LEAST_SCREEN: Size = Size::new(800, 480);
-
 /// The device scale a display announces for a screen `pixels` in size
 /// when no product says otherwise: the largest quarter step from 1 to 4
 /// that leaves at least [`DEFAULT_LAYOUT`]'s 960 x 540 layout units

@@ -218,8 +218,7 @@ def check_deny(label, workspace, baseline):
                         f"{show(licences['include-dev'])}")
     problems += ban_problems(label, deny, baseline_bans(wanted))
     problems += graph_problems(label, deny)
-    skips_private = deny.get("licenses", {}).get("private", {}).get("ignore", False) is True
-    return problems, skips_private
+    return problems
 
 
 def baseline_bans(wanted):
@@ -440,8 +439,7 @@ def main():
             found, count = check_cargo(label, workspace, baseline)
             problems += found
             crates += count
-            found, _ = check_deny(label, workspace, baseline)
-            problems += found
+            problems += check_deny(label, workspace, baseline)
             problems += lock_problems(label, workspace, baseline_bans(baseline["deny"]))
             if not args.no_metadata:
                 for problem in local_crate_problems(cargo_metadata(workspace), args.root, siblings,

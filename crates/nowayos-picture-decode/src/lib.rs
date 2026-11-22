@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Decodes a picture received at run time (#10084): the picture decoder
+//! Decodes a picture received at run time: the picture decoder
 //! PD's work, a PNG or JPEG into premultiplied RGBA, on that PD's bounded
 //! heap.
 //!

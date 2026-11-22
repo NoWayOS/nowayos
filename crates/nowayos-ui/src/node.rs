@@ -367,8 +367,8 @@ impl Default for Input {
     }
 }
 
-/// A picture received at run time, by the application's number for it
-/// (#10084): see [`NodeKind::Live`].
+/// A picture received at run time, by the application's number for it:
+/// see [`NodeKind::Live`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Default)]
 pub struct LiveId(pub u16);
 
@@ -482,23 +482,23 @@ pub struct Look {
     pub radius: Option<u32>,
     /// A button's label colour.
     pub text: Option<Colour>,
-    /// A shadow beneath it, one of the theme's (#10079).
+    /// A shadow beneath it, one of the theme's.
     pub shadow: Option<Elevation>,
     /// A gradient filling it, between two of the theme's colours, in
-    /// place of a fill (#10079).
+    /// place of a fill.
     pub gradient: Option<Gradient>,
     /// How opaque it and everything inside it are drawn, from 0, unseen, to
-    /// 255, as now (#10079).
+    /// 255, fully opaque.
     pub opacity: Option<u8>,
-    /// How it comes into view when a condition shows it (#10087): a
+    /// How it comes into view when a condition shows it: a
     /// constant, by reference, so a node stays small.
     pub transition: Option<&'static crate::motion::Transition>,
-    /// An animation of its own, running while motion is on (#10087): a
+    /// An animation of its own, running while motion is on: a
     /// constant, by reference.
     pub animation: Option<&'static crate::motion::Animation>,
 }
 
-/// One of the theme's shadows, by how high what casts it stands (#10079):
+/// One of the theme's shadows, by how high what casts it stands:
 /// each is an offset, a blur and a spread in layout units, the theme's.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum Elevation {
@@ -511,7 +511,7 @@ pub enum Elevation {
     High,
 }
 
-/// A gradient between two of the theme's colours (#10079).
+/// A gradient between two of the theme's colours.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Gradient {
     /// Its shape.
@@ -522,7 +522,7 @@ pub struct Gradient {
     pub to: Colour,
 }
 
-/// A gradient's shape (#10079).
+/// A gradient's shape.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum GradientKind {
     /// Along a line at `angle` degrees, as CSS's `linear-gradient`: 180,
@@ -895,7 +895,7 @@ pub struct TextStyle {
     /// Its colour, one of the theme's; `None` for the colour of
     /// its role where it stands.
     pub colour: Option<Colour>,
-    /// Whether a press selects it, for Ctrl+C to copy (#10080; CSS's
+    /// Whether a press selects it, for Ctrl+C to copy (CSS's
     /// `userSelect: "text"`).
     pub selectable: bool,
 }
@@ -921,7 +921,7 @@ impl TextStyle {
     }
 
     /// The same, selectable: a press selects it, for Ctrl+C to copy
-    /// (#10080, builder contract v24).
+    /// (builder contract v24).
     #[must_use]
     pub const fn selectable(self) -> Self {
         Self {
@@ -1362,7 +1362,7 @@ pub enum NodeKind {
         /// selected.
         anchor: u8,
     },
-    /// Several lines of text a person types (#10075): a text input whose
+    /// Several lines of text a person types: a text input whose
     /// value lives in the tree's text store, up to `capacity` bytes, wrapped
     /// at its width and shown `rows` lines at a time, scrolled to keep its
     /// caret in view. Enter starts a line; Up and Down move between lines.
@@ -1536,7 +1536,7 @@ pub enum NodeKind {
         /// a picture that is only decoration.
         alt: &'static str,
     },
-    /// A picture received at run time (#10084), decoded by the picture
+    /// A picture received at run time, decoded by the picture
     /// decoder PD: its pixels are the application's, lent to the renderer
     /// at each frame by `id` (`nowayos-render-eg`'s `Live`); until there
     /// are some, nothing is drawn. `width` x `height` layout units unless
@@ -1584,7 +1584,7 @@ pub enum NodeKind {
     /// only takes space along the main axis — it never widens its parent
     /// across it.
     Spacer,
-    /// One paragraph of runs (#10078, builder contract v21), each with its
+    /// One paragraph of runs (builder contract v21), each with its
     /// own weight, italics, colour, code or link, wrapped as one text
     /// ([`crate::rich`]) in the node's style. A text with links is
     /// focusable: each link a tab stop of its own.
@@ -1596,7 +1596,7 @@ pub enum NodeKind {
         /// The link that has focus while the text does, from 0.
         link: u8,
     },
-    /// A layer over the screen (#10076, builder contract v20): a dialog,
+    /// A layer over the screen (builder contract v20): a dialog,
     /// menu, popover or tooltip, holding one child. It takes no place where
     /// it is written; laid out against the viewport and drawn over the
     /// screen while open ([`crate::layer`]), on a card - a tooltip on a

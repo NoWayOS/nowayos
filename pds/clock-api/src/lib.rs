@@ -358,7 +358,7 @@ impl fmt::Display for Refusal {
 /// Offers the sample in `record`, copied out of a source's ring, to `clock`
 /// as from `source` at `now`.
 #[must_use]
-pub fn take_record<const SLOT: usize>(
+fn take_record<const SLOT: usize>(
     clock: &mut Clock,
     record: &Record<SLOT>,
     source: Source,

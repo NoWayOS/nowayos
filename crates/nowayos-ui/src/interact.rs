@@ -9,7 +9,7 @@ use crate::keyboard::KeyAction;
 use crate::tree::MAX_DEPTH;
 use crate::{ActionId, FieldId, InputMode, NodeId, NodeKind, Tree, UiError};
 
-/// A step of zoom (#10083): the whole interface larger, smaller or as it
+/// A step of zoom: the whole interface larger, smaller or as it
 /// was, in proportion.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Zoom {
@@ -94,7 +94,7 @@ pub enum UiEvent {
     /// Escape was pressed in an open dialog (builder contract v20): the
     /// application may close it ([`Tree::close`](crate::Tree::close)).
     Dismissed(crate::LayerId),
-    /// Ctrl and plus, minus or zero (#10083): the person asks for the
+    /// Ctrl and plus, minus or zero: the person asks for the
     /// whole interface larger, smaller or as it was. The loop steps its
     /// scale ([`Zoom::apply`]) and the screen is laid out again.
     Zoom(Zoom),
@@ -114,7 +114,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
     #[must_use]
     pub fn hit_test(&self, point: Point) -> Option<NodeId> {
         // An open layer first: under a dialog, menu or popover nothing
-        // beneath can be hit (#10076).
+        // beneath can be hit.
         if let Some(hit) = self.hit_layers(point) {
             return hit;
         }
@@ -325,7 +325,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
                     self.release()
                 }
             }
-            // A right click: a context action (#10082).
+            // A right click: a context action.
             InputEvent::PointerButton {
                 button: 1,
                 down: true,
@@ -397,7 +397,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
                 None
             }
             InputEvent::KeyDown(key) => {
-                // What it types on the keyboard's layout (#10081).
+                // What it types on the keyboard's layout.
                 let typed = self.keymap.key_down(key);
                 // A key shows the focus ring, and ends any double click.
                 self.set_focus_visible(true);
@@ -438,7 +438,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
         // A press of the pointer or a touch hides the focus ring.
         self.set_focus_visible(false);
         // With nothing open over the screen, a menu opened later opens
-        // beside its control, not where a context action was (#10082).
+        // beside its control, not where a context action was.
         if self.layers.open.is_empty() {
             self.mouse.context_at = None;
         }
@@ -452,13 +452,13 @@ impl<const N: usize, const T: usize> Tree<N, T> {
             return None;
         }
         // Outside the layer holding focus: a menu or popover closes, and
-        // nothing beneath is pressed (#10076).
+        // nothing beneath is pressed.
         if let Some(outcome) = self.press_outside(self.pointer) {
             self.set_pressed(None);
             return outcome;
         }
         // Selectable text under the pointer is selected, or a selection
-        // cleared (#10080).
+        // cleared.
         let under = self.hit_test(self.pointer).filter(|&id| {
             self.get(id).is_some_and(|node| {
                 node.style.text.selectable
@@ -466,7 +466,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
             })
         });
         self.select_text(under);
-        // On a rich text, only its links can be pressed (#10078).
+        // On a rich text, only its links can be pressed.
         let target =
             self.control_at(self.pointer)
                 .filter(|&id| match self.get(id).map(|node| &node.kind) {
@@ -606,14 +606,14 @@ impl<const N: usize, const T: usize> Tree<N, T> {
     }
 
     fn key_down(&mut self, key: KeyCode, typed: Typed) -> Option<UiEvent> {
-        // Ctrl and plus, minus or zero: zoom, wherever focus is (#10083).
+        // Ctrl and plus, minus or zero: zoom, wherever focus is.
         if self.ctrl()
             && let Some(zoom) = Zoom::of_key(key)
         {
             return Some(UiEvent::Zoom(zoom));
         }
         // Escape in a layer holding focus: a menu or popover closes, a
-        // dialog asks the application to close it (#10076).
+        // dialog asks the application to close it.
         if key == KeyCode::ESCAPE
             && let Some(top) = self.trapping()
         {
@@ -668,7 +668,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
             return None;
         }
         // In a focused rich text, Tab and Shift-Tab go through its links
-        // before leaving it (#10078).
+        // before leaving it.
         if key == KeyCode::TAB
             && let Some(focused) = self.focus
             && let Some(NodeKind::Rich { links, link, .. }) = self.get(focused).map(|n| &n.kind)
@@ -702,7 +702,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
             }
             _ => {}
         }
-        // Ctrl+C with selectable text selected copies it (#10080), unless
+        // Ctrl+C with selectable text selected copies it, unless
         // an input holds the keys.
         if self.ctrl()
             && KeyCode::letter('c') == Some(key)
@@ -750,7 +750,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
     }
 
     /// Types `key`, Shift held if `shift`, into text input `id`: from a
-    /// keyboard, or a key of the on-screen keyboard (#10075). Left and
+    /// keyboard, or a key of the on-screen keyboard. Left and
     /// Right move the caret a character - a word with Ctrl - and Home and
     /// End to an end; with Shift they select. Ctrl and A select it all. A
     /// character replaces what is selected or goes in at the caret;
@@ -763,7 +763,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
             return self.focus_event(Self::focus_next);
         }
         let ctrl = self.ctrl();
-        // Copy, cut and paste (#10080).
+        // Copy, cut and paste.
         if ctrl && is_clip_key(key) {
             return self.clip_input(id, key);
         }
@@ -884,7 +884,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
         event
     }
 
-    /// Ctrl+C, Ctrl+X or Ctrl+V in text input `id` (#10080): the
+    /// Ctrl+C, Ctrl+X or Ctrl+V in text input `id`: the
     /// selection copied, or cut, or the clipboard pasted over it - if it
     /// fits and the input takes every character.
     fn clip_input(&mut self, id: NodeId, key: KeyCode) -> Option<UiEvent> {
@@ -946,7 +946,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
         }
     }
 
-    /// Sets the keyboard layout keys type on (#10081): US until a product
+    /// Sets the keyboard layout keys type on: US until a product
     /// names another. A dead key waiting is dropped.
     pub fn set_keyboard_layout(&mut self, layout: Layout) {
         self.keymap.set_layout(layout);
@@ -1226,7 +1226,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
 
     /// Focusable nodes in tree order.
     pub(crate) fn focus_order(&self) -> impl Iterator<Item = NodeId> + '_ {
-        // While a layer holds focus, only its controls (#10076).
+        // While a layer holds focus, only its controls.
         let plane = self
             .trapping()
             .and_then(|top| self.shown_layers().position(|id| id == top))
@@ -1248,7 +1248,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
             let before = self.focus;
             self.focus = to;
             // An accent waiting for its letter is not carried to another
-            // control (#10081).
+            // control.
             self.keymap.cancel();
             self.keyboard_follows(before);
         }
@@ -1494,7 +1494,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
     }
 }
 
-/// Whether `key` is C, X or V: with Ctrl, copy, cut or paste (#10080).
+/// Whether `key` is C, X or V: with Ctrl, copy, cut or paste.
 /// The most bytes one key types: two characters, a dead key's and the
 /// letter it did not go on.
 pub(crate) const TYPED_BYTES: usize = 8;

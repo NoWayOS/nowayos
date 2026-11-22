@@ -356,7 +356,7 @@ fn on_ground(theme: &Theme<Rgb888>, on: Option<Surface>) -> [Option<Pair>; 24] {
     ]
 }
 
-/// What the pointer hovers, drawn on `on` (#10082): each button
+/// What the pointer hovers, drawn on `on`: each button
 /// variant's label on its hover fill, an option's label and mark on the
 /// hover tint, and a list picker's row on the tint over the input's fill.
 fn hovered(theme: &Theme<Rgb888>, on: Option<Surface>) -> [Pair; 6] {
@@ -459,7 +459,7 @@ pub fn text_colours<'a, const N: usize, const T: usize>(
                     || theme.text_on(surface, style.text.role),
                     |colour| theme.colour(colour),
                 );
-                // Over a gradient, its worse end (#10079).
+                // Over a gradient, its worse end.
                 let ground = crate::gradient_under(tree, node, theme).map_or(ground, |g| {
                     if ratio(text, g.from) < ratio(text, g.to) {
                         g.from
@@ -483,7 +483,7 @@ pub fn text_colours<'a, const N: usize, const T: usize>(
                     .map_or(colours.label, |colour| theme.colour(colour));
                 Some((id, label, fill))
             }
-            // A rich text's runs: the one that stands out least (#10078).
+            // A rich text's runs: the one that stands out least.
             NodeKind::Rich { runs, .. } => runs
                 .iter()
                 .enumerate()

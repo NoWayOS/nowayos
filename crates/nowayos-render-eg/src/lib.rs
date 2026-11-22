@@ -386,20 +386,20 @@ pub struct Theme<C: PixelColor> {
     /// A scrollbar's thumb, over what a scroll view shows - on a header
     /// bar, the bar's text colour ([`Theme::scrollbar_on`]).
     pub scrollbar: C,
-    /// What is selected in a text input, behind its text (#10075).
+    /// What is selected in a text input, behind its text.
     pub selection: C,
-    /// A link in a rich text, on the background and on a card (#10078); on
+    /// A link in a rich text, on the background and on a card; on
     /// any other surface, links take its text's colour, underlined as
     /// always ([`Theme::link_on`]).
     pub link: C,
     /// Code in a rich text: the tint behind it, which its text is blended
-    /// over (#10078).
+    /// over.
     pub code: C,
-    /// The shadows a node casts, by its elevation (#10079), drawn toward
+    /// The shadows a node casts, by its elevation, drawn toward
     /// the [`veil`](Self::veil) colour.
     pub shadows: Shadows,
     /// What an open dialog veils the screen beneath it with: every colour
-    /// there is drawn half way to this ([`Theme::veiled`], #10076).
+    /// there is drawn half way to this ([`Theme::veiled`]).
     pub veil: C,
     /// What each spacing token measures, in layout units: the
     /// gaps, padding and spacers a screen names by size. Layout gives them
@@ -407,7 +407,7 @@ pub struct Theme<C: PixelColor> {
     pub spacing: Spacing,
 }
 
-/// A shadow (#10079): moved down `dy` and grown by `spread` layout units,
+/// A shadow: moved down `dy` and grown by `spread` layout units,
 /// blurred over `blur` more, at most `alpha` out of 255 of the way to the
 /// theme's veil colour. `dy`, `spread` and `blur` together stay within
 /// [`nowayos_ui::layer::SHADOW_REACH`].
@@ -423,7 +423,7 @@ pub struct Shadow {
     pub alpha: u8,
 }
 
-/// A theme's shadows, one for each elevation (#10079).
+/// A theme's shadows, one for each elevation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Shadows {
     /// A card resting on the screen.
@@ -750,7 +750,7 @@ impl<C: PixelColor> Theme<C> {
 }
 
 impl<C: RgbColor + From<Rgb888>> Theme<C> {
-    /// This theme beneath an open dialog (#10076): every colour drawn
+    /// This theme beneath an open dialog: every colour drawn
     /// half way to the [`veil`](Self::veil), so the screen shows, dimmed,
     /// out of reach behind it.
     #[must_use]
@@ -833,7 +833,7 @@ impl<C: RgbColor + From<Rgb888>> Theme<C> {
         }
     }
 
-    /// A link's colour standing on `on` (#10078): the theme's on the
+    /// A link's colour standing on `on`: the theme's on the
     /// background or a card, the surface's text colour on any other.
     #[must_use]
     pub const fn link_on(&self, on: Option<Surface>) -> C {
@@ -921,8 +921,8 @@ impl<C: RgbColor + From<Rgb888>> Theme<C> {
         }
     }
 
-    /// What a hovered option or list row stands on, over `ground`
-    /// (#10082): the button colour's tint.
+    /// What a hovered option or list row stands on, over `ground`:
+    /// the button colour's tint.
     #[must_use]
     pub fn hover_over(&self, ground: C) -> C {
         text::blend(self.button, ground, HOVER_TINT)
@@ -976,7 +976,7 @@ pub fn metrics(font: &MonoFont<'_>) -> TextMetrics {
 /// veil, out of 255: half way.
 const VEIL: u8 = 128;
 
-/// The pixels of pictures decoded at run time (#10084), lent to each frame
+/// The pixels of pictures decoded at run time, lent to each frame
 /// by the program that holds them, by their [`LiveId`]: copied out of the
 /// region the picture decoder PD wrote, into the program's own memory,
 /// before they are lent.
@@ -996,7 +996,7 @@ impl Live for NoLive {
 }
 
 /// [`render_dirty`], the pixels of pictures decoded at run time lent by
-/// `live` (#10084). Call [`Tree::clear_dirty`] afterwards.
+/// `live`. Call [`Tree::clear_dirty`] afterwards.
 ///
 /// # Errors
 ///
@@ -1085,7 +1085,7 @@ where
 }
 
 /// [`render_area`], the pixels of pictures decoded at run time lent by
-/// `live` (#10084).
+/// `live`.
 ///
 /// # Errors
 ///
@@ -1106,7 +1106,7 @@ where
         return Ok(());
     };
     // With a shadow or a see-through node in it, composed tile by tile in
-    // a buffer that can be read back (#10079, ADR-0027); else straight.
+    // a buffer that can be read back; else straight.
     if !has_effects(tree, area) {
         return paint(
             tree,
@@ -1141,7 +1141,7 @@ fn has_effects<const N: usize, const T: usize>(tree: &Tree<N, T>, area: Rect) ->
             .intersects(&area))
             || (look.is_translucent() && rect.intersects(&area))
     }) || tree.paint_order().any(|(id, node)| {
-        // A node moving see-through, scaled or shimmering (#10086).
+        // A node moving see-through, scaled or shimmering.
         let visual = tree.visual(id);
         visual.composes()
             && nowayos_ui::motion::drawn_area(node.rect(), visual, tree.scale(), 0)
@@ -1149,8 +1149,7 @@ fn has_effects<const N: usize, const T: usize>(tree: &Tree<N, T>, area: Rect) ->
     })
 }
 
-/// A see-through or shimmering group open while its subtree is drawn
-/// (#10079, #10086).
+/// A see-through or shimmering group open while its subtree is drawn.
 #[derive(Clone, Copy)]
 struct Group<C> {
     node: NodeId,
@@ -1242,7 +1241,7 @@ fn scaled(rect: Rect, scale: u16) -> Rect {
 }
 
 /// Where node `id` is moved to while it, or anything around it up to
-/// `root`, moves (#10086): how far right and down, in pixels at `scale`,
+/// `root`, moves: how far right and down, in pixels at `scale`,
 /// and what it is cut to - each box around it scaled or partly revealed -
 /// in its own coordinates.
 fn moved<const N: usize, const T: usize>(
@@ -1343,7 +1342,7 @@ where
 {
     let scale = tree.scale();
     let base = theme.metrics_at(scale);
-    // Beneath an open dialog, every colour veiled (#10076).
+    // Beneath an open dialog, every colour veiled.
     let veiled = theme.veiled();
     let theme_of = |plane: usize| {
         if tree.is_veiled(plane) {
@@ -1536,7 +1535,7 @@ where
     Ok(())
 }
 
-/// The gradient `node` stands on (#10079): its nearest ancestor drawn on a
+/// The gradient `node` stands on: its nearest ancestor drawn on a
 /// surface, a fill or a gradient, if that is a gradient.
 pub(crate) fn gradient_under<C, const N: usize, const T: usize>(
     tree: &Tree<N, T>,
@@ -1641,7 +1640,7 @@ pub(crate) fn under<const N: usize, const T: usize>(
         if parent.kind().is_container() && (style.surface.is_some() || style.look.fill.is_some()) {
             return (style.surface, style.look.fill);
         }
-        // A layer stands on its own surface, over the screen (#10076).
+        // A layer stands on its own surface, over the screen.
         if let NodeKind::Layer { .. } = parent.kind() {
             return (style.surface, None);
         }
@@ -1665,7 +1664,7 @@ pub struct ButtonColours<C> {
     pub pressed: C,
     /// Its label while pressed, on that fill.
     pub pressed_label: C,
-    /// Its fill while the pointer hovers it (#10082), its label as at
+    /// Its fill while the pointer hovers it, its label as at
     /// rest: a primary button half way to pressed, the others tinted with
     /// their label's colour.
     pub hover: C,
@@ -1708,13 +1707,13 @@ struct Painter<'t, 'th, 'g, 'c, D: DrawTarget> {
     /// picture's pixels are drawn half way to it, as the theme's colours
     /// are ([`Theme::veiled`]).
     veil: Option<D::Color>,
-    /// The gradient the node stands on, if it does (#10079): its text is
+    /// The gradient the node stands on, if it does: its text is
     /// blended over the gradient's colour at each pixel.
     gradient: Option<shape::GradientFill<D::Color>>,
-    /// How the node is drawn while it moves (#10086): its colours, its
+    /// How the node is drawn while it moves: its colours, its
     /// box's scale, an icon's turn, a progress bar's sweep.
     visual: Visual,
-    /// The pixels of pictures decoded at run time (#10084).
+    /// The pixels of pictures decoded at run time.
     live: &'th dyn Live,
 }
 
@@ -1729,10 +1728,10 @@ where
         id: NodeId,
         node: &Node,
     ) -> Result<(), D::Error> {
-        // Its box scaled about its centre while it moves (#10086).
+        // Its box scaled about its centre while it moves.
         let rect = scaled(node.rect(), self.visual.scale);
         let focused = tree.focused() == Some(id);
-        // What the pointer hovers (#10082): this node, and which part.
+        // What the pointer hovers: this node, and which part.
         let hover = tree.hover();
         let hovered = hover.node == Some(id);
         let hover_part = hover.part.filter(|_| hovered).map(usize::from);
@@ -1752,7 +1751,7 @@ where
                 }
             }
             NodeKind::Group { .. } | NodeKind::Switch { .. } | NodeKind::Spacer => Ok(()),
-            // A layer over the screen, on its surface (#10076).
+            // A layer over the screen, on its surface.
             NodeKind::Layer { .. } => match node.style().surface {
                 Some(surface) => self.surface(rect, surface),
                 None => Ok(()),
@@ -1760,8 +1759,8 @@ where
             NodeKind::Progress { permille, .. } => self.progress(content, *permille),
             NodeKind::Icon(icon) => self.icon(content, icon),
             NodeKind::Image { picture, fit, .. } => self.picture(content, picture, *fit),
-            // A picture decoded at run time, if its pixels are lent
-            // (#10084): at its own pixels' size until fitted.
+            // A picture decoded at run time, if its pixels are lent:
+            // at its own pixels' size until fitted.
             NodeKind::Live { id, fit, .. } => match self.live.view(*id) {
                 Some(view) => self.pixels(content, (view.width(), view.height()), view, *fit),
                 None => Ok(()),
@@ -2403,7 +2402,7 @@ where
     /// broken after spaces at the content's width, at most the style's
     /// lines - each a line high, the block centred in the content's height.
     /// Each line sits across the content as its style aligns it.
-    /// Selectable text a press has selected (#10080): its box on the
+    /// Selectable text a press has selected: its box on the
     /// selection colour, its text blended over it.
     fn selected<const N: usize, const T: usize>(
         &mut self,
@@ -2419,7 +2418,7 @@ where
         self.fill(content, self.theme.selection)
     }
 
-    /// A hovered option or row (#10082): `area` on the hover tint, what
+    /// A hovered option or row: `area` on the hover tint, what
     /// is drawn on it next blended over that. The caller puts the ground
     /// back.
     fn hovered(&mut self, area: Rect) -> Result<(), D::Error> {
@@ -2642,7 +2641,7 @@ where
     }
 
     fn text_colour(&self, node: &Node) -> D::Color {
-        // A text changing colour (#10086).
+        // A text changing colour.
         if let Some((from, to, t)) = self.visual.text {
             return self.mixed(from, to, t);
         }
@@ -2717,7 +2716,7 @@ where
             None => (self.ground, self.theme.input_border, 0, 0),
         };
         let fill = look.fill.map_or(fill, |colour| self.theme.colour(colour));
-        // A fill changing colour (#10086).
+        // A fill changing colour.
         let fill = match self.visual.fill {
             Some((from, to, t)) => self.mixed(from, to, t),
             None => fill,
@@ -2740,7 +2739,7 @@ where
             border,
             ground: self.ground,
         };
-        // A gradient in place of the fill (#10079).
+        // A gradient in place of the fill.
         if let Some(gradient) = look.gradient {
             let fill = shape::GradientFill {
                 from: self.theme.colour(gradient.from),
@@ -2782,7 +2781,7 @@ where
             .top()
             .saturating_add(i64::from(rect.size.height.saturating_sub(size) / 2));
         let (ink, ground, clip) = (self.ink(), self.ground, self.clip);
-        // Turned about its centre while it spins (#10086): each pixel
+        // Turned about its centre while it spins: each pixel
         // takes the mask's nearest under it, turned back.
         let (sin, cos) = turn_sin_cos(self.visual.turn);
         let half = i64::from(size) / 2;
@@ -2876,7 +2875,7 @@ where
 
     /// `pixels`, whose own size at the scale is `natural`, fitted into
     /// `rect` by `fit`, blended over the ground: a picture, or one decoded
-    /// at run time (#10084).
+    /// at run time.
     fn pixels(
         &mut self,
         rect: Rect,
@@ -2943,7 +2942,7 @@ where
     /// A progress bar in `rect`: a rounded track, and over it, from
     /// the start, a rounded fill `permille` thousandths of its width.
     fn progress(&mut self, rect: Rect, permille: u16) -> Result<(), D::Error> {
-        // Indeterminate (#10086): a third of the bar sweeping along.
+        // Indeterminate: a third of the bar sweeping along.
         if let Some(along) = self.visual.sweep {
             return self.sweep(rect, along);
         }
@@ -3104,7 +3103,7 @@ where
                 self.text_slanted(piece.text, rect, TextAlign::Start, colour, on, slanted)?;
                 if linked.is_some() {
                     // Underlined, a little below the baseline; twice as
-                    // thick while the pointer hovers it (#10082).
+                    // thick while the pointer hovers it.
                     let thick = if linked == hovered {
                         self.px(2).max(2)
                     } else {
@@ -3285,7 +3284,7 @@ const FOCUS_GAP: u32 = 1;
 /// and of a key's of the on-screen keyboard.
 const INPUT_BORDER: u32 = 1;
 
-/// How much of the button colour tints what the pointer hovers (#10082),
+/// How much of the button colour tints what the pointer hovers,
 /// in 255ths: an option, a list row; a secondary or quiet button as much as
 /// its label's contrast allows ([`hover_tint`]).
 const HOVER_TINT: u8 = 24;

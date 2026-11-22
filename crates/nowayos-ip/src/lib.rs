@@ -19,7 +19,7 @@
 //!   only with a seed ([`StackSeed`], never smoltcp's default of 0) and on
 //!   monotonic time from the timer PD, never wall-clock time.
 //!
-//! smoltcp 0.14.0 (0BSD, signed off: Licensing Options item 19) is
+//! smoltcp 0.14.0 (0BSD) is
 //! built with only `medium-ethernet`, `proto-ipv4`, `proto-dhcpv4`,
 //! `socket-dhcpv4` and `socket-tcp`: `deny.toml` holds every workspace to
 //! exactly those. IPv6, DNS and UDP sockets come with the product that

@@ -43,21 +43,21 @@
 //! that keeps every rule:
 //!
 //! 1. **A watchdog reset always counts**, however long the system had run.
-//!    Rule 5 clears the restart count after a *fault*, and a hang is not a
-//!    fault (a hung PD never faults); rule 5 names a
-//!    watchdog reset among the starts that add 1, and rule 7 says a starved
-//!    watchdog's reset "counts". A reset whose cause was never written down
+//!    The restart count is cleared after a *fault*, and a hang is not a
+//!    fault (a hung PD never faults); a watchdog reset is among the starts
+//!    that add 1, and so is the reset of a watchdog that was starved. A
+//!    reset whose cause was never written down
 //!    counts the same way. Only a fault, with the time the system had run
 //!    known and at least [`Limits::clearing_run`], clears the count.
 //! 2. **A cold start clears both counts, even counts that cannot be read.**
-//!    Rule 6: only a cold start brings the device back, and it clears both
+//!    Only a cold start brings the device back, and it clears both
 //!    counts - and a new device's first start finds no counts at all. At
 //!    every other start, counts that cannot be read or checked give the
-//!    fail-safe state, and the counts to store are at both limits (rule 5).
+//!    fail-safe state, and the counts to store are at both limits.
 //! 3. **Once a count has reached its limit, only a cold start clears it.** A
 //!    fault after the clearing run clears the restart count only while both
 //!    counts are below their limits, so no start answers restart once either
-//!    limit is reached (rule 6).
+//!    limit is reached.
 //!
 //! # What the caller decides
 //!

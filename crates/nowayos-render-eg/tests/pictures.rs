@@ -171,7 +171,7 @@ fn at_its_own_scale_a_picture_is_copied_and_its_alpha_shows_the_ground() {
     assert!(frame.pixel(left + 18, top + 28).unwrap().r() > 200);
 }
 
-/// A picture decoded at run time (#10084): drawn from the pixels its
+/// A picture decoded at run time: drawn from the pixels its
 /// program lends by its id, fitted to its box; nothing without them.
 #[test]
 fn a_live_picture_is_drawn_from_the_pixels_lent_by_its_id() {

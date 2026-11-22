@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Keyboard layouts (#10081): a tree types on the layout a product names -
+//! Keyboard layouts: a tree types on the layout a product names -
 //! UK, with AltGr and its dead keys, or US International, with its dead
 //! keys - into text inputs and areas; Caps Lock; an input's mode still
 //! refuses what it does not take; and an accent waiting for its letter is

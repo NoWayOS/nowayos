@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Motion (#10086) in the tree: off until the loop that drives the clock
+//! Motion in the tree: off until the loop that drives the clock
 //! turns it on; a dialog's default transition and a new screen's; input
 //! during a transition acts on the end state at once; animations end,
 //! repeat and stop; and a session wipe leaves nothing moving.

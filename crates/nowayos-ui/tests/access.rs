@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! The accessibility tree (#10085, a spike): a fixture screen told as a
+//! The accessibility tree (provisional): a fixture screen told as a
 //! screen reader would be told it - each thing's role, name, state and
 //! value, at its depth - and kept in step: what changes in the tree
 //! changes in it. Its `Debug` never shows a value.

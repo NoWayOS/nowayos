@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! Editing text: where a caret moves and what a selection's replacement
-//! leaves, on UTF-8 boundaries, in bytes (#10075).
+//! leaves, on UTF-8 boundaries, in bytes.
 //!
 //! A text input keeps a caret and an anchor, byte offsets into its value
 //! on character boundaries; the selection is the text between them. These

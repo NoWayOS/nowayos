@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Copy and paste inside the application (#10080): Ctrl+C, Ctrl+X and
+//! Copy and paste inside the application: Ctrl+C, Ctrl+X and
 //! Ctrl+V in text inputs and areas, a paste refused where it does not fit
 //! or the input does not take its characters, selectable text selected by a
 //! press and copied, and the clipboard wiped at a session wipe or once past

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! `nowayos-picture-show`: the test instrument of
-//! `systems/picture-decode-test.system` (#10084) - the picture decoder PD's
+//! `systems/picture-decode-test.system` - the picture decoder PD's
 //! client and its parent.
 //!
 //! Once the display has announced its layout, it sends the decoder five

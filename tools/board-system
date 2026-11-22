@@ -349,7 +349,7 @@ def device_facts(name, devices, board):
         raise ValueError(f"device {name!r} on board {board!r} has no compatible string: add it to the "
                          f"board file, with its source")
     compatible = device.compatible.encode("ascii")
-    mode = getattr(device, "framebuffer", None)
+    mode = device.framebuffer
     on_bus = device.pci_bar0 is not None or device.dma_offset is not None
     if mode is not None and on_bus:
         raise ValueError(f"device {name!r} on board {board!r} is both a framebuffer and on a bus")

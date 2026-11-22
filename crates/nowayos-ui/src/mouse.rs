@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! The mouse (#10082): the control the pointer hovers, drawn so; the
+//! The mouse: the control the pointer hovers, drawn so; the
 //! pointer's shape, saying what a press there will do; and a context
 //! action - a right click, or a finger resting on a control - that a menu
 //! the application then opens for that control shows at.

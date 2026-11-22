@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Hover states (#10082): a hovered button on its hover fill, a hovered
+//! Hover states: a hovered button on its hover fill, a hovered
 //! radio option on the hover tint, a hovered input's border twice as
 //! thick; and after the pointer moves, a repaint of what it marked gives a
 //! full repaint's pixels.

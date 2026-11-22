@@ -35,7 +35,9 @@
 # size: only its interrupts (the CPU's EL1 physical timer, below).
 #
 # Not listed: the GIC and the timers the kernel keeps for itself, the
-# secure-world UART and GPIO, flash, PCIe and the platform bus.
+# secure-world UART and GPIO, flash, PCIe and the platform bus; and the
+# real-time clock (PL031) and the GPIO controller (PL061), which no system
+# uses.
 
 board = "qemu_virt_aarch64"
 
@@ -58,15 +60,6 @@ source = "QEMU v7.2.0 hw/arm/virt.c: base_memmap[VIRT_UART] = { 0x09000000, 0x00
 note = "QEMU's only non-secure UART (pl011@9000000, uart0 in QEMU's own naming): the board's debug UART. In Microkit's debug configuration the seL4 kernel also writes its debug console to this UART, so a PD granted it shares the device with the kernel (a test boot on 2026-10-02 mapped it without error)."
 
 [[device]]
-name = "rtc"
-compatible = "arm,pl031"
-address = 0x0901_0000
-size = 0x1000
-irqs = [34]
-trigger = "level"
-source = "QEMU v7.2.0 hw/arm/virt.c: base_memmap[VIRT_RTC] = { 0x09010000, 0x00001000 }; a15irqmap[VIRT_RTC] = 2 (SPI 2 = INTID 34); create_rtc: GIC_FDT_IRQ_FLAGS_LEVEL_HI"
-
-[[device]]
 name = "fw_cfg"
 compatible = "qemu,fw-cfg-mmio"
 address = 0x0902_0000
@@ -75,15 +68,6 @@ irqs = []
 trigger = "level"
 source = "QEMU v7.2.0 hw/arm/virt.c: base_memmap[VIRT_FW_CFG] = { 0x09020000, 0x00000018 }; no interrupt. Confirmed in QEMU 7.2's own device tree, observed 2026-10-03: fw-cfg@9020000, reg = <0x9020000 0x18>, compatible qemu,fw-cfg-mmio, dma-coherent"
 note = "QEMU's firmware configuration device: its registers are 0x18 bytes, alone in this page. Its DMA interface makes it a DMA test device (systems/dma-demo); it holds nothing a product needs. Its DMA is cache-coherent (dma-coherent)."
-
-[[device]]
-name = "gpio"
-compatible = "arm,pl061"
-address = 0x0903_0000
-size = 0x1000
-irqs = [39]
-trigger = "level"
-source = "QEMU v7.2.0 hw/arm/virt.c: base_memmap[VIRT_GPIO] = { 0x09030000, 0x00001000 }; a15irqmap[VIRT_GPIO] = 7 (SPI 7 = INTID 39); create_gpio_devices: GIC_FDT_IRQ_FLAGS_LEVEL_HI"
 
 # virtio-mmio: 32 transports of 0x200 bytes from 0x0a000000, transport i on
 # SPI 16 + i (INTID 48 + i). A page holds eight of them, so a PD granted one

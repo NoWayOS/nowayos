@@ -299,11 +299,6 @@ impl<'a, C: Crypto, S: StateStorage, B: SlotStorage> Updater<'a, C, S, B> {
         self.state.trust_list.is_some() && !self.list_used
     }
 
-    /// The storage, back.
-    pub fn into_parts(self) -> (StateStore<S>, B) {
-        (self.store, self.slots)
-    }
-
     /// Offers a trust list; see the [module](self).
     ///
     /// # Errors

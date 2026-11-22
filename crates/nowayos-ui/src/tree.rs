@@ -72,18 +72,17 @@ pub struct Tree<const N: usize, const T: usize = 0> {
     pub(crate) thumb: Option<crate::scroll::ThumbHold>,
     /// A virtual list whose window of items moved, not yet reported.
     pub(crate) list_moved: Option<crate::ListId>,
-    /// The layers open over the screen, and the tooltip showing (#10076).
+    /// The layers open over the screen, and the tooltip showing.
     pub(crate) layers: crate::layer::Layers,
-    /// Transitions and animations running, and how moving nodes are drawn
-    /// (#10086).
+    /// Transitions and animations running, and how moving nodes are drawn.
     pub(crate) motion: crate::motion::Motion,
-    /// What was copied (#10080).
+    /// What was copied.
     pub(crate) clipboard: crate::clipboard::Clipboard,
-    /// The selectable text a press selected (#10080).
+    /// The selectable text a press selected.
     pub(crate) selected: Option<NodeId>,
-    /// The keyboard's layout and state: what keys type (#10081).
+    /// The keyboard's layout and state: what keys type.
     pub(crate) keymap: nowayos_input::keymap::Keymap,
-    /// What the pointer hovers, cursors and context actions (#10082).
+    /// What the pointer hovers, cursors and context actions.
     pub(crate) mouse: crate::mouse::Mouse,
 }
 
@@ -395,7 +394,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
         self.add(NodeKind::Icon(icon), Style::new())
     }
 
-    /// Creates a picture received at run time (#10084): `id`'s pixels,
+    /// Creates a picture received at run time: `id`'s pixels,
     /// lent at each frame, `width` x `height` layout units until a style
     /// gives another size, fitted by `fit`, `alt` saying what it shows.
     /// After new pixels for `id`, mark it with
@@ -873,7 +872,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
         self.focus = None;
         self.pressed = None;
         self.dirty.mark_all();
-        // Each node's own animation, if motion is on (#10087).
+        // Each node's own animation, if motion is on.
         self.start_declared();
         Ok(())
     }
@@ -1416,7 +1415,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
         if changed {
             self.drop_hidden_focus();
             self.dirty.mark_all();
-            // What came into view, transitions in (#10087).
+            // What came into view, transitions in.
             self.enter_shown(
                 |kind| matches!(kind, NodeKind::Group { group: g, .. } if *g == group),
             );
@@ -1460,7 +1459,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
         if changed {
             self.drop_hidden_focus();
             self.dirty.mark_all();
-            // What came into view, transitions in (#10087).
+            // What came into view, transitions in.
             self.enter_shown(
                 |kind| matches!(kind, NodeKind::Switch { switch: s, .. } if *s == switch),
             );

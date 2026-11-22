@@ -63,7 +63,7 @@ pub(crate) struct Line<'a> {
     pub(crate) text: &'a str,
     pub(crate) left: i64,
     pub(crate) baseline: i64,
-    /// Whether it is drawn slanted, as an oblique (#10078).
+    /// Whether it is drawn slanted, as an oblique.
     pub(crate) slanted: bool,
 }
 
@@ -356,7 +356,7 @@ fn pixels<'a, C>(
 where
     C: RgbColor + From<Rgb888> + 'a,
 {
-    // Over a gradient, each pixel's own colour beneath (#10079).
+    // Over a gradient, each pixel's own colour beneath.
     let beneath = move |x: i64, y: i64| gradient.map_or(background, |g| g.at(x, y));
     cover
         .iter()

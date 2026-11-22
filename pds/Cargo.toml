@@ -4,12 +4,9 @@
 # pinned nightly toolchain, a custom target and build-std (see .cargo/). PDs may
 # depend on ../crates/* by path.
 #
-# Members: the PD binaries, one crate per program image, plus eight small
-# libraries they share (region, fault, ipc-demo, hw, timer-api, clock-api,
-# ui-loop, restart). The libraries need no seL4 (timer-api and clock-api only
-# for their `client` feature, restart only for its `entry` and `parent`
-# features), so `make pds-test` also runs their tests on the container's own
-# target.
+# Members: the PD binaries, one crate per program image, plus the libraries
+# they share. `make pds-test` runs the tests of the libraries that need no
+# seL4 on the container's own target (PDS_LIB_CRATES, ../tools/make/system.mk).
 
 [workspace]
 resolver = "3"
@@ -26,7 +23,7 @@ members = [
     # systems/ipc-demo.system
     "ipc-producer",
     "ipc-consumer",
-    # Phases 1-2: systems/isolation-test.system, systems/ui-isolation*.system
+    # systems/isolation-test.system, systems/ui-isolation*.system
     "isolation-parent",
     "isolation-probe",
     "isolation-bystander",
@@ -67,6 +64,7 @@ members = [
     # watched PDs that answer its heartbeat
     "watchdog",
     "watchdog-stand-in",
+    "heartbeat-probe",
     # The Pi 5's fan: systems/rpi5b_2gb/fan-test.system
     "fan",
     # systems/update-test.system, the update PD and its test
@@ -74,7 +72,6 @@ members = [
     "update",
     "update-bundles",
     "update-storage",
-    "heartbeat-probe",
     # Time isolation in QEMU: systems/budget-test.system and
     # budget-test-widened.system
     "budget-probe",
@@ -141,11 +138,11 @@ members = [
     # In QEMU: systems/tcp-test.system's test instrument, the network
     # stack's socket client over TCP
     "socket-test",
-    # The Pi 5's network: systems/rpi5b_2gb/net-stack-test.system, the NIC
+    # The Pi 5's network: systems/rpi5b_2gb/gem-net-test.system, the NIC
     # driver PD for RP1's Cadence GEM MAC, polled
     "gem-net",
     # In QEMU: systems/picture-decode-test.system, the picture decoder PD
-    # and the test UI that sends it pictures and shows them (#10084)
+    # and the test UI that sends it pictures and shows them
     "picture-decoder",
     "picture-show",
 ]
@@ -181,9 +178,8 @@ nowayos-frame-times = { path = "../crates/nowayos-frame-times" }
 nowayos-glyphs = { path = "../crates/nowayos-glyphs" }
 nowayos-heartbeat = { path = "../crates/nowayos-heartbeat" }
 nowayos-input = { path = "../crates/nowayos-input" }
-# The network stack's logic, which brings smoltcp 0.14.0 (0BSD, signed
-# off: Licensing Options item 19) with only the features deny.toml
-# allows.
+# The network stack's logic, which brings smoltcp 0.14.0 (0BSD) with only
+# the features deny.toml allows.
 nowayos-gem = { path = "../crates/nowayos-gem" }
 nowayos-ip = { path = "../crates/nowayos-ip" }
 nowayos-ipc = { path = "../crates/nowayos-ipc" }
@@ -199,7 +195,7 @@ nowayos-signature = { path = "../crates/nowayos-signature" }
 nowayos-time = { path = "../crates/nowayos-time" }
 nowayos-update = { path = "../crates/nowayos-update" }
 nowayos-ui = { path = "../crates/nowayos-ui" }
-# A picture received at run time, decoded within bounds (#10084): brings
+# A picture received at run time, decoded within bounds: brings
 # zune-png, zune-jpeg, zune-core and zune-inflate (MIT OR Apache-2.0 OR
 # Zlib, MIT taken), no_std with alloc; the records to and from its PD.
 nowayos-picture-decode = { path = "../crates/nowayos-picture-decode" }
@@ -240,9 +236,7 @@ nowayos-region = { path = "region" }
 nowayos-restart = { path = "restart" }
 nowayos-update-pd = { path = "update" }
 nowayos-entropy = { path = "entropy" }
-nowayos-entropy-source = { path = "entropy-source" }
 nowayos-heap = { path = "heap" }
-nowayos-fan = { path = "fan" }
 nowayos-usb-host = { path = "usb-host" }
 
 [workspace.lints.rust]

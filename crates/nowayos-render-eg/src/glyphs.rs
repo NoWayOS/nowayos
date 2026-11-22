@@ -1,8 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! Where text's glyphs come from: drawn from the faces' outlines by
 //! `nowayos-raster`, at the size and device scale the text is drawn at,
-//! and kept in a bounded cache ([`Glyphs`]) so each is drawn once
-//! (ADR-0026).
+//! and kept in a bounded cache ([`Glyphs`]) so each is drawn once.
 //!
 //! A [`Glyphs`] holds the rasteriser itself, about 192 KiB, and a cache
 //! over storage its owner gives it: a buffer of coverage and a table of
@@ -62,8 +61,8 @@ impl<'a> Glyphs<'a> {
         self.glyph_in(face, size64, ch, false)
     }
 
-    /// As [`glyph`](Self::glyph), slanted as an oblique if `slanted`
-    /// (#10078): kept apart from the upright glyph.
+    /// As [`glyph`](Self::glyph), slanted as an oblique if `slanted`:
+    /// kept apart from the upright glyph.
     pub fn glyph_in(
         &mut self,
         face: &'static Face,

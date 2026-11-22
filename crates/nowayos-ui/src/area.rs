@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Text areas (#10075): several lines a person types, their bytes in the
+//! Text areas: several lines a person types, their bytes in the
 //! tree's text store, wrapped at the area's width and shown a few rows at a
 //! time, scrolled to keep the caret in view.
 
@@ -62,7 +62,7 @@ fn nearest(text: &str, (start, end): (usize, usize), x: u32, metrics: &TextMetri
 
 impl<const N: usize, const T: usize> Tree<N, T> {
     /// Creates an empty text area bound to `field`, `rows` lines high,
-    /// taking `max_len` bytes of the tree's text store (#10075).
+    /// taking `max_len` bytes of the tree's text store.
     ///
     /// # Errors
     ///
@@ -143,7 +143,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
         typed: Typed,
     ) -> Option<UiEvent> {
         let ctrl = self.ctrl_keys.contains(&true);
-        // Copy, cut and paste (#10080).
+        // Copy, cut and paste.
         if ctrl && crate::interact::is_clip_key(key) {
             return self.clip_area(id, key);
         }
@@ -248,7 +248,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
         event
     }
 
-    /// Ctrl+C, Ctrl+X or Ctrl+V in text area `id` (#10080): the selection
+    /// Ctrl+C, Ctrl+X or Ctrl+V in text area `id`: the selection
     /// copied, or cut, or the clipboard pasted over it, if it fits.
     fn clip_area(&mut self, id: NodeId, key: KeyCode) -> Option<UiEvent> {
         let node = self.nodes.get(id.index())?;

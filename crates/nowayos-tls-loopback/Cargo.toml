@@ -8,13 +8,11 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
-nowayos-tls-crypto = { path = "../nowayos-tls-crypto" }
-# Apache-2.0 OR ISC OR MIT. No std, no logging, no TLS 1.2, no provider of
-# its own: nowayos-tls-crypto is the provider.
-rustls = { version = "=0.23.46", default-features = false }
-# BSD-3-Clause, already in nowayos-tls-crypto's tree: here it signs, for the
-# test server's raw public key only.
-ed25519-dalek = { version = "2.2.0", default-features = false }
+nowayos-tls-crypto.workspace = true
+rustls.workspace = true
+# Already in nowayos-tls-crypto's tree: here it signs, for the test server's
+# raw public key only.
+ed25519-dalek.workspace = true
 
 [dev-dependencies]
 # MIT OR Apache-2.0 - a counting global allocator for the host test of the

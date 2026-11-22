@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Motion (#10086): transitions and animations the runtime runs on its
+//! Motion: transitions and animations the runtime runs on its
 //! clock - [`Tree::advance`], which the UI PD calls at the display's rate
 //! while anything moves. There is no script on the device.
 //!
@@ -491,7 +491,7 @@ impl Visual {
         shimmer: None,
     };
 
-    /// Whether drawing it needs composing (ADR-0027): see-through, scaled
+    /// Whether drawing it needs composing: see-through, scaled
     /// or shimmering.
     #[must_use]
     pub const fn composes(&self) -> bool {

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Composing in bounded tiles (#10079, ADR-0027): an area holding a shadow
+//! Composing in bounded tiles: an area holding a shadow
 //! or a see-through node is drawn tile by tile into a buffer the renderer
 //! may read back, then copied to the target. Everything else is drawn
-//! straight to the target, as before.
+//! straight to the target.
 //!
 //! A tile is at most [`TILE_WIDTH`] x [`TILE_HEIGHT`] pixels; a see-through
 //! group keeps one copy of it, at most [`GROUPS`] deep. Nothing grows with
@@ -13,7 +13,7 @@ use core::convert::Infallible;
 use embedded_graphics::Pixel;
 use embedded_graphics::draw_target::DrawTarget;
 use embedded_graphics::pixelcolor::{Rgb888, RgbColor};
-use embedded_graphics::prelude::{OriginDimensions, Point as EgPoint, Size};
+use embedded_graphics::prelude::{OriginDimensions, Size};
 use nowayos_display::Rect;
 
 use crate::text::blend;
@@ -426,16 +426,11 @@ pub(crate) fn tiles(area: Rect) -> impl Iterator<Item = Rect> {
     })
 }
 
-/// `point` as `embedded-graphics` places it, if it fits.
-#[allow(dead_code, reason = "kept beside the tile for its tests")]
-pub(crate) fn eg(x: i64, y: i64) -> Option<EgPoint> {
-    Some(EgPoint::new(i32::try_from(x).ok()?, i32::try_from(y).ok()?))
-}
-
 #[cfg(test)]
 #[allow(clippy::unwrap_used, reason = "test code: a failure fails the test")]
 mod tests {
     use embedded_graphics::pixelcolor::Rgb888;
+    use embedded_graphics::prelude::Point as EgPoint;
 
     use super::*;
 

@@ -123,7 +123,7 @@ pub struct UiLoop {
     /// The area the pointer was last drawn in, and its shape, while it
     /// shows.
     pointer_drawn: Option<(Rect, Cursor)>,
-    /// The scale the person zoomed to (#10083), when not the display's.
+    /// The scale the person zoomed to, when not the display's.
     zoom: Option<DeviceScale>,
 }
 
@@ -158,7 +158,7 @@ impl UiLoop {
     }
 
     /// Where the pointer is drawn for `tree`, if it is: its hot spot, its
-    /// shape - what a press there will do (#10082) - and its area.
+    /// shape - what a press there will do - and its area.
     fn pointer_for<const N: usize, const T: usize>(
         &self,
         tree: &Tree<N, T>,
@@ -220,7 +220,7 @@ impl UiLoop {
     }
 
     /// Steps the scale the screens are laid out and drawn at by `zoom`
-    /// (#10083; Ctrl and plus, minus or zero, [`UiEvent::Zoom`]): a quarter
+    /// (Ctrl and plus, minus or zero, [`UiEvent::Zoom`]): a quarter
     /// larger or smaller, within 1 to 4, or back to the display's own. The
     /// new scale if it changed - then, for each screen, keep its scroll
     /// views' places (`Tree::rescale`) and lay it out again with
@@ -241,7 +241,7 @@ impl UiLoop {
     }
 
     /// Sets the scale the screens are laid out and drawn at, as the
-    /// application asks (#10083): `None` for the display's own.
+    /// application asks: `None` for the display's own.
     pub const fn set_zoom(&mut self, scale: Option<DeviceScale>) {
         self.zoom = scale;
     }
@@ -280,7 +280,7 @@ impl UiLoop {
     }
 
     /// [`draw_all`](Self::draw_all), the pixels of pictures decoded at run
-    /// time lent by `live` (#10084).
+    /// time lent by `live`.
     ///
     /// # Errors
     ///
@@ -320,7 +320,7 @@ impl UiLoop {
         Ok(present)
     }
 
-    /// The runtime's frame clock (#10086): while anything in `tree` moves
+    /// The runtime's frame clock: while anything in `tree` moves
     /// (a transition, an animation, a fling), lets `elapsed` milliseconds
     /// pass ([`Tree::advance`]) and draws what moved, giving the frame to
     /// present; `None` while nothing moves. A PD calls it each time the
@@ -366,7 +366,7 @@ impl UiLoop {
     }
 
     /// [`draw_dirty`](Self::draw_dirty), the pixels of pictures decoded at
-    /// run time lent by `live` (#10084).
+    /// run time lent by `live`.
     ///
     /// # Errors
     ///
@@ -688,7 +688,7 @@ mod tests {
         assert_eq!(memory, whole);
     }
 
-    /// Zoom (#10083) steps the scale the screens are laid out at a quarter
+    /// Zoom steps the scale the screens are laid out at a quarter
     /// at a time, within 1 to 4, and back to the display's own.
     #[test]
     fn zoom_steps_the_scale_by_quarters_and_back() {
@@ -742,7 +742,7 @@ mod tests {
         memory
     }
 
-    /// The frame clock (#10086): nothing to draw while nothing moves; while
+    /// The frame clock: nothing to draw while nothing moves; while
     /// a fade runs, a frame each tick, the last as a whole frame would be.
     #[test]
     fn the_frame_clock_draws_while_something_moves() {

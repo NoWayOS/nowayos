@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! Checks ECDSA P-256 signatures over SHA-256 inside a protection domain:
 //! the signatures the signing authority makes over trust lists,
-//! update manifests and configuration (Algorithms), and
+//! update manifests and configuration, and
 //! ES256 tokens, which use the same algorithm.
 //!
 //! **Verification only.** Nothing here holds or uses a private key, so

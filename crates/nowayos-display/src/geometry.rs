@@ -29,15 +29,6 @@ impl Point {
             _ => None,
         }
     }
-
-    /// This point moved by `(dx, dy)`, clamped to the `i32` range.
-    #[must_use]
-    pub const fn saturating_offset(self, dx: i32, dy: i32) -> Self {
-        Self {
-            x: self.x.saturating_add(dx),
-            y: self.y.saturating_add(dy),
-        }
-    }
 }
 
 /// A width and height, in pixels.
@@ -98,15 +89,6 @@ impl Size {
         Self {
             width: self.width.max(other.width),
             height: self.height.max(other.height),
-        }
-    }
-
-    /// Component-wise minimum.
-    #[must_use]
-    pub fn component_min(self, other: Self) -> Self {
-        Self {
-            width: self.width.min(other.width),
-            height: self.height.min(other.height),
         }
     }
 }

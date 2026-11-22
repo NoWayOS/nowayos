@@ -228,7 +228,7 @@ impl<const DEPTH: usize> Navigator<DEPTH> {
             .push(self.current)
             .map_err(|_| UiError::BackStackFull { capacity: DEPTH })?;
         self.switch(screen, tree, build)?;
-        // Its default transition, as the motion setting allows (#10086).
+        // Its default transition, as the motion setting allows.
         tree.transition_screen(true);
         Ok(())
     }

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! `nowayos-picture-decoder`: the picture decoder PD (#10084).
+//! `nowayos-picture-decoder`: the picture decoder PD.
 //!
 //! A picture received at run time is hostile, so it is decoded here, in a
 //! PD that holds nothing else: no device, no secret, no other channel. Its

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Zoom (#10083), as the golden images show: one form, in a scroll view,
+//! Zoom, as the golden images show: one form, in a scroll view,
 //! drawn in the same 960 x 540 pixels at 100%, 150% and 200% - everything
 //! larger in proportion, what does not fit scrolled to. And at 200% on a
 //! 1920 x 1080 screen - scale 4, 480 x 270 units - nothing is lost: every

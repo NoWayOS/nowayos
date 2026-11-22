@@ -71,7 +71,7 @@ use core::sync::atomic::{Ordering, fence};
 
 use nowayos_ipc::{
     ConsumerMemory, DecodeError, EncodeError, MAX_CAPACITY, Message, ProducerMemory, RingError,
-    SendError, decode, encode,
+    SendError, decode, encode, next_epoch,
 };
 
 /// How many times one [`LossyConsumer::try_recv_record`] copies a slot
@@ -88,15 +88,6 @@ fn lossy_mask(capacity: u32) -> Result<u32, RingError> {
         Ok(capacity.wrapping_sub(1))
     } else {
         Err(RingError::InvalidCapacity { capacity })
-    }
-}
-
-/// The epoch after `epoch`: one more, skipping 0 ("never started") when the
-/// count wraps - as `nowayos_ipc`'s ring counts them.
-const fn next_epoch(epoch: u32) -> u32 {
-    match epoch.wrapping_add(1) {
-        0 => 1,
-        next => next,
     }
 }
 
@@ -261,17 +252,6 @@ impl<'m, R: ConsumerMemory<SLOT> + ?Sized, const SLOT: usize> LossyConsumer<'m, 
         self.lost
     }
 
-    /// Passes every record published so far, unread and not counted lost:
-    /// for a side that has just started, or wants only what comes next.
-    /// Returns how many it passed, up to the window.
-    pub fn skip_to_newest(&mut self) -> u32 {
-        let producer = self.memory.load_producer_index();
-        let passed = producer.wrapping_sub(self.index).min(self.window);
-        self.index = producer;
-        self.memory.store_consumer_index(self.index);
-        passed
-    }
-
     /// Moves past every record older than the window `producer` places,
     /// counting them lost.
     fn catch_up(&mut self, producer: u32) {
@@ -401,21 +381,6 @@ mod tests {
         tx.send(&Word(10)).unwrap();
         assert_eq!(rx.try_recv::<Word>(), Ok(Some(Word(10))));
         assert_eq!(rx.lost(), 7);
-    }
-
-    #[test]
-    fn skipping_to_the_newest_passes_what_waits() {
-        let ring: InMemoryRing<8, 16> = InMemoryRing::new();
-        let mut tx = LossyProducer::new(&ring).unwrap();
-        let mut rx = LossyConsumer::new(&ring).unwrap();
-        for n in 0..5 {
-            tx.send(&Word(n)).unwrap();
-        }
-        assert_eq!(rx.skip_to_newest(), 5);
-        assert_eq!(rx.try_recv::<Word>(), Ok(None));
-        tx.send(&Word(5)).unwrap();
-        assert_eq!(rx.try_recv::<Word>(), Ok(Some(Word(5))));
-        assert_eq!(rx.lost(), 0);
     }
 
     #[test]

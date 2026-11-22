@@ -41,7 +41,7 @@ nowayos-usb = { path = "../crates/nowayos-usb" }
 # host, held to the same rule. Its parsers alone (no features), so that no
 # frame, renderer, font or image code comes into this workspace.
 nowayos-dev-window = { path = "../crates/nowayos-dev-window", default-features = false }
-# Pictures received at run time (#10084): the decoder and its PD's records.
+# Pictures received at run time: the decoder and its PD's records.
 nowayos-picture-decode = { path = "../crates/nowayos-picture-decode" }
 nowayos-picture-wire = { path = "../crates/nowayos-picture-wire" }
 # The libFuzzer runtime, compiled from the C++ sources the crate bundles:

@@ -102,11 +102,6 @@ impl<M: FrameMemory> RawFramebuffer<M> {
         self.layout
     }
 
-    /// The memory back, when drawing is done.
-    pub fn into_memory(self) -> M {
-        self.memory
-    }
-
     /// Stores `color` at `(x, y)`, or does nothing if that is outside the
     /// layout.
     fn store(&mut self, x: i32, y: i32, color: Rgb888) {
