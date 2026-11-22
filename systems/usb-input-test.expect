@@ -1,5 +1,5 @@
 # Lines tools/qemu-test must see, in this order, as whole serial lines.
-# In QEMU: usb-test's controller lines; then
+# In QEMU: the controllers' lines, as usb-test.expect has them; then
 # usb0 enumerates QEMU's USB keyboard, mouse and tablet on its root ports 5
 # to 7 - each device's vendor, product, class, USB release and speed, then
 # each boot interface ready, and the mouse's and tablet's layouts read from

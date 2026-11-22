@@ -3128,8 +3128,8 @@ class UsbGrants(unittest.TestCase):
     maps exactly one controller's window as device 0 - on QEMU also that
     controller's PCI configuration page as device 1 - its own DMA region,
     whose physical address it learns, and its controller's facts read-only;
-    no other PD maps any of them. And usb-input-test is usb-test with QEMU's
-    keyboard and mouse attached: the same description and grants."""
+    no other PD maps any of them. The Pi 5's usb-test is a variant of
+    usb-input-test (TestBoardVariants' VARIANT_OF)."""
 
     SYSTEMS = os.path.join(HERE, os.pardir, "systems")
 
@@ -3175,16 +3175,6 @@ class UsbGrants(unittest.TestCase):
                         if m.get("setvar_vaddr", "").startswith(("nowayos_device_", "nowayos_dma_")):
                             self.assertEqual(mapped_by[m.get("mr")], {name}, m.get("mr"))
         self.assertGreaterEqual(found, 4)
-
-    def test_usb_input_test_is_usb_test_with_devices_attached(self):
-        def description(name):
-            root = ET.parse(os.path.join(self.SYSTEMS, f"{name}.system")).getroot()
-            for element in root.iter():
-                element.text = element.tail = None
-            return ET.tostring(root, encoding="unicode")
-        self.assertEqual(description("usb-input-test"), description("usb-test"))
-        self.assertEqual(self.facts(os.path.join(self.SYSTEMS, "usb-input-test.grants")),
-                         self.facts(os.path.join(self.SYSTEMS, "usb-test.grants")))
 
 class CheckBaseline(unittest.TestCase):
     """tools/check-baseline, on a fixture workspace and on nowayos itself."""
@@ -3834,6 +3824,10 @@ class BoardSystem(unittest.TestCase):
                   ("rpi5b_2gb", "run-length-test"), ("rpi5b_2gb", "fan-test"),
                   ("rpi5b_2gb", "usb-stream-test"), ("rpi5b_2gb", "usb-audio-loop-pi-test"),
                   ("rpi5b_2gb", "usb-camera-test")}
+    # A board's system that varies a system of another name: the Pi 5's
+    # usb-test is usb-input-test without QEMU's keyboard and mouse, so its
+    # expect file checks only the controllers.
+    VARIANT_OF = {("rpi5b_2gb", "usb-test"): "usb-input-test"}
 
     def test_a_boards_own_variant_differs_from_its_system_only_in_devices(self):
         """systems/BOARD/NAME.system: built for BOARD instead of
@@ -3849,7 +3843,8 @@ class BoardSystem(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             for path in variants:
                 board, name = os.path.basename(os.path.dirname(path)), os.path.basename(path)[:-len(".system")]
-                source = os.path.join(self.SYSTEMS, f"{name}.system")
+                varies = self.VARIANT_OF.get((board, name), name)
+                source = os.path.join(self.SYSTEMS, f"{varies}.system")
                 grants = os.path.join(self.SYSTEMS, board, f"{name}.grants")
                 with self.subTest(board=board, system=name):
                     self.assertTrue(os.path.isfile(os.path.join(self.PLATFORMS, f"{board}.toml")), board)
@@ -3868,7 +3863,7 @@ class BoardSystem(unittest.TestCase):
                         continue
                     self.assertEqual(self.without_devices(path), self.without_devices(source))
                     ours, theirs = self.grant_facts(grants), self.grant_facts(
-                        os.path.join(self.SYSTEMS, f"{name}.grants"))
+                        os.path.join(self.SYSTEMS, f"{varies}.grants"))
                     facts = {mr.get("name") for mr in ET.parse(path).getroot().findall("memory_region")
                              if re.fullmatch(r"device-\w+\.bin", mr.get("prefill_path") or "")}
                     def other(fact):

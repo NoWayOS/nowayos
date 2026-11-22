@@ -2017,7 +2017,7 @@ enum Pointer {
 )]
 mod tests {
     //! The layout and ring logic on ordinary memory. Driving a controller
-    //! needs one: QEMU's `qemu-xhci` (`systems/usb-test`) and RP1's on the
+    //! needs one: QEMU's `qemu-xhci` (`systems/usb-input-test`) and RP1's on the
     //! Pi 5.
 
     use super::*;

@@ -6,7 +6,7 @@
 # pull request.
 
 # A test system: the client runs nowayos-audio-loop, a test instrument.
-# usb0 is the USB host PD itself, as in usb-test.
+# usb0 is the USB host PD itself, as in usb-input-test.
 system test
 role timer driver
 role usb0 input

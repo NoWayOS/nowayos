@@ -1,17 +1,47 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-    In QEMU: usb-test with QEMU's USB keyboard and mouse attached
-    . The description is usb-test's, element for
-    element (make tools-test checks); usb-input-test.qemu adds QEMU's
-    usb-kbd, usb-mouse and usb-tablet on the first controller's root ports,
-    so usb0 enumerates them, in port order, and its expect file checks what
-    they report: each device's vendor, product and class, each boot
-    interface ready, the tablet's layout from its report descriptor, and
-    the events that reach the UI's stand-in through the input broker.
-    usb-test checks only the controllers, as it runs on the Pi 5 with
-    whatever is plugged in. QEMU only.
+    The USB host PD. Two instances of
+    nowayos-usb-host, usb0 and usb1, each drive one xHCI controller - xhci0
+    and xhci1 - through nowayos-hw, with no unsafe code of their own: each
+    identifies its controller from its capability registers, halts and
+    resets it, sets it up in its own DMA region, runs it and sends a No Op
+    command, whose completion comes back through DMA, then reports its root
+    ports. Then, on the timer PD's tick, each enumerates the devices on its
+    ports and starts the reports of each boot keyboard and mouse.
 
-    Capabilities: as usb-test's (usb-input-test.grants lists them).
+    In QEMU the controllers are two qemu-xhci PCI functions, and
+    usb-input-test.qemu puts QEMU's usb-kbd, usb-mouse and usb-tablet on the
+    first controller's root ports, so usb0 enumerates them, in port order,
+    and the expect file checks what they report: each device's vendor,
+    product and class, each boot interface ready, the tablet's layout from
+    its report descriptor, and the events that reach the UI's stand-in
+    through the input broker. QEMU has no firmware to enumerate PCI, so each
+    PD is also granted its function's configuration page (xhciN_config) and
+    places the controller's window, BAR 0, where the board file says (the
+    controller's facts carry the address: pci_bar0). The Pi 5 builds its own
+    variant, rpi5b_2gb/usb-test.system: RP1's two controllers, which
+    U-Boot's enumeration has placed, no configuration page, and its own
+    expect file, usb-test.expect, which checks only the controllers, as
+    whatever is plugged in there differs (make tools-test keeps the variant
+    to this description).
+
+    Capabilities, per PD: its controller's register window - xhciN, by name
+    from the board file - uncached, read-write (on QEMU also its PCI
+    configuration page); its channel to the timer PD, which it calls for a
+    tick every 8 ms and which notifies it; its DMA region, 76 KiB - the
+    controller's context
+    array, scratchpad buffers, command and event rings, and each device's
+    contexts, transfer rings and buffers (nowayos_hw::xhci::DMA_SIZE) -
+    mapped uncached, whose physical address it learns to give the
+    controller; and the board's facts about its controller, read-only. No
+    interrupt (the driver polls), nothing else. The timer PD holds the
+    CPU's timer interrupt (on the Pi 5, BCM2712's system timer: the variant)
+    and runs above both; usb0 runs above usb1, so their start-up lines do
+    not mix.
+
+    Every grant above is also listed in usb-input-test.grants, which
+    tools/check-system compares with this file and with the kernel objects
+    the Microkit tool generates (make image, make qemu-test).
 -->
 <system>
     <protection_domain name="timer" priority="200" stack_size="0x10000">

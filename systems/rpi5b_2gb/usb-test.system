@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-    The Raspberry Pi 5's variant of usb-test.system:
-    the same PDs, memory and expect file; the controllers are RP1's two
+    The Raspberry Pi 5's variant of usb-input-test.system:
+    the same PDs and memory, and its own expect file, usb-test.expect; the controllers are RP1's two
     xHCI controllers, reached over PCIe as U-Boot's enumeration left it
     (platforms/rpi5b_2gb.toml: xhci0 and xhci1, the first page of each),
     so no PD is given a PCI configuration page. The firmware leaves both

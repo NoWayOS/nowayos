@@ -1,6 +1,6 @@
 # Lines tools/qemu-test must see, in this order, as whole serial lines.
 # In QEMU: usb0, the USB host PD itself, binds its client's audio
-# rings, runs its controller as usb-test's does and enumerates QEMU's USB
+# rings, runs its controller as usb-input-test's does and enumerates QEMU's USB
 # audio device on root port 5; it streams the speaker for the client, which
 # learns its format and sends a 440 Hz tone. The client has sent 10 s of
 # tone - 80 ms ahead of the speaker, so before usb0's own 10 s line, which

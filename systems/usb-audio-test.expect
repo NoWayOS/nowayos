@@ -1,5 +1,5 @@
 # Lines tools/qemu-test must see, in this order, as whole serial lines.
-# In QEMU: usb0 identifies and runs its controller as usb-test's
+# In QEMU: usb0 identifies and runs its controller as usb-input-test's
 # does, enumerates QEMU's USB audio device on root port 5, starts its
 # isochronous OUT endpoint with a 440 Hz tone and reports its first 10 s with
 # no interval missed. With QEMU_SETTLE=600 the test runs ten minutes more,
