@@ -60,12 +60,12 @@ ICONS_OUT := build/icon-masks
 # workspace's Cargo.lock alone, and the PNG decoder, png, besides only in
 # the root workspace's host-only test kit, never the PDs' or the fuzz
 # harness's: atlases-check fails if cargo tree finds one elsewhere - but
-# through PICTURE_DECODE, the picture decoder PD's library (#10084).
+# through PICTURE_DECODE, the picture decoder PD's library.
 PICTURE_TOOL := tools/pictures
 PICTURE_CRATES := crates/nowayos-pictures
 PICTURES_OUT := build/pictures
 JPEG_CRATES := zune-jpeg zune-core
-# The library that decodes pictures received at run time (#10084), in the
+# The library that decodes pictures received at run time, in the
 # picture decoder PD alone: the one way the image decoders may reach a device
 # crate's cargo tree.
 PICTURE_DECODE := nowayos-picture-decode
@@ -274,7 +274,7 @@ fuzz-skip:
 # decoders - nowayos-ipc's header, decode and decode_exact, the input event,
 # the display contract's records, the clock's sample and reading, the socket
 # records, the seed record, the update records and the picture decoder's
-# records (#10084) - never panic,
+# records - never panic,
 # overflow or read out of bounds for any input up to the longest record, and
 # keep their rules: all but the update records every rule; the manifest and a
 # bundle's chunk the rules on their lengths, characters and offset; the
