@@ -79,14 +79,17 @@ QEMU_BOARD = "qemu_virt_aarch64"
 DEFAULT_CONFIG = "debug"
 
 # Reviewed files copied into pins/, relative to nowayos: what pins the build.
+# Each Cargo workspace's Cargo.lock and deny.toml are added from WORKSPACES
+# (pinned_names).
 PINNED_FILES = (
-    "Cargo.lock", "rust-toolchain.toml", "deny.toml", "secrets-allow.toml",
-    "pds/Cargo.lock", "pds/Cargo.toml", "pds/rust-toolchain.toml", "pds/deny.toml", "pds/std-crates.txt",
+    "rust-toolchain.toml", "secrets-allow.toml",
+    "pds/Cargo.toml", "pds/rust-toolchain.toml", "pds/std-crates.txt",
     "tools/baseline.toml", "tools/crypto-crates.txt", "tools/grant-rules.toml", "tools/image-components.toml",
     "tools/initialiser-audit.toml", "tools/sel4-verification.toml", "tools/unsafe-allowlist.toml",
     "tools/container/Containerfile", "tools/container/rpi-firmware.sha256",
-    # The font the glyph atlases are made from, pinned by sha256.
-    "crates/nowayos-glyphs/glyphs.toml",
+    # The font, icons and pictures built into images, each pinned by sha256.
+    "crates/nowayos-glyphs/glyphs.toml", "crates/nowayos-icons/icons.toml",
+    "crates/nowayos-pictures/pictures.toml",
 )
 PINNED_GLOBS = (("tools/container", "debian-packages-", ".lock"), ("platforms", "", ".toml"))
 # What each image contributes, from build/BOARD/SYSTEM/.
@@ -120,13 +123,13 @@ PER_RELEASE = (
      "image's sha256. Another pack made from the same commit must match it file for file (all but "
      "`ci/logs/`): compare the two. U-Boot builds reproducibly (`make uboot`). No known differences."),
     ("Release artefacts are signed.",
-     "Not applicable yet: nothing is signed until the signing keys and authority are decided. "
-     "Until then the sha256 sums in this index are the pack's integrity record."),
+     "Not yet: the signing keys and authority are decided, but no signing key exists, so nothing is "
+     "signed. Until then the sha256 sums in this index are the pack's integrity record."),
     ("The list of `unsafe` crates is still short and still accurate.",
      "Answered for accuracy: `make unsafe-audit` in `ci/summary.txt`, against "
      "`pins/tools/unsafe-allowlist.toml`. Whether the list is short is the reviewer's call."),
     ("The Threat Model has been re-walked for anything new in the release.",
-     "Not answerable from the pack: a person re-walks the Threat Model (W3) and records it; the "
+     "Not answerable from the pack: a person re-walks the Threat Model and records it; the "
      "release page links that record."),
     ("Every enabled interface (network services, USB, debug UART, removable media) is intended for this "
      "release's target.",
@@ -397,12 +400,20 @@ def versions(screen_compiler):
     return "\n".join(lines) + "\n"
 
 
-def copy_pins(out):
+def pinned_names():
+    """Every file copy_pins copies, relative to nowayos: PINNED_FILES, each
+    Cargo workspace's Cargo.lock and deny.toml, and PINNED_GLOBS' matches."""
     names = list(PINNED_FILES)
+    for _name, path, _what in WORKSPACES:
+        names += [os.path.normpath(os.path.join(path, file)) for file in ("Cargo.lock", "deny.toml")]
     for folder, prefix, suffix in PINNED_GLOBS:
         names += [f"{folder}/{name}" for name in sorted(os.listdir(os.path.join(NOWAYOS, folder)))
                   if name.startswith(prefix) and name.endswith(suffix)]
-    for name in names:
+    return names
+
+
+def copy_pins(out):
+    for name in pinned_names():
         target = os.path.join(out, "pins", name)
         os.makedirs(os.path.dirname(target), exist_ok=True)
         shutil.copyfile(os.path.join(NOWAYOS, name), target)
@@ -630,7 +641,7 @@ def index(out, commit, date, screen_compiler, ci, built, skipped, complete):
         f"| Committed | {date} |",
         f"| Screen Compiler | {f'`screen-compiler` {screen_compiler}, the clone make ci checked against' if screen_compiler else 'no screen-compiler clone: make screen-compiler-check was skipped'} |",
         "| Release | No version or tag: the release scheme is a proposal waiting for the Product Owner |",
-        "| Signed | No: the signing keys and authority are not decided |",
+        "| Signed | No: the signing keys and authority are decided, but no signing key exists yet |",
         "", "## make ci", "", "| Step | Result |", "| --- | --- |"]
     lines += [f"| {step} | {status} |" for step, status in ci]
     lines += ["", "The lines that state each result are in `ci/summary.txt`.", "", "## System Images", "",

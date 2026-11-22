@@ -221,6 +221,15 @@ class ReleaseEvidenceTest(unittest.TestCase):
         for name, path, _what in EVIDENCE.WORKSPACES:
             self.assertTrue(os.path.isfile(os.path.join(HERE, os.pardir, path, "Cargo.lock")), name)
 
+    def test_the_pins_hold_every_workspace_lock_and_deny_file_and_each_exists(self):
+        names = EVIDENCE.pinned_names()
+        for name in names:
+            self.assertTrue(os.path.isfile(os.path.join(EVIDENCE.NOWAYOS, name)), name)
+        for _name, path, _what in EVIDENCE.WORKSPACES:
+            for file in ("Cargo.lock", "deny.toml"):
+                self.assertIn(os.path.normpath(os.path.join(path, file)), names)
+        self.assertEqual(len(names), len(set(names)), names)
+
     def test_an_sbom_of_a_workspace_crypto_does_not_read_is_refused(self):
         sboms = os.path.join(self.root, "sbom")
         for name in ("nowayos", "nowayos-pds", "nowayos-other"):
