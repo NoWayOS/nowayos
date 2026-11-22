@@ -1547,7 +1547,6 @@ name = "nowayos-ui-loop"
 version = "0.1.0"
 dependencies = [
  "embedded-graphics",
- "nowayos-bounded",
  "nowayos-display",
  "nowayos-input",
  "nowayos-ipc",
