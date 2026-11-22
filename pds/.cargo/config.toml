@@ -21,8 +21,18 @@ target = "aarch64-sel4"
 # defines, never another; getrandom 0.2 does
 # through its `custom` feature. A PD that brings getrandom in without linking
 # nowayos-entropy does not link.
+#
+# -Zmir-enable-passes=-SimplifyComparisonIntegral turns off the MIR pass that
+# silently miscompiles safe code in this nightly (rust-lang/rust#158206, fixed
+# upstream in June 2026). It goes when the PD nightly moves past the fix. It
+# must stay in this array: a RUSTFLAGS variable would replace it, and with it
+# the flags above.
 [target.aarch64-sel4]
-rustflags = ["-Zunstable-options", "--cfg", 'getrandom_backend="custom"']
+rustflags = [
+    "-Zunstable-options",
+    "--cfg", 'getrandom_backend="custom"',
+    "-Zmir-enable-passes=-SimplifyComparisonIntegral",
+]
 
 [unstable]
 unstable-options = true
