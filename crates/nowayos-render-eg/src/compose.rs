@@ -13,7 +13,7 @@ use core::convert::Infallible;
 use embedded_graphics::Pixel;
 use embedded_graphics::draw_target::DrawTarget;
 use embedded_graphics::pixelcolor::{Rgb888, RgbColor};
-use embedded_graphics::prelude::{OriginDimensions, Point as EgPoint, Size};
+use embedded_graphics::prelude::{OriginDimensions, Size};
 use nowayos_display::Rect;
 
 use crate::text::blend;
@@ -426,16 +426,11 @@ pub(crate) fn tiles(area: Rect) -> impl Iterator<Item = Rect> {
     })
 }
 
-/// `point` as `embedded-graphics` places it, if it fits.
-#[allow(dead_code, reason = "kept beside the tile for its tests")]
-pub(crate) fn eg(x: i64, y: i64) -> Option<EgPoint> {
-    Some(EgPoint::new(i32::try_from(x).ok()?, i32::try_from(y).ok()?))
-}
-
 #[cfg(test)]
 #[allow(clippy::unwrap_used, reason = "test code: a failure fails the test")]
 mod tests {
     use embedded_graphics::pixelcolor::Rgb888;
+    use embedded_graphics::prelude::Point as EgPoint;
 
     use super::*;
 

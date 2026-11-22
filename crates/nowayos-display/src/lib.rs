@@ -55,6 +55,6 @@ pub use geometry::{Insets, Point, Rect, Size};
 pub use hash::FrameHash;
 pub use pixel::{FrameMemory, FramebufferLayout, LayoutError, PixelFormat};
 pub use scale::{
-    FrameChoice, KIOSK_FRAME, LEAST_SCREEN, Placement, TEST_PATTERN, TEST_PATTERN_BARS,
-    device_scale, frame_for, scale_row, test_pattern,
+    FrameChoice, KIOSK_FRAME, Placement, TEST_PATTERN, TEST_PATTERN_BARS, device_scale, frame_for,
+    scale_row, test_pattern,
 };

@@ -14,7 +14,6 @@ use crate::bits;
 
 const CONNECTED: u32 = 1;
 const ENABLED: u32 = 1 << 1;
-const OVER_CURRENT: u32 = 1 << 3;
 const RESET: u32 = 1 << 4;
 const POWER: u32 = 1 << 9;
 /// The change bits, 17 to 23: connect, enable, warm reset, over-current,
@@ -121,12 +120,6 @@ impl PortStatus {
     #[must_use]
     pub const fn powered(self) -> bool {
         self.0 & POWER != 0
-    }
-
-    /// Over-current Active.
-    #[must_use]
-    pub const fn over_current(self) -> bool {
-        self.0 & OVER_CURRENT != 0
     }
 
     /// The Port Link State field, bits 8:5.

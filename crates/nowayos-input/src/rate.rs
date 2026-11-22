@@ -87,18 +87,10 @@ impl RateLimiter {
         self.tokens
     }
 
-    /// Events refused since creation (or the last [`take_dropped`]),
-    /// saturating at `u32::MAX`.
-    ///
-    /// [`take_dropped`]: Self::take_dropped
+    /// Events refused since creation, saturating at `u32::MAX`.
     #[must_use]
     pub const fn dropped(&self) -> u32 {
         self.dropped
-    }
-
-    /// Returns the drop count and resets it — for periodic logging.
-    pub fn take_dropped(&mut self) -> u32 {
-        core::mem::take(&mut self.dropped)
     }
 
     fn refill(&mut self, now: u64) {
@@ -162,8 +154,6 @@ mod tests {
         assert!(!r.allow(1150));
         assert!(r.allow(1200));
         assert_eq!(r.dropped(), 2);
-        assert_eq!(r.take_dropped(), 2);
-        assert_eq!(r.dropped(), 0);
     }
 
     #[test]

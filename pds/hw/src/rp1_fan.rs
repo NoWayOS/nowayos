@@ -78,8 +78,6 @@ const STATUS_OE_TO_PAD: u32 = 1 << 13;
 
 /// `GLOBAL_CTRL`.
 const GLOBAL_CTRL: usize = 0x00;
-/// `CHAN2_RANGE`: the fastest speed RP1's firmware has seen, in rpm.
-const CHAN2_RANGE: usize = 0x38;
 /// `CHAN2_PHASE`: the fan's speed as RP1's firmware measures it, in rpm.
 const CHAN2_PHASE: usize = 0x3c;
 /// `CHAN3_CTRL`.
@@ -190,15 +188,6 @@ impl Fan {
     /// [`HwError::Fan`] for a page too small (never, once started).
     pub fn rpm(&mut self) -> Result<u32, HwError> {
         read(&mut self.pwm, CHAN2_PHASE)
-    }
-
-    /// The fastest speed RP1's firmware has measured, in rpm.
-    ///
-    /// # Errors
-    ///
-    /// [`HwError::Fan`] for a page too small (never, once started).
-    pub fn fastest_rpm(&mut self) -> Result<u32, HwError> {
-        read(&mut self.pwm, CHAN2_RANGE)
     }
 
     /// Whether channel 3 has wrapped since the last call (or [`start`]):
