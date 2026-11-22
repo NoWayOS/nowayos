@@ -8,7 +8,7 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
-rustls = { version = "=0.23.46", default-features = false }
+rustls.workspace = true
 aes-gcm = { version = "0.10.3", default-features = false, features = ["aes"] }
 chacha20poly1305 = { version = "0.10.1", default-features = false }
 sha2-010 = { package = "sha2", version = "0.10.9", default-features = false, features = ["oid"] }
@@ -16,13 +16,13 @@ hmac = { version = "0.12.1", default-features = false }
 p256 = { version = "0.14.0", default-features = false, features = ["ecdh", "ecdsa"] }
 p384 = { version = "0.14.0", default-features = false, features = ["ecdsa"] }
 rsa = { version = "=0.9.10", default-features = false, features = ["u64_digit", "sha2"] }
-ed25519-dalek = { version = "2.2.0", default-features = false }
+ed25519-dalek.workspace = true
 x25519-dalek = { version = "2.0.1", default-features = false, features = ["static_secrets", "zeroize"] }
 zeroize = { version = "1.8.1", default-features = false }
 
 [dev-dependencies]
 proptest.workspace = true
-rustls = { version = "=0.23.46", default-features = false, features = ["std"] }
+rustls = { workspace = true, features = ["std"] }
 
 [lints]
 workspace = true

@@ -17,41 +17,37 @@ license = "MIT OR Apache-2.0"
 publish = false
 
 [workspace.dependencies]
-# Our own crates, by path.
-nowayos-audio = { path = "crates/nowayos-audio" }
+# Our own crates, by path: the ones a member of this workspace inherits. The
+# protection domains, the fuzz harness and other repositories name paths
+# themselves.
 nowayos-bounded = { path = "crates/nowayos-bounded" }
-nowayos-demo = { path = "crates/nowayos-demo" }
-nowayos-dev-window = { path = "crates/nowayos-dev-window" }
 nowayos-display = { path = "crates/nowayos-display" }
-nowayos-fault-policy = { path = "crates/nowayos-fault-policy" }
-nowayos-frame-times = { path = "crates/nowayos-frame-times" }
-nowayos-heartbeat = { path = "crates/nowayos-heartbeat" }
-nowayos-gem = { path = "crates/nowayos-gem" }
 nowayos-glyphs = { path = "crates/nowayos-glyphs" }
 nowayos-icons = { path = "crates/nowayos-icons" }
 nowayos-input = { path = "crates/nowayos-input" }
-nowayos-ip = { path = "crates/nowayos-ip" }
 nowayos-ipc = { path = "crates/nowayos-ipc" }
 nowayos-net = { path = "crates/nowayos-net" }
 nowayos-pictures = { path = "crates/nowayos-pictures" }
-nowayos-picture-decode = { path = "crates/nowayos-picture-decode" }
 nowayos-picture-wire = { path = "crates/nowayos-picture-wire" }
 nowayos-raster = { path = "crates/nowayos-raster" }
 nowayos-render-eg = { path = "crates/nowayos-render-eg" }
 nowayos-seed = { path = "crates/nowayos-seed" }
-nowayos-signing = { path = "crates/nowayos-signing" }
-nowayos-serial = { path = "crates/nowayos-serial" }
 nowayos-signature = { path = "crates/nowayos-signature" }
 nowayos-socket = { path = "crates/nowayos-socket" }
 nowayos-testkit = { path = "crates/nowayos-testkit" }
 nowayos-time = { path = "crates/nowayos-time" }
+nowayos-tls-crypto = { path = "crates/nowayos-tls-crypto" }
 nowayos-ui = { path = "crates/nowayos-ui" }
-nowayos-update = { path = "crates/nowayos-update" }
-nowayos-usb = { path = "crates/nowayos-usb" }
 
 # Third-party crates. Every one is licence-checked before it is added
 # (house list: MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC) and again by
 # `make deny` for the whole tree.
+# Apache-2.0 OR ISC OR MIT - TLS 1.3. No std, no logging, no TLS 1.2, no
+# provider of its own: nowayos-tls-crypto is the provider.
+rustls = { version = "=0.23.46", default-features = false }
+# BSD-3-Clause - Ed25519, in nowayos-tls-crypto's provider and for the
+# loopback test server's raw public key.
+ed25519-dalek = { version = "2.2.0", default-features = false }
 # MIT OR Apache-2.0 - rendering substrate. Its built-in bitmap
 # fonts, which nowayos-render-eg keeps for bring-up and debug screens only
 # (product themes draw from the glyph atlases), come from
