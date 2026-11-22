@@ -8,8 +8,9 @@ Usage:
 CRATE is the icon crate (crates/nowayos-icons): its icons.toml names each
 icon, its SVG file in CRATE/lucide/ and that file's sha256. For each icon
 the tool draws an 8-bit coverage mask at every device scale the display
-contract allows (1 and 2: 24 and 48 pixels for a 24-unit icon) and writes
-NAME_SIZE.coverage, one byte a pixel, row by row, and masks.rs, the Rust
+contract allows (every quarter scale from 1 to 4: 24 to 96 pixels for a
+24-unit icon) and writes NAME_SIZE.coverage, one byte a pixel, row by row,
+and mod.rs, the Rust
 that names them, into CRATE/src/masks/ - or into DIR with --out, which
 `make atlases-check` compares with the checked-in files.
 

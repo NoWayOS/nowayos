@@ -83,7 +83,7 @@ one before it to have gone.
 
 Steps run in order as the serial lines arrive. Each event a click,
 key, hold or release sends, and each serial step, is followed by a pause of
-10 milliseconds, so input arrives at a person's pace - inside the input
+25 milliseconds, so input arrives at a person's pace - inside the input
 broker's rate - and each event in its own report.
 
 Exit status: 0 all lines seen and nothing forbidden (and, with --screen,
@@ -523,7 +523,7 @@ def main():
     )
     parser.add_argument(
         "--qmp-script",
-        help="steps that drive QEMU over QMP as serial lines appear (wait TEXT / send JSON)",
+        help="steps that drive QEMU over QMP as serial lines appear: wait, send, pause, tablet, click, key, hold, release, screen, serial",
     )
     parser.add_argument(
         "--baud",

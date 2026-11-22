@@ -168,9 +168,7 @@ STAGING_ADDR = 0x1800_0000
 LOADER_ADDR = 0x1000_0000
 MAX_IMAGE = STAGING_ADDR - LOADER_ADDR
 
-# BCM2712's power management block.
-# From the pinned
-# device tree, its node and base address: /soc@107c000000/watchdog@7d200000,
+# BCM2712's power management block. From the pinned device tree, its node and base address: /soc@107c000000/watchdog@7d200000,
 # brcm,bcm2712-pm, at 0x10_7d20_0000. Its registers as FreeBSD's BCM2835
 # watchdog driver gives them (BSD-2-Clause, facts only; nowayos-hw's
 # pm_watchdog), and as run by hand on the board on 2026-10-07: RSTC,

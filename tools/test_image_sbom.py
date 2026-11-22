@@ -348,6 +348,8 @@ class ImageSbomTest(unittest.TestCase):
         self.assertIn("test-only stand-in", what)
         self.assertIn("refuses it outside a test system", what)
         self.assertIn("board-system", source)
+        _, anchors, _ = image_sbom.prefill_file("test-trust-anchors.bin")
+        self.assertNotIn("supervisor's counts", anchors)
 
     def test_a_devices_facts_are_named_as_the_board_files(self):
         name, what, source = image_sbom.prefill_file("device-debug_uart.bin")

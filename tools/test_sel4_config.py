@@ -1,7 +1,6 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 """Tests for tools/sel4-config: the record `make image` writes beside each
-image, and the check that ties the verification position to the pinned SDK
-.
+image, and the check that ties the verification position to the pinned SDK.
 
 Run: python3 -m unittest discover -s tools -p 'test_*.py'   (make tools-test)
 Python 3.11 or later, standard library only.

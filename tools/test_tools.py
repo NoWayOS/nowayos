@@ -1,9 +1,10 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 """Tests for the tools in this directory: qemu-test and check-serial (and
 the rules they share, serial_expect.py), check-system, board-system,
-check-unsafe, check-std-crates, check-crates-absent and check-baseline. Each check must pass on good input
-and fail, with its reason, on each kind of bad input; board-system also writes each image's build time
-.
+restart-image, check-unsafe, check-std-crates, check-crates-absent,
+check-backends and check-baseline. Each check must pass on good input and
+fail, with its reason, on each kind of bad input; board-system also writes
+each image's build time.
 
 Run: python3 -m unittest discover -s tools -p 'test_*.py'   (make tools-test)
 Python 3.11 or later, standard library only.
@@ -5006,7 +5007,7 @@ class RestartImage(unittest.TestCase):
 
     def test_only_test_systems_have_a_restart_image(self):
         """Every restartable PD in NoWayOS's systems is in a test system:
-        the restart test's worker, and the picture decoder (#10084)."""
+        the restart test's worker, and the picture decoder."""
         found = []
         for path in sorted(glob.glob(os.path.join(HERE, os.pardir, "systems", "*.system"))):
             with open(path, encoding="utf-8") as handle:
