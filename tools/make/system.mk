@@ -769,7 +769,8 @@ kani:
 	if [ -z "$$crates" ]; then echo "kani: nothing to prove - KANI_CRATES names no crate in $(notdir $(_ts_repo_dir))"; exit 0; fi; \
 	pairs=""; \
 	if [ -n "$(KANI_MUTATIONS_FILE)" ]; then \
-		pairs="$$($(PYTHON) $(_ts_nowayos)/tools/kani-mutation $(_ts_mutation_args) --list | sed -n 's/^\([A-Za-z0-9_-]*\) ([^)]*): \([A-Za-z0-9_-]*\),.*/\1:\2/p')" || exit 1; \
+		pairs="$$($(PYTHON) $(_ts_nowayos)/tools/kani-mutation $(_ts_mutation_args) --list-crates)" || exit 1; \
+		if [ -z "$$pairs" ]; then echo "kani-mutation: FAIL - $(KANI_MUTATIONS_FILE) lists no mutation" >&2; exit 1; fi; \
 	fi; \
 	if [ "$(CI_SCOPE)" = changed ]; then \
 		crates="$$($(PYTHON) $(_ts_nowayos)/tools/ci-scope --root $(_ts_repo_dir) --base $(or $(CI_BASE),origin/main) kani $$crates)" || exit 1; \

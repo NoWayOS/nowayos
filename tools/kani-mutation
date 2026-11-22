@@ -310,6 +310,8 @@ def main():
     parser.add_argument("--mutation", action="append", default=[], metavar="NAME",
                         help="a mutation to run (repeatable; all of them if none is named)")
     parser.add_argument("--list", action="store_true", help="list the mutations and stop")
+    parser.add_argument("--list-crates", action="store_true",
+                        help="list each mutation as NAME:CRATE, for tools to read, and stop")
     parser.add_argument("--root", default=NOWAYOS,
                         help="the repo whose workspace the mutants copy (NoWayOS's by default)")
     parser.add_argument("--mutations-file", metavar="FILE",
@@ -320,6 +322,10 @@ def main():
     except MutationError as err:
         print(f"kani-mutation: FAIL - {err}", file=sys.stderr)
         return 1
+    if args.list_crates:
+        for mutation in known:
+            print(f"{mutation.name}:{mutation.crate}")
+        return 0
     if args.list:
         for mutation in known:
             print(f"{mutation.name}: {mutation.crate}, {mutation.what}; "

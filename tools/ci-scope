@@ -115,9 +115,16 @@ def reached_crates(all_crates, changed):
 
 
 def mutation_crates(root):
-    listing = subprocess.run([sys.executable, os.path.join(root, "tools", "kani-mutation"), "--list"],
+    """Each mutation's crate, from the mutation tool's NAME:CRATE lines; a line of another shape stops the run."""
+    listing = subprocess.run([sys.executable, os.path.join(root, "tools", "kani-mutation"), "--list-crates"],
                              capture_output=True, text=True, check=True).stdout
-    return {m.group(1): m.group(2) for m in re.finditer(r"^([\w-]+) \([^)]*\): ([\w-]+),", listing, re.M)}
+    owner = {}
+    for line in listing.splitlines():
+        match = re.fullmatch(r"([\w-]+):([\w-]+)", line)
+        if not match:
+            sys.exit(f"ci-scope: FAIL - tools/kani-mutation --list-crates printed {line!r}, not NAME:CRATE")
+        owner[match.group(1)] = match.group(2)
+    return owner
 
 
 def fuzz_crates(root, target, names):
