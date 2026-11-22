@@ -566,7 +566,7 @@ mod tests {
 
     /// A window that is the whole screen is the monitor's every row: a frame
     /// its size is shown at its own pixels from row 0, its rows counted
-    /// from the monitor's top, and the kiosk's frame centred as before.
+    /// from the monitor's top, and the 800 x 480 kiosk frame centred.
     #[test]
     fn a_window_from_row_0_shows_a_frame_on_every_row() {
         assert_eq!(window_size(&pi5_whole()), Size::new(1920, 1080));

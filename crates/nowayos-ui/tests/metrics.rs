@@ -96,7 +96,7 @@ fn layout_measures_every_kind_of_text_with_the_atlas() {
 }
 
 /// Every size of every theme's type scale, and the monospace special case
-/// with the numbers the first cut has always had.
+/// with the built-in fonts' own numbers.
 #[test]
 fn each_atlas_gives_its_own_size_and_monospace_keeps_its_own() {
     for (atlas, welcome, line, ch) in [
@@ -162,7 +162,7 @@ fn a_label_wider_than_its_node_keeps_its_start() {
     assert_eq!(fit_end("Continue", 45, &BODY), "nue");
 }
 
-/// The atlases with each of the first cut's monospace fonts: every metric
+/// The atlases with each of the built-in monospace fonts: every metric
 /// layout may be given.
 fn any_metrics() -> impl Strategy<Value = TextMetrics> {
     prop_oneof![

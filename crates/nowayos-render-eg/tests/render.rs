@@ -175,8 +175,8 @@ fn focused_input_with_text_matches_golden_images_in_every_theme() {
 }
 
 /// The bitmap fonts stay for bring-up and debug screens: the light
-/// theme's colours with the 6x10 font draw exactly what the first cut drew
-/// before the atlases, at its size.
+/// theme's colours with the 6x10 font draw the approved bring-up image, at
+/// its size.
 #[test]
 fn the_bring_up_font_draws_as_before() {
     let theme = Theme {

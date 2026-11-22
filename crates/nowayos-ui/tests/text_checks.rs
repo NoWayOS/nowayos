@@ -185,8 +185,8 @@ fn every_character_the_keyboard_types_is_in_the_set() {
     assert_eq!(t.value(FieldId(1)), Some("-"));
 }
 
-/// Every printable character is accepted everywhere, so the first cut's
-/// screens, all in printable Latin-1, build and look as before.
+/// Every printable character is accepted everywhere, so screens in
+/// printable Latin-1 build.
 #[test]
 fn every_printable_character_is_accepted() {
     let all: String = (0..=0xFF_u32)
