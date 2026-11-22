@@ -1,5 +1,5 @@
 # cargo-deny configuration for the fuzz workspace. Run: make deny
-# (NoWayOS's other two workspaces have their own deny.toml.)
+# (The other workspaces have their own deny.toml.)
 #
 # House licence list: MIT, Apache-2.0,
 # BSD-2-Clause, BSD-3-Clause, ISC. Anything else the dependency tree needs
@@ -105,31 +105,21 @@ deny = [
     { crate = "hpke-rs-rust-crypto", reason = "no HPKE (MPL-2.0) in rustls's provider" },
 ]
 
-# Two generations of RustCrypto crates, on purpose: nowayos-tls-crypto
-# is on the digest 0.10 generation, because rsa 0.9.10 - the only stable rsa
-# - is, and the rest of rustls's provider must share its digest and
-# signature traits; nowayos-signature is on the digest 0.11 generation (p256
-# 0.14, sha2 0.11). These are the 0.10 generation's copies. One generation
-# again once a stable rsa moves to digest 0.11.
+# Two generations of RustCrypto crates, on purpose: in nowayos-tls-crypto,
+# rsa 0.9.10 is on the digest 0.10 generation, and its sha2 0.10 and hmac 0.12
+# with it; the crate's p256 and p384 are 0.14, the digest 0.11 generation, as
+# nowayos-signature is (p256 0.14, sha2 0.11). These are the 0.10 generation's
+# copies. One generation again once nowayos-tls-crypto moves to an rsa on
+# digest 0.11.
 skip = [
-    { crate = "base16ct@0.2.0", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
     { crate = "block-buffer@0.10.4", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
     { crate = "const-oid@0.9.6", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
     { crate = "cpufeatures@0.2.17", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
-    { crate = "crypto-bigint@0.5.5", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
     { crate = "crypto-common@0.1.7", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
     { crate = "der@0.7.10", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
     { crate = "digest@0.10.7", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
-    { crate = "ecdsa@0.16.9", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
-    { crate = "elliptic-curve@0.13.8", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
-    { crate = "ff@0.13.1", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
-    { crate = "group@0.13.0", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
     { crate = "hmac@0.12.1", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
-    { crate = "p256@0.13.2", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
-    { crate = "primeorder@0.13.6", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
     { crate = "rand_core@0.6.4", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
-    { crate = "rfc6979@0.4.0", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
-    { crate = "sec1@0.7.3", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
     { crate = "sha2@0.10.9", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
     { crate = "signature@2.2.0", reason = "the digest 0.10 generation, for rsa 0.9 in nowayos-tls-crypto" },
 ]
