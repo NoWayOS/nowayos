@@ -71,7 +71,7 @@ use core::sync::atomic::{Ordering, fence};
 
 use nowayos_ipc::{
     ConsumerMemory, DecodeError, EncodeError, MAX_CAPACITY, Message, ProducerMemory, RingError,
-    SendError, decode, encode,
+    SendError, decode, encode, next_epoch,
 };
 
 /// How many times one [`LossyConsumer::try_recv_record`] copies a slot
@@ -88,15 +88,6 @@ fn lossy_mask(capacity: u32) -> Result<u32, RingError> {
         Ok(capacity.wrapping_sub(1))
     } else {
         Err(RingError::InvalidCapacity { capacity })
-    }
-}
-
-/// The epoch after `epoch`: one more, skipping 0 ("never started") when the
-/// count wraps - as `nowayos_ipc`'s ring counts them.
-const fn next_epoch(epoch: u32) -> u32 {
-    match epoch.wrapping_add(1) {
-        0 => 1,
-        next => next,
     }
 }
 

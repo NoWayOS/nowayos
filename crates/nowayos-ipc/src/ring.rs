@@ -281,7 +281,8 @@ fn in_flight(producer: u32, consumer: u32, capacity: u32) -> Result<u32, RingErr
 
 /// The epoch after `epoch`: one more, skipping 0 ("never started") when the
 /// count wraps.
-const fn next_epoch(epoch: u32) -> u32 {
+#[must_use]
+pub const fn next_epoch(epoch: u32) -> u32 {
     match epoch.wrapping_add(1) {
         0 => 1,
         next => next,

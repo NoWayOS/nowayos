@@ -66,7 +66,7 @@ pub use codec::{Reader, Writer};
 pub use error::{DecodeError, EncodeError, RecvError, RingError, SendError};
 pub use ring::{
     Consumer, ConsumerMemory, EpochChange, EpochWatch, InMemoryRing, MAX_CAPACITY, Producer,
-    ProducerMemory, Record, RingMemory,
+    ProducerMemory, Record, RingMemory, next_epoch,
 };
 pub use wire::{
     HEADER_LEN, Header, MAX_PAYLOAD_LEN, Message, decode, decode_exact, encode, encoded_len,
