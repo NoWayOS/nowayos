@@ -7,11 +7,13 @@
 # Golden images (PNG) are binary: never convert their bytes.
 *.png binary
 
-# The glyph atlases' font and the coverage the atlas tool makes from it
-# are binary too: the tool checks the font's bytes against its pin,
-# and make atlases-check compares the coverage byte for byte.
+# The glyph atlases' font, the coverage the atlas tool makes from it and
+# the pictures the picture tool makes are binary too: the tool checks the
+# font's bytes against its pin, and make atlases-check compares the coverage
+# and the pictures byte for byte.
 *.ttf binary
 *.coverage binary
+*.rgba binary
 
 # Our own assistant's instructions are not published: the public tree is
 # made with git archive, which leaves these out. AGENTS.md is the public one.
