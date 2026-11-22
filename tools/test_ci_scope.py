@@ -44,8 +44,9 @@ class CiScopeTest(unittest.TestCase):
         write(self.root, "fuzz/fuzz_targets/c_target.rs", "use nowayos_c::c;\n")
         write(self.root, "tools/kani-mutation", """\
             import sys
-            print("a-mutant (#1): nowayos-a, a check; a_proof must fail")
-            print("c-mutant (#2): nowayos-c, a check; c_proof must fail")
+            assert sys.argv[1:] == ["--list-crates"], sys.argv
+            print("a-mutant:nowayos-a")
+            print("c-mutant:nowayos-c")
             """)
         git(self.root, "init", "-q")
         git(self.root, "add", "-A")
@@ -94,6 +95,20 @@ class CiScopeTest(unittest.TestCase):
         write(self.root, "fuzz/src/lib.rs", "pub fn check() {}\n")
         self.assertEqual(self.scope("fuzz", ["b_target", "c_target"]), ["b_target", "c_target"])
         self.assertEqual(self.scope("kani", ["nowayos-a", "nowayos-c"]), [])
+
+    def test_the_mutation_tool_itself_is_read(self):
+        owner = ci_scope.mutation_crates(os.path.dirname(HERE))
+        self.assertEqual(owner.get("read-bytes-length"), "nowayos-ipc")
+        self.assertEqual(owner.get("data-region-bounds"), "nowayos-net")
+        self.assertEqual(owner.get("dequeue-in-flight"), "nowayos-net")
+
+    def test_a_listing_of_another_shape_stops_the_run(self):
+        write(self.root, "tools/kani-mutation", """\
+            print("a-mutant (old): nowayos-a, a check; a_proof must fail")
+            """)
+        with self.assertRaises(SystemExit) as stopped:
+            ci_scope.mutation_crates(self.root)
+        self.assertIn("not NAME:CRATE", str(stopped.exception))
 
     def test_a_base_git_cannot_find_runs_everything(self):
         self.assertEqual(ci_scope.scope(self.root, "no-such-ref", "fuzz", ["b_target", "c_target"]),
