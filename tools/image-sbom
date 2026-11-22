@@ -82,8 +82,6 @@ input error. Python 3.11 or later (tomllib), standard library only.
 import argparse
 import fnmatch
 import hashlib
-import importlib.machinery
-import importlib.util
 import json
 import os
 import platform
@@ -97,6 +95,10 @@ try:
     import tomllib
 except ModuleNotFoundError:  # Python before 3.11
     tomllib = None
+
+sys.dont_write_bytecode = True  # keep tools/ free of __pycache__
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from tool_common import load_tool  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 NOWAYOS = os.path.dirname(HERE)
@@ -138,16 +140,8 @@ CRATE_SOURCES = ("crates.io", "rust-sel4", "microkit", "rust")
 HEX = {40: re.compile(r"[0-9a-f]{40}"), 64: re.compile(r"[0-9a-f]{64}")}
 
 
-def load_sbom():
-    """tools/sbom, for its CycloneDX helpers and structure check."""
-    loader = importlib.machinery.SourceFileLoader("sbom", os.path.join(HERE, "sbom"))
-    spec = importlib.util.spec_from_loader(loader.name, loader)
-    module = importlib.util.module_from_spec(spec)
-    loader.exec_module(module)
-    return module
-
-
-sbom = load_sbom()
+# tools/sbom, for its CycloneDX helpers and structure check.
+sbom = load_tool("sbom")
 InputError = sbom.InputError
 
 

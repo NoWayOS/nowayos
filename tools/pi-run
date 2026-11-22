@@ -138,8 +138,6 @@ or a run stopped before its last image.
 import argparse
 import fcntl
 import gzip
-import importlib.machinery
-import importlib.util
 import os
 import re
 import select
@@ -154,6 +152,7 @@ import zlib
 sys.dont_write_bytecode = True  # keep tools/ free of __pycache__
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from serial_expect import ExpectError, Matcher, read_expectations  # noqa: E402
+from tool_common import load_tool  # noqa: E402
 
 EXIT_PASS = 0
 EXIT_FAIL = 1
@@ -337,11 +336,7 @@ def check_armed(rstc, wdog, seconds):
 def board_framebuffer(path):
     """The framebuffer the board facts in `path` give - (base, width,
     height, stride, depth) - or None when they give none."""
-    tools = os.path.dirname(os.path.abspath(__file__))
-    loader = importlib.machinery.SourceFileLoader("check_system", os.path.join(tools, "check-system"))
-    spec = importlib.util.spec_from_loader(loader.name, loader)
-    module = importlib.util.module_from_spec(spec)
-    loader.exec_module(module)
+    module = load_tool("check-system")
     try:
         devices = module.read_board(path)
     except module.InputError as err:
@@ -703,11 +698,7 @@ BOARD_STEPS = {"wait", "pause", "serial"}
 def board_script(path):
     """The steps of qemu-test's script at `path` - ("wait", text), ("pause",
     seconds), ("serial", bytes) - refused if any is QEMU's alone."""
-    tools = os.path.dirname(os.path.abspath(__file__))
-    loader = importlib.machinery.SourceFileLoader("qemu_test", os.path.join(tools, "qemu-test"))
-    spec = importlib.util.spec_from_loader(loader.name, loader)
-    module = importlib.util.module_from_spec(spec)
-    loader.exec_module(module)
+    module = load_tool("qemu-test")
     try:
         steps = module.read_qmp_script(path)
     except (OSError, ValueError) as err:

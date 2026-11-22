@@ -150,14 +150,16 @@ input or I/O error.
 
 import argparse
 import datetime
-import importlib.machinery
-import importlib.util
 import os
 import re
 import subprocess
 import sys
 import time
 import zlib
+
+sys.dont_write_bytecode = True  # keep tools/ free of __pycache__
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from tool_common import load_tool  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_PLATFORMS = os.path.join(HERE, os.pardir, "platforms")
@@ -212,11 +214,7 @@ PLACEHOLDER = re.compile(r"@([A-Za-z_][A-Za-z0-9_]*)(?:\[([0-9]+)\])?")
 
 def load_check_system():
     """check-system's board-file reader, so both tools read a board alike."""
-    loader = importlib.machinery.SourceFileLoader("check_system", os.path.join(HERE, "check-system"))
-    spec = importlib.util.spec_from_loader(loader.name, loader)
-    module = importlib.util.module_from_spec(spec)
-    loader.exec_module(module)
-    return module
+    return load_tool("check-system")
 
 
 def fill(name, value, devices, board):

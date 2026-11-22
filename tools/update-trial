@@ -65,8 +65,6 @@ usage error. Python 3.11 or later, standard library only; openssl on PATH.
 
 import argparse
 import hashlib
-import importlib.machinery
-import importlib.util
 import os
 import re
 import shlex
@@ -78,21 +76,16 @@ import tempfile
 import time
 import zlib
 
+sys.dont_write_bytecode = True  # keep tools/ free of __pycache__
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from tool_common import load_tool  # noqa: E402
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 EXIT_PASS, EXIT_FAIL, EXIT_ERROR = 0, 1, 2
 
 
-def load_update_bundles():
-    """tools/update-bundles, as a module: its keys and records."""
-    path = os.path.join(HERE, "update-bundles")
-    loader = importlib.machinery.SourceFileLoader("update_bundles", path)
-    spec = importlib.util.spec_from_loader("update_bundles", loader)
-    module = importlib.util.module_from_spec(spec)
-    loader.exec_module(module)
-    return module
-
-
-ub = load_update_bundles()
+# tools/update-bundles, as a module: its keys and records.
+ub = load_tool("update-bundles")
 
 # The update state (crates/nowayos-update/src/state.rs): a copy is the
 # generation, the state record, the held trust list's record and a CRC-32.

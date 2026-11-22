@@ -54,8 +54,6 @@ library only; needs git and make.
 
 import argparse
 import hashlib
-import importlib.machinery
-import importlib.util
 import json
 import os
 import re
@@ -69,6 +67,10 @@ try:
     import tomllib
 except ModuleNotFoundError:  # Python before 3.11
     tomllib = None
+
+sys.dont_write_bytecode = True  # keep tools/ free of __pycache__
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from tool_common import load_tool  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 NOWAYOS = os.path.dirname(HERE)
@@ -140,15 +142,6 @@ PER_RELEASE = (
 
 class InputError(Exception):
     """A refusal, or an input that could not be read."""
-
-
-def load_tool(name):
-    """Another tool in this directory, as a module."""
-    loader = importlib.machinery.SourceFileLoader(name.replace("-", "_"), os.path.join(HERE, name))
-    spec = importlib.util.spec_from_loader(loader.name, loader)
-    module = importlib.util.module_from_spec(spec)
-    loader.exec_module(module)
-    return module
 
 
 def sha256_file(path):
