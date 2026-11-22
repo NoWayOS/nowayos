@@ -308,7 +308,7 @@ house list, signed off, excepted at those
 versions in `deny.toml`, whose `[[bans.features]]` holds smoltcp to
 `medium-ethernet`, `proto-ipv4`, `proto-dhcpv4`, `socket-dhcpv4` and
 `socket-tcp` (which adds no crate) - and
-smoltcp's `heapless` 0.9.3 with `hash32` and `stable_deref_trait`,
+smoltcp's `heapless` 0.9.4 with `hash32` and `stable_deref_trait`,
 `bitflags` 1.3.2 and `cfg-if` (MIT OR Apache-2.0) and `byteorder`
 (Unlicense OR MIT: MIT taken). Outside the house list: `unicode-ident` (adds Unicode-3.0;
 build-time only; signed off 2026-10-01) and the build-std crate
