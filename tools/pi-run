@@ -162,7 +162,6 @@ EXIT_PYTHON = 3
 # check-system, which pi-run reads the board facts with, needs tomllib.
 MIN_PYTHON = (3, 11)
 
-BAUD = 115200
 # Where U-Boot puts the compressed image, and where it unzips it: the
 # Microkit 2.3.1 manual's load address for the Pi.
 STAGING_ADDR = 0x1800_0000
@@ -420,7 +419,6 @@ class Lock:
     """The exclusive lock on the board: one run at a time."""
 
     def __init__(self, path, wait, say):
-        self.path = path
         self.handle = open(path, "a")
         start = time.monotonic()
         told = False
@@ -783,15 +781,13 @@ class Series:
     # A reset this long before the watchdog's time was the system's own.
     SELF_RESET_MARGIN = 0.5
     MAX_LOADS = 4
-    # Seconds past the watchdog's time before the board counts as stuck.
-    RESET_GRACE = 30
-    BOOT_TIMEOUT = 60
 
     def __init__(self, board, images, watchdog, say, boot_timeout=60, reset_grace=30, framebuffer=None):
         self.board = board
         self.framebuffer = framebuffer  # the board facts' (base, width, height, stride, depth), or None
         self.boot_fb = None  # the FB0 line's (width, height, stride, base) at the current boot
         self.BOOT_TIMEOUT = boot_timeout
+        # Seconds past the watchdog's time before the board counts as stuck.
         self.RESET_GRACE = reset_grace
         self.images = images
         self.watchdog = watchdog
