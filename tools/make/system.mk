@@ -350,9 +350,8 @@ KANI_CRATES ?=
 KANI_MUTATIONS_FILE ?=
 KANI_OUT ?= $(BUILD_ROOT)/kani
 # Harnesses proved at once: one CBMC per KANI_JOB_GIB of the dev
-# container's memory, less one for the mutants that run beside them. Two at
-# once ran out of memory in a 24 GiB VM; the VM has 60 GiB (Development
-# Workflow). KANI_JOBS=1 proves one at a time.
+# container's memory, less one for the mutants that run beside them.
+# KANI_JOBS=1 proves one at a time.
 KANI_JOB_GIB ?= 10
 KANI_JOBS ?= $(shell awk -v g=$(KANI_JOB_GIB) '/^MemTotal:/ { n = int($$2 / (g * 1048576)) - 1; print (n < 1 ? 1 : n) }' /proc/meminfo 2>/dev/null || echo 1)
 # Kani takes --jobs only with its terse output, whose lines are each
@@ -374,7 +373,7 @@ FUZZ_INPUT ?=
 # some of NoWayOS's targets reach has some (heapless under smoltcp in
 # net_stack_receive; p256, sha2 and their tree in signature_check) and runs
 # here without a sanitizer, so a memory error there that does not panic goes
-# unseen (Known Issues). Hence the pinned stable toolchain, not a
+# unseen. Hence the pinned stable toolchain, not a
 # nightly.
 FUZZ_RUSTFLAGS := -Cpasses=sancov-module -Cllvm-args=-sanitizer-coverage-level=4 \
 	-Cllvm-args=-sanitizer-coverage-inline-8bit-counters -Cllvm-args=-sanitizer-coverage-pc-table \
@@ -924,10 +923,6 @@ SCREEN_COMPILER_DIR ?= $(_ts_nowayos)/../screen-compiler
 screen-compiler-check:
 	@if [ ! -f $(SCREEN_COMPILER_DIR)/Makefile ]; then \
 		echo "notice: no screen-compiler clone at $(SCREEN_COMPILER_DIR) - skipping the check that Screen Compiler's generated screens build against nowayos-ui and draw as approved"; \
-	elif [ ! -f $(SCREEN_COMPILER_DIR)/contract-check/Cargo.toml ]; then \
-		echo "error: the screen-compiler clone at $(SCREEN_COMPILER_DIR) predates make contract-check: pull it" >&2; exit 1; \
-	elif [ ! -d $(SCREEN_COMPILER_DIR)/contract-check/golden ]; then \
-		echo "error: the screen-compiler clone at $(SCREEN_COMPILER_DIR) predates its approved images: pull it" >&2; exit 1; \
 	elif [ "$$(cd $(SCREEN_COMPILER_DIR)/../nowayos 2>/dev/null && pwd -P)" != "$$(cd $(_ts_nowayos) && pwd -P)" ]; then \
 		echo "notice: $(SCREEN_COMPILER_DIR) builds against $(SCREEN_COMPILER_DIR)/../nowayos, not this clone ($(_ts_nowayos)) - skipping the check that Screen Compiler's generated screens build against nowayos-ui and draw as approved"; \
 	else \
@@ -1014,15 +1009,13 @@ _ts_forward = BOARD=$(BOARD) MICROKIT_CONFIG=$(MICROKIT_CONFIG) SYSTEM=$(SYSTEM)
 	$(SYSTEM_FORWARD)
 
 # The image is built under a candidate tag, then checked: its Debian packages
-# (which come from the live bookworm archive, unlike every other download)
-# must be exactly the reviewed list for its architecture. Only then does it
+# (from the Debian archive as it stood at DEBIAN_SNAPSHOT, the Containerfile's
+# dated snapshot) must be exactly the reviewed list for its architecture. Only then does it
 # replace $(IMAGE). UPDATE_DEBIAN_LOCK=1 writes the list from the new image
 # instead, for review in the same change.
 #
-# The engine's layer cache reuses the Debian layer of an earlier build, so a
-# cached build never sees the archive move on. NO_CACHE=1 rebuilds every
-# layer: use it to refresh the packages (with UPDATE_DEBIAN_LOCK=1), and after
-# pulling a reviewed update of the list.
+# NO_CACHE=1 rebuilds every layer: use it after moving DEBIAN_SNAPSHOT (with
+# UPDATE_DEBIAN_LOCK=1), and after pulling a reviewed update of the list.
 UPDATE_DEBIAN_LOCK ?=
 NO_CACHE ?=
 _ts_candidate = $(IMAGE)-candidate

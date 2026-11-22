@@ -24,8 +24,8 @@ export RUSTUP_AUTO_INSTALL
 HOST_ONLY_CRATES := nowayos-testkit nowayos-dev-window
 # make sbom writes a CycloneDX SBOM for each workspace here.
 SBOM_DIR := build/sbom
-# make publication-scan reads these repositories: the open ones.
-PUBLICATION_REPOS ?= . ../screen-compiler ../showcase
+# make publication-scan reads these repositories: the public ones.
+PUBLICATION_REPOS ?= . ../screen-compiler ../showcase ../starter ../defence-agent
 # make fuzz runs each target in fuzz/fuzz_targets/ for FUZZ_SECONDS
 # seconds - in make ci too - keeping its corpus and any crash in FUZZ_OUT
 # (build/fuzz): its settings and its run are tools/make/system.mk's, which
@@ -72,8 +72,8 @@ PICTURE_DECODE := nowayos-picture-decode
 PICTURE_TARGET_DIR = $(if $(CARGO_TARGET_DIR),$(CARGO_TARGET_DIR)-pictures,$(CURDIR)/$(PICTURE_TOOL)/target)
 PICTURE_RUN = $(CARGO) run --locked --quiet --manifest-path $(PICTURE_TOOL)/Cargo.toml --target-dir $(PICTURE_TARGET_DIR) --
 
--include tools/make/container.mk
--include tools/make/system.mk
+include tools/make/container.mk
+include tools/make/system.mk
 
 .DEFAULT_GOAL := help
 
@@ -172,6 +172,8 @@ fmt:
 	$(CARGO) fmt --all
 	$(CARGO) fmt --all --manifest-path fuzz/Cargo.toml
 	$(CARGO) fmt --all --manifest-path $(ATLAS_TOOL)/Cargo.toml
+	$(CARGO) fmt --all --manifest-path $(PICTURE_TOOL)/Cargo.toml
+	@if [ -n "$(NOWAYOS_CONTAINER)" ]; then cd pds && cargo fmt --all; else echo "fmt: pds/ is formatted in the dev container only (its pinned nightly)"; fi
 
 lint:
 	$(CARGO) fmt --all -- --check
@@ -199,13 +201,9 @@ atlases:
 
 clean:
 	$(CARGO) clean
-else ifdef IN_CONTAINER
-fmt lint test doc demo atlases clean:
-	$(IN_CONTAINER) make $@ CARGO=cargo $(if $(NOWAYOS_UPDATE_SNAPSHOTS),NOWAYOS_UPDATE_SNAPSHOTS=$(NOWAYOS_UPDATE_SNAPSHOTS))
 else
 fmt lint test doc demo atlases clean:
-	@echo "error: make $@ needs tools/make/container.mk, or IN=host to run on the host" >&2
-	@exit 1
+	$(IN_CONTAINER) make $@ CARGO=cargo $(if $(NOWAYOS_UPDATE_SNAPSHOTS),NOWAYOS_UPDATE_SNAPSHOTS=$(NOWAYOS_UPDATE_SNAPSHOTS))
 endif
 
 # nostd needs the aarch64-unknown-none target and deny needs cargo-deny; both
@@ -227,10 +225,10 @@ nostd:
 		$(CARGO) build --locked -p $$crate --target $(NOSTD_TARGET); \
 	done
 
-# The NoWayOS baseline first: lints, profiles and deny settings of all
-# four workspaces (tools/check-baseline), then cargo-deny itself, for the
-# root workspace, the fuzz harness's and the atlas tool's (pds/: make
-# pds-deny).
+# The NoWayOS baseline first: lints, profiles and deny settings of every
+# workspace - the root, pds/, the fuzz harness, the atlas tool and the
+# picture tool (tools/check-baseline) - then cargo-deny itself, for the root
+# workspace, the fuzz harness's and the atlas tool's (pds/: make pds-deny).
 deny:
 	python3 tools/check-baseline . pds fuzz $(ATLAS_TOOL) $(PICTURE_TOOL)
 	$(CARGO) deny --locked check
@@ -267,7 +265,6 @@ sbom:
 # for development and CI fuzzing only.
 fuzz-skip:
 	@echo "fuzz: SKIP - no fuzz target left to run: none reaches a change, or each passed before with its inputs $(_ci_scope_note)"
-
 
 # Kani's proofs: each crate in KANI_CRATES has its proofs in
 # src/proofs.rs, compiled only under cfg(kani). They show that the record
@@ -369,7 +366,7 @@ kani:
 # The glyph atlases checked: the tool's rustfmt, clippy and tests
 # (the pins, an unpinned font file, a character the font lacks), then the
 # atlases made again from the pinned font into ATLAS_OUT and compared, file
-# by file, with the checked-in ones; then cargo tree over the other three
+# by file, with the checked-in ones; then cargo tree over the other
 # workspaces - the root's no_std crates, the PDs and the fuzz harness - for
 # RASTERISER_CRATES, which must be in none of them (tools/check-crates-absent:
 # a cargo tree that fails, or lists no crate, checks nothing and fails too).
@@ -447,7 +444,7 @@ update-bundles:
 publication-scan:
 	@test -n "$(TERMS)" || { echo "error: name the term list: make publication-scan TERMS=FILE (outside every repository)" >&2; exit 1; }
 	python3 tools/publication-scan --terms $(TERMS) $(PUBLICATION_REPOS)
-else ifdef IN_CONTAINER
+else
 # From the host the scans run with no network at all.
 secrets publication-scan: override CONTAINER_RUN_ARGS += --network=none
 nostd deny sbom secrets atlases-check update-bundles:
@@ -466,10 +463,6 @@ publication-scan:
 	@test -n "$(TERMS)" || { echo "error: name the term list: make publication-scan TERMS=FILE (outside every repository, inside $(WS))" >&2; exit 1; }
 	@test -n "$(_terms_in_container)" || { echo "error: TERMS=$(TERMS) is outside the workspace $(WS), which is all the dev container can see: keep the list there, beside the repositories and outside every one of them" >&2; exit 1; }
 	$(IN_CONTAINER) make $@ CARGO=cargo TERMS=$(_terms_in_container) PUBLICATION_REPOS="$(PUBLICATION_REPOS)"
-else
-nostd deny sbom secrets fuzz kani atlases-check publication-scan update-bundles:
-	@echo "error: make $@ runs in the dev container and needs tools/make/container.mk" >&2
-	@exit 1
 endif
 
 ci: container-ci

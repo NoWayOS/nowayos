@@ -1,6 +1,6 @@
 # Dev container (`nowayos-dev`)
 
-The pinned toolchain for all four NoWayOS repos: one image, the same on
+The pinned toolchain for every NoWayOS repo: one image, the same on
 every developer machine and in CI. Editors run on the host; builds, QEMU and
 the checks run in here.
 
@@ -80,7 +80,7 @@ machine.
 | bindgen support | Debian `libclang-dev` (clang 14) | Debian archive signatures |
 | Kani (bounded model checker, `make kani`) | 0.68.0, at `/opt/kani` (`KANI_HOME`): its release bundle with CBMC 6.11.0, the `cargo-kani` launcher, and Kani's own Rust nightly (2026-08-21); on arm64, `kani-driver` rebuilt from the release's source, because the bundle's needs glibc 2.39 | the bundle's sha256 per architecture (`KANI_BUNDLE_SHA256_*`); the launcher by version, `--locked`; the source by commit (`KANI_COMMIT`, `KANI_CHARON_COMMIT`); the nightly through rustup's channel manifest |
 
-Every pin is an `ARG` at the top of the `Containerfile`, except U-Boot's, which sit just above its own layer: an `ARG` is an implicit input to every `RUN` after it, so changing a U-Boot pin rebuilds only that layer.
+Every pin is an `ARG` at the top of the `Containerfile`, except those one layer alone uses (U-Boot's, the Pi firmware's, Kani's), which sit just above that layer: an `ARG` is an implicit input to every `RUN` after it, so changing such a pin rebuilds only that layer.
 
 ## Licences in the image
 
@@ -111,8 +111,8 @@ is a separate decision).
 | CBMC and its goto tools, inside Kani's bundle; the crate `foldhash`, compiled into Kani | BSD-4-Clause, with the advertising clause (CBMC); Zlib (`foldhash`) | outside the house list - **signed off for development use** |
 | Other Debian base packages | the usual mix (see `/usr/share/doc/*/copyright` in the image) | development tools only |
 
-The seL4 kernel and QEMU were approved for development use on 2026-09-30
-, the build tools listed above on 2026-10-02, and U-Boot's
+The seL4 kernel and QEMU were approved for development use on 2026-09-30,
+the build tools listed above on 2026-10-02, and U-Boot's
 build tools and the Pi firmware files the same day. The
 capDL initialiser was audited on 2026-10-04 and signed off the same day. Any package added to the image is
 listed here and signed off before it is installed.
