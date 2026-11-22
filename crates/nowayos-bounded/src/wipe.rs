@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! [`Wipe`]: overwriting data in place before it is let go.
 
-use crate::{BoundedQueue, BoundedStr, BoundedVec};
+use crate::{BoundedStr, BoundedVec};
 
 /// Overwrites the data a value holds, in place, and leaves the value empty.
 ///
 /// # Why removing is not enough
 ///
 /// Removing an item from a container ([`BoundedVec::pop`], `remove`,
-/// `truncate`, `clear`; [`BoundedQueue::pop_front`], `clear`) resets its
+/// `truncate`, `clear`) resets its
 /// slot to `T::default()`. When the default is a smaller enum variant than
 /// the item — `None` replacing a `Some(BoundedStr)`, or an `Empty` variant
 /// replacing a `Text(..)` one — that assignment may write only the variant
@@ -76,14 +76,6 @@ impl<T: Wipe + Default, const N: usize> Wipe for BoundedVec<T, N> {
         for item in self.as_mut_slice() {
             item.wipe();
         }
-        self.clear();
-    }
-}
-
-impl<T: Wipe + Default, const N: usize> Wipe for BoundedQueue<T, N> {
-    /// Wipes every queued item in place, then empties the queue.
-    fn wipe(&mut self) {
-        self.wipe_items();
         self.clear();
     }
 }
@@ -198,30 +190,12 @@ mod tests {
     }
 
     #[test]
-    fn a_queue_wipes_each_live_item_across_the_wrap() {
-        let mut q: BoundedQueue<Probe, 3> = BoundedQueue::new();
-        for value in 1..=3 {
-            q.push_back(Probe(value)).unwrap();
-        }
-        q.pop_front();
-        q.push_back(Probe(4)).unwrap(); // wraps round the ring
-        assert_eq!(take_wiped(), []);
-        q.wipe();
-        assert!(q.is_empty());
-        assert_eq!(take_wiped(), [2, 3, 4]);
-    }
-
-    #[test]
     fn enum_payloads_are_wiped_before_the_variant_changes() {
         let mut v: BoundedVec<Field, 2> = BoundedVec::new();
         v.push(Field::Text(synthetic())).unwrap();
         v.push(Field::Empty).unwrap();
         v.wipe();
         assert!(v.is_empty());
-        let mut q: BoundedQueue<Field, 2> = BoundedQueue::new();
-        q.push_back(Field::Text(synthetic())).unwrap();
-        q.wipe();
-        assert!(q.is_empty());
     }
 
     #[test]

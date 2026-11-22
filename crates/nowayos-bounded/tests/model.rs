@@ -12,9 +12,7 @@
     reason = "test code: a failed check panics, and tests index and compute on known data"
 )]
 
-use std::collections::VecDeque;
-
-use nowayos_bounded::{BoundedQueue, BoundedStr, BoundedVec, Wipe};
+use nowayos_bounded::{BoundedStr, BoundedVec, Wipe};
 use proptest::prelude::*;
 
 const CAP: usize = 5;
@@ -41,23 +39,6 @@ fn vec_op() -> impl Strategy<Value = VecOp> {
         1 => (0..CAP + 2).prop_map(VecOp::Truncate),
         1 => Just(VecOp::RetainEven),
         1 => Just(VecOp::Clear),
-    ]
-}
-
-#[derive(Debug, Clone)]
-enum QueueOp {
-    Push(u8),
-    ForcePush(u8),
-    Pop,
-    Clear,
-}
-
-fn queue_op() -> impl Strategy<Value = QueueOp> {
-    prop_oneof![
-        4 => any::<u8>().prop_map(QueueOp::Push),
-        1 => any::<u8>().prop_map(QueueOp::ForcePush),
-        3 => Just(QueueOp::Pop),
-        1 => Just(QueueOp::Clear),
     ]
 }
 
@@ -158,40 +139,6 @@ proptest! {
             }
             prop_assert_eq!(real.as_slice(), model.as_slice());
             prop_assert!(real.len() <= CAP);
-        }
-    }
-
-    #[test]
-    fn bounded_queue_matches_vecdeque_model(ops in proptest::collection::vec(queue_op(), 0..96)) {
-        let mut real: BoundedQueue<u8, CAP> = BoundedQueue::new();
-        let mut model: VecDeque<u8> = VecDeque::new();
-        for op in ops {
-            match op {
-                QueueOp::Push(v) => {
-                    let result = real.push_back(v);
-                    if model.len() < CAP {
-                        prop_assert_eq!(result, Ok(()));
-                        model.push_back(v);
-                    } else {
-                        prop_assert_eq!(result, Err(v));
-                    }
-                }
-                QueueOp::ForcePush(v) => {
-                    let evicted = if model.len() == CAP { model.pop_front() } else { None };
-                    model.push_back(v);
-                    prop_assert_eq!(real.force_push_back(v), evicted);
-                }
-                QueueOp::Pop => prop_assert_eq!(real.pop_front(), model.pop_front()),
-                QueueOp::Clear => {
-                    real.clear();
-                    model.clear();
-                }
-            }
-            let contents: Vec<u8> = real.iter().copied().collect();
-            let expected: Vec<u8> = model.iter().copied().collect();
-            prop_assert_eq!(contents, expected);
-            prop_assert_eq!(real.front(), model.front());
-            prop_assert_eq!(real.back(), model.back());
         }
     }
 
