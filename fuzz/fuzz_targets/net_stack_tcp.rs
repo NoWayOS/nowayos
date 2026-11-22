@@ -41,7 +41,7 @@ use nowayos_fuzz::Input;
 use nowayos_ip::smoltcp::phy::{self, Device, DeviceCapabilities, Medium};
 use nowayos_ip::smoltcp::time::Instant as NetInstant;
 use nowayos_ip::{Lease, Notice, Reports, Requests, Stack, StackSeed, TcpRoom, storage};
-use nowayos_net::arp::{Ipv4, Mac};
+use nowayos_net::Mac;
 use nowayos_socket::{
     AllowList, ClientTable, Close, Connect, ConnectionId, Destination, MAX_DATA, RecordError,
     Report, Request, SLOT_LEN, SendData,
@@ -352,7 +352,7 @@ fuzz_target!(|data: &[u8]| {
         return;
     };
     stack.assume_lease(Lease {
-        address: Ipv4(OURS),
+        address: Ipv4Addr::from(OURS),
         prefix_len: 24,
         gateway: None,
     });

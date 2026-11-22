@@ -28,8 +28,11 @@
 #![no_std]
 #![no_main]
 
+use core::net::Ipv4Addr;
+
 use nowayos_display::FrameMemory;
-use nowayos_net::arp::{self, Ipv4, Mac, Operation};
+use nowayos_net::Mac;
+use nowayos_net::arp::{self, Operation};
 use nowayos_net::{
     BUFFER_SIZE, BUFFERS, BufferSet, Consumer, DATA_REGION_LEN, DataRegion, Descriptor,
     ETHERNET_HEADER_LEN, MAX_FRAME_LEN, Producer,
@@ -59,8 +62,8 @@ const DRIVER: Channel = Channel::new(0);
 /// This PD's addresses, and the gateway's: `systems/net-test.qemu` gives
 /// the card this MAC address and QEMU's user-mode network these addresses.
 const OUR_MAC: Mac = Mac([0x52, 0x54, 0x00, 0x12, 0x34, 0x56]);
-const OUR_IP: Ipv4 = Ipv4([10, 0, 2, 15]);
-const GATEWAY: Ipv4 = Ipv4([10, 0, 2, 2]);
+const OUR_IP: Ipv4Addr = Ipv4Addr::new(10, 0, 2, 15);
+const GATEWAY: Ipv4Addr = Ipv4Addr::new(10, 0, 2, 2);
 
 /// The transmit buffer the ARP request goes in.
 const REQUEST_BUFFER: usize = 0;

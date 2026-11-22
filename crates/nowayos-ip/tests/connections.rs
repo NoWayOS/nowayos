@@ -39,7 +39,7 @@ use std::rc::Rc;
 
 use nowayos_ip::smoltcp;
 use nowayos_ip::{Lease, Notice, Reports, Requests, Stack, StackSeed, TcpRoom, storage};
-use nowayos_net::arp::{Ipv4, Mac};
+use nowayos_net::Mac;
 use nowayos_socket::{
     AllowList, ClientTable, Close, Connect, ConnectionId, Destination, FailReason, MAX_DATA,
     RING_SLOTS, RecordError, Report, Request, SendData,
@@ -324,7 +324,7 @@ fn seed() -> StackSeed {
 
 fn lease() -> Lease {
     Lease {
-        address: Ipv4([10, 0, 2, 15]),
+        address: Ipv4Addr::new(10, 0, 2, 15),
         prefix_len: 24,
         gateway: None,
     }

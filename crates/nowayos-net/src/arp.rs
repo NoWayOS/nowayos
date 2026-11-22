@@ -23,8 +23,9 @@
 //! frame may carry padding after the packet, as short frames do.
 
 use core::fmt;
+use core::net::Ipv4Addr;
 
-use crate::ETHERNET_HEADER_LEN;
+use crate::{ETHERNET_HEADER_LEN, Mac};
 
 /// The EtherType of an ARP packet.
 pub const ETHERTYPE_ARP: u16 = 0x0806;
@@ -41,33 +42,6 @@ pub const PACKET_LEN: usize = 28;
 /// The shortest Ethernet frame, without its frame check sequence: shorter
 /// frames are padded to it.
 pub const MIN_FRAME_LEN: usize = 60;
-
-/// An Ethernet (MAC) address, shown as `52:54:00:12:34:56`.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct Mac(pub [u8; 6]);
-
-impl Mac {
-    /// The broadcast address, `ff:ff:ff:ff:ff:ff`.
-    pub const BROADCAST: Self = Self([0xff; 6]);
-}
-
-impl fmt::Display for Mac {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let [a, b, c, d, e, g] = self.0;
-        write!(f, "{a:02x}:{b:02x}:{c:02x}:{d:02x}:{e:02x}:{g:02x}")
-    }
-}
-
-/// An IPv4 address, shown as `10.0.2.2`.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct Ipv4(pub [u8; 4]);
-
-impl fmt::Display for Ipv4 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let [a, b, c, d] = self.0;
-        write!(f, "{a}.{b}.{c}.{d}")
-    }
-}
 
 /// An ARP operation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -100,11 +74,11 @@ pub struct Arp {
     /// The sender's hardware address.
     pub sender_mac: Mac,
     /// The sender's IPv4 address.
-    pub sender_ip: Ipv4,
+    pub sender_ip: Ipv4Addr,
     /// The target's hardware address (zero in a request).
     pub target_mac: Mac,
     /// The target's IPv4 address.
-    pub target_ip: Ipv4,
+    pub target_ip: Ipv4Addr,
 }
 
 /// Why a frame is not an ARP packet for IPv4 over Ethernet, or could not be
@@ -163,8 +137,8 @@ impl core::error::Error for ArpError {}
 /// [`MIN_FRAME_LEN`]; nothing is written.
 pub fn request(
     sender_mac: Mac,
-    sender_ip: Ipv4,
-    target_ip: Ipv4,
+    sender_ip: Ipv4Addr,
+    target_ip: Ipv4Addr,
     out: &mut [u8],
 ) -> Result<usize, ArpError> {
     let len = out.len();
@@ -172,6 +146,8 @@ pub fn request(
         .get_mut(..MIN_FRAME_LEN)
         .ok_or(ArpError::BufferTooSmall { len })?;
     frame.fill(0);
+    let sender_ip = sender_ip.octets();
+    let target_ip = target_ip.octets();
     let fields: [&[u8]; 11] = [
         &Mac::BROADCAST.0,
         &sender_mac.0,
@@ -181,9 +157,9 @@ pub fn request(
         &[6, 4],
         &Operation::Request.code().to_be_bytes(),
         &sender_mac.0,
-        &sender_ip.0,
+        &sender_ip,
         &[0; 6],
-        &target_ip.0,
+        &target_ip,
     ];
     let mut at = 0usize;
     for field in fields {
@@ -262,9 +238,9 @@ pub fn parse(frame: &[u8]) -> Result<Arp, ArpError> {
         source: Mac([s0, s1, s2, s3, s4, s5]),
         operation,
         sender_mac: Mac([sm0, sm1, sm2, sm3, sm4, sm5]),
-        sender_ip: Ipv4([si0, si1, si2, si3]),
+        sender_ip: Ipv4Addr::from([si0, si1, si2, si3]),
         target_mac: Mac([tm0, tm1, tm2, tm3, tm4, tm5]),
-        target_ip: Ipv4([ti0, ti1, ti2, ti3]),
+        target_ip: Ipv4Addr::from([ti0, ti1, ti2, ti3]),
     })
 }
 
@@ -282,8 +258,8 @@ mod tests {
 
     const OURS: Mac = Mac([0x52, 0x54, 0x00, 0x12, 0x34, 0x56]);
     const GATEWAY_MAC: Mac = Mac([0x52, 0x55, 0x0a, 0x00, 0x02, 0x02]);
-    const US: Ipv4 = Ipv4([10, 0, 2, 15]);
-    const GATEWAY: Ipv4 = Ipv4([10, 0, 2, 2]);
+    const US: Ipv4Addr = Ipv4Addr::new(10, 0, 2, 15);
+    const GATEWAY: Ipv4Addr = Ipv4Addr::new(10, 0, 2, 2);
 
     /// A reply to our request, as a gateway would send it: 42 bytes and
     /// `padding` more.
@@ -293,9 +269,9 @@ mod tests {
         frame.extend_from_slice(&GATEWAY_MAC.0);
         frame.extend_from_slice(&[0x08, 0x06, 0, 1, 0x08, 0x00, 6, 4, 0, 2]);
         frame.extend_from_slice(&GATEWAY_MAC.0);
-        frame.extend_from_slice(&GATEWAY.0);
+        frame.extend_from_slice(&GATEWAY.octets());
         frame.extend_from_slice(&OURS.0);
-        frame.extend_from_slice(&US.0);
+        frame.extend_from_slice(&US.octets());
         frame.resize(42 + padding, 0);
         frame
     }
@@ -308,9 +284,9 @@ mod tests {
         assert_eq!(&out[6..12], &OURS.0);
         assert_eq!(&out[12..22], &[0x08, 0x06, 0, 1, 0x08, 0x00, 6, 4, 0, 1]);
         assert_eq!(&out[22..28], &OURS.0);
-        assert_eq!(&out[28..32], &US.0);
+        assert_eq!(&out[28..32], &US.octets());
         assert_eq!(&out[32..38], &[0; 6], "target hardware address unknown");
-        assert_eq!(&out[38..42], &GATEWAY.0);
+        assert_eq!(&out[38..42], &GATEWAY.octets());
         assert_eq!(&out[42..60], &[0; 18], "padded with zeros");
         assert_eq!(&out[60..], &[0xaa; 4], "nothing written past the frame");
         assert_eq!(
@@ -376,7 +352,7 @@ mod tests {
         #[test]
         fn a_request_parses_back(mac in any::<[u8; 6]>(), ip in any::<[u8; 4]>(), target in any::<[u8; 4]>()) {
             let mut out = [0u8; 2048];
-            let len = request(Mac(mac), Ipv4(ip), Ipv4(target), &mut out).unwrap();
+            let len = request(Mac(mac), Ipv4Addr::from(ip), Ipv4Addr::from(target), &mut out).unwrap();
             prop_assert_eq!(
                 parse(&out[..len]),
                 Ok(Arp {
@@ -384,9 +360,9 @@ mod tests {
                     source: Mac(mac),
                     operation: Operation::Request,
                     sender_mac: Mac(mac),
-                    sender_ip: Ipv4(ip),
+                    sender_ip: Ipv4Addr::from(ip),
                     target_mac: Mac::default(),
-                    target_ip: Ipv4(target),
+                    target_ip: Ipv4Addr::from(target),
                 })
             );
         }

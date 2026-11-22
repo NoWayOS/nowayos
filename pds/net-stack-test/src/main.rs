@@ -30,7 +30,7 @@
 
 use nowayos_display::FrameMemory;
 use nowayos_ipc::Producer as RingProducer;
-use nowayos_net::arp::Mac;
+use nowayos_net::Mac;
 use nowayos_net::{
     BUFFER_SIZE, BUFFERS, Consumer, DATA_REGION_LEN, Descriptor, MAX_FRAME_LEN, Producer,
 };

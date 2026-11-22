@@ -46,7 +46,7 @@ use nowayos_hw::virtio_net::{
     DEVICE_ID, F_MAC, MAC_OFFSET, NetRx, NetTx, RECEIVE_QUEUE, Received, TRANSMIT_QUEUE,
 };
 use nowayos_hw::{HwError, device, dma_region, io_region};
-use nowayos_net::arp::Mac;
+use nowayos_net::Mac;
 use nowayos_net::{
     BUFFER_SIZE, BUFFERS, BufferSet, Consumer, DATA_REGION_LEN, DataRegion, Descriptor,
     ETHERNET_HEADER_LEN, MAX_FRAME_LEN, Producer, QueueError,

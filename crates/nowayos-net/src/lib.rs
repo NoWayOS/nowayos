@@ -9,6 +9,7 @@
 //!   sDDF's signalling flag. sDDF's trust model is not adopted: each side
 //!   keeps its own index privately and checks the other's, and
 //!   [`DataRegion`] checks every descriptor before it is used.
+//! * [`Mac`] - an Ethernet address; IPv4 addresses are `core::net`'s.
 //! * [`arp`] - an ARP request, and the parser for what comes back (RFC 826):
 //!   the exchange the network test client makes. The network stack
 //!   PD speaks ARP through smoltcp (`nowayos-ip`).
@@ -37,6 +38,22 @@ pub use queue::{
     Frame, InMemoryQueue, MAX_CAPACITY, Producer, QUEUE_HEADER_LEN, QueueError, QueueMemory,
     queue_len,
 };
+
+/// An Ethernet (MAC) address, shown as `52:54:00:12:34:56`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Mac(pub [u8; 6]);
+
+impl Mac {
+    /// The broadcast address, `ff:ff:ff:ff:ff:ff`.
+    pub const BROADCAST: Self = Self([0xff; 6]);
+}
+
+impl core::fmt::Display for Mac {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let [a, b, c, d, e, g] = self.0;
+        write!(f, "{a:02x}:{b:02x}:{c:02x}:{d:02x}:{e:02x}:{g:02x}")
+    }
+}
 
 /// The bytes of an Ethernet II header: destination, source, EtherType.
 pub const ETHERNET_HEADER_LEN: usize = 14;

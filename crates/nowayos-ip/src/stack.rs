@@ -22,7 +22,7 @@ use core::fmt;
 use core::net::Ipv4Addr;
 use core::num::NonZeroU64;
 
-use nowayos_net::arp::{Ipv4, Mac};
+use nowayos_net::Mac;
 use nowayos_seed::Seed;
 use nowayos_socket::{AllowList, MAX_CONNECTIONS};
 use nowayos_time::Instant;
@@ -93,11 +93,11 @@ impl fmt::Debug for StackSeed {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Lease {
     /// The stack's address.
-    pub address: Ipv4,
+    pub address: Ipv4Addr,
     /// Its network's prefix length.
     pub prefix_len: u8,
     /// The default gateway, if the server named one.
-    pub gateway: Option<Ipv4>,
+    pub gateway: Option<Ipv4Addr>,
 }
 
 impl fmt::Display for Lease {
@@ -261,11 +261,11 @@ impl<'a> Stack<'a> {
     /// fuzzing, which have no server. The DHCP client keeps asking, and a
     /// real lease replaces this one.
     pub fn assume_lease(&mut self, lease: Lease) {
-        let cidr = Ipv4Cidr::new(Ipv4Addr::from(lease.address.0), lease.prefix_len);
+        let cidr = Ipv4Cidr::new(lease.address, lease.prefix_len);
         if !is_unicast(cidr.address()) || lease.prefix_len > 32 {
             return;
         }
-        self.configure(cidr, lease.gateway.map(|gateway| Ipv4Addr::from(gateway.0)));
+        self.configure(cidr, lease.gateway);
         self.lease = Some(lease);
         self.assumed = true;
     }
@@ -324,9 +324,9 @@ impl<'a> Stack<'a> {
                 self.configure(cidr, gateway);
                 self.assumed = false;
                 let lease = Lease {
-                    address: Ipv4(cidr.address().octets()),
+                    address: cidr.address(),
                     prefix_len: cidr.prefix_len(),
-                    gateway: gateway.map(|router| Ipv4(router.octets())),
+                    gateway,
                 };
                 self.lease = Some(lease);
                 Some(Event::Leased(lease))
@@ -420,9 +420,9 @@ mod tests {
     #[test]
     fn a_lease_prints_as_the_expect_files_read_it() {
         let lease = Lease {
-            address: Ipv4([10, 0, 2, 15]),
+            address: Ipv4Addr::new(10, 0, 2, 15),
             prefix_len: 24,
-            gateway: Some(Ipv4([10, 0, 2, 2])),
+            gateway: Some(Ipv4Addr::new(10, 0, 2, 2)),
         };
         assert_eq!(lease.to_string(), "10.0.2.15/24, gateway 10.0.2.2");
         let none = Lease {
