@@ -36,8 +36,8 @@ What it lists, for the Product Owner to review:
 * wiki-reference: a file in the tree that mentions the wiki (the private
   project wiki, where design lives), with how many lines do. The
   tree only: the history holds earlier versions of the same pointers.
-* record-reference: a line in the tree that cites a story number (#8000 to
-  #10999), an ADR (ADR-NNNN), a decision (D-NNN), a known issue (KI-N) or
+* record-reference: a line in the tree that cites a story number (#8xxx,
+  #9xxx or #10xxx), an ADR (ADR-NNNN), a decision (D-NNN), a known issue (KI-N) or
   a risk (R-N) of the private project - things a public reader cannot look
   up; the tree carries the rule or reason in words instead. The tree only,
   and never an assistant file.
