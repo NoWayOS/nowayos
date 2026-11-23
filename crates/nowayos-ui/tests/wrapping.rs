@@ -13,7 +13,7 @@
 )]
 
 use nowayos_display::Rect;
-use nowayos_glyphs::REGULAR_18;
+use nowayos_glyphs::REGULAR;
 use nowayos_ui::text::wrap;
 use nowayos_ui::{
     ActionId, Align, Length, MAX_LINES, NodeId, SlotId, Style, TextMetrics, TextStyle, Tree,
@@ -52,8 +52,8 @@ fn breaks_fall_after_spaces_first_fit() {
 }
 
 #[test]
-fn an_atlas_line_is_measured_as_a_line_of_its_own() {
-    let metrics = TextMetrics::from_atlas(&REGULAR_18);
+fn a_faces_line_is_measured_as_a_line_of_its_own() {
+    let metrics = TextMetrics::from_face(&REGULAR, 18 * 64);
     for width in [80, 120, 200, 320] {
         for line in wrap(NOTICE, width, &metrics) {
             assert!(metrics.text_width(line) <= width, "{line:?} at {width}");

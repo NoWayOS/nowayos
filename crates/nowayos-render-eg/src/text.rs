@@ -441,7 +441,7 @@ mod tests {
     use embedded_graphics::pixelcolor::{
         Bgr555, Bgr565, Bgr666, Bgr888, Rgb555, Rgb565, Rgb666, Rgb888,
     };
-    use nowayos_glyphs::{ATLASES, DISPLAY, REGULAR};
+    use nowayos_glyphs::{BOLD, BOLDITALIC, CODE, CODEBOLD, DISPLAY, ITALIC, REGULAR};
     use nowayos_ui::TextMetrics;
     use proptest::prelude::*;
 
@@ -540,12 +540,44 @@ mod tests {
         assert_eq!(blend(Rgb666::WHITE, Rgb666::RED, 0), Rgb666::RED);
     }
 
-    /// Each atlas's face and size: the sizes the type scales draw at
-    /// device scales 1 and 2.
+    /// Every face at each size the type scales draw it at, at device
+    /// scales 1 and 2, in pixels per em: 30 points.
+    static POINTS: [(&Face, u32); 30] = [
+        (&REGULAR, 14),
+        (&REGULAR, 16),
+        (&REGULAR, 18),
+        (&REGULAR, 24),
+        (&REGULAR, 28),
+        (&REGULAR, 32),
+        (&REGULAR, 36),
+        (&REGULAR, 48),
+        (&BOLD, 14),
+        (&BOLD, 16),
+        (&BOLD, 18),
+        (&BOLD, 20),
+        (&BOLD, 24),
+        (&BOLD, 28),
+        (&BOLD, 32),
+        (&BOLD, 36),
+        (&BOLD, 40),
+        (&BOLD, 48),
+        (&BOLD, 56),
+        (&BOLD, 72),
+        (&DISPLAY, 96),
+        (&DISPLAY, 192),
+        (&ITALIC, 18),
+        (&ITALIC, 24),
+        (&BOLDITALIC, 18),
+        (&BOLDITALIC, 24),
+        (&CODE, 18),
+        (&CODE, 24),
+        (&CODEBOLD, 18),
+        (&CODEBOLD, 24),
+    ];
+
+    /// Each point's face and size in 1/64 pixel per em.
     fn faces() -> impl Iterator<Item = (&'static Face, u32)> {
-        ATLASES
-            .iter()
-            .map(|atlas| (atlas.face(), u32::from(atlas.size()) * 64))
+        POINTS.iter().map(|&(face, px)| (face, px * 64))
     }
 
     /// The ink box of `ch` in `face` at `size64`.
@@ -753,8 +785,8 @@ mod tests {
     proptest! {
         /// Drawing places every glyph where layout measured it: the pen
         /// ends at the width layout gives the line, before rounding up,
-        /// for any text of the set (and characters outside it), in every
-        /// atlas.
+        /// for any text of the set (and characters outside it), at every
+        /// point.
         #[test]
         fn drawing_and_layout_measure_alike(
             text in proptest::collection::vec(
@@ -766,13 +798,12 @@ mod tests {
                 0..40,
             ).prop_map(|chars| chars.into_iter().collect::<std::string::String>()),
         ) {
-            for atlas in ATLASES {
-                let metrics = TextMetrics::from_atlas(atlas);
-                let (face, size64) = (atlas.face(), u32::from(atlas.size()) * 64);
+            for (face, size64) in faces() {
+                let metrics = TextMetrics::from_face(face, size64);
                 let line = Line { face, size64, text: &text, left: 0, baseline: 0, slanted: false };
                 let end = line.end().unwrap();
                 let width = if end <= 0 { 0 } else { u32::try_from((end + 63) / 64).unwrap() };
-                prop_assert_eq!(width, metrics.text_width(&text), "{} px", atlas.size());
+                prop_assert_eq!(width, metrics.text_width(&text), "{} px", size64 / 64);
                 // Each glyph's pen is the end of the text before it.
                 let scale = face.scale(size64).unwrap();
                 let mut before = std::string::String::new();
