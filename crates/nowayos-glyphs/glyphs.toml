@@ -1,17 +1,17 @@
-# What the glyph atlases are made from, reviewed like the font itself.
+# What the glyph outlines are made from, reviewed like the font itself.
 # tools/glyph-atlas reads it: `make atlases` writes src/atlas/ from it, and
-# `make atlases-check`, in make ci, writes the atlases again and fails on
+# `make atlases-check`, in make ci, writes the outlines again and fails on
 # any difference. The tool checks every file below against its sha256 first,
 # and fails naming any file in fonts/ that is not listed here.
 
-# The notice that goes with every copy of the atlases and beside every
+# The notice that goes with every copy of the outlines and beside every
 # image: each family's copyright line, then the licence's text, which each
 # family's licence file below gives word for word after its own copyright
 # line. `make atlases` writes it; `make atlases-check` fails if it differs.
 notice = "OFL.txt"
 
 # The families, each signed off, from the commit named, with the licence
-# file as released there. The atlases are one crate, so all share one
+# file as released there. The outlines are one crate, so all share one
 # licence.
 [[family]]
 id = "next"
@@ -93,7 +93,8 @@ upstream = "OFL.txt"
 version = "2.001"
 sha256 = "1ebb31cf7393164f20d10c1d48406cddb5314feff8465531cf1e4ba37e9dd740"
 
-# One face for each weight the type scale's roles need: every size of every theme's roles together, at device scales 1
+# One face for each weight the type scale's roles need. Its sizes are where the tool's
+# tests check its outlines against swash: every size of every theme's roles together, at device scales 1
 # and 2. The light theme: caption 14, label 16, body 18 - each
 # Regular or Bold - heading 20 Bold, title 28 Bold, display 96 Bold; the
 # large-text theme: caption, label and body 24, heading 28 Bold, title 36
@@ -113,8 +114,7 @@ sizes = [14, 16, 18, 20, 24, 28, 32, 36, 40, 48, 56, 72]
 
 # The display role: digits, capitals and the few signs a number or a
 # reference carries - a queue number, an amount, a time - in Bold, at 96 px
-# and, at scale 2, 192: a face of its own, with only these characters, as
-# the whole set at that size would cost several megabytes. Text in the
+# and, at scale 2, 192: a face of its own, with only these characters. Text in the
 # display role must use only these (nowayos_ui::text::is_display; Screen Compiler
 # refuses any other, naming its line and column).
 [[face]]
@@ -126,8 +126,8 @@ ranges = [[0x20, 0x20], [0x23, 0x23], [0x25, 0x25], [0x2B, 0x3A], [0x41, 0x5A], 
 
 # Rich text's italics and code: a run in italics is drawn in the italic of
 # its weight, and code in the monospace face of its weight, from their
-# outlines at the run's size. The atlases at the body's two sizes are for
-# the tests that check the outlines against them.
+# outlines at the run's size. The body's two sizes are where the tool's
+# tests check them against swash.
 [[face]]
 name = "italic"
 style = "Italic"

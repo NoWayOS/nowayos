@@ -72,9 +72,9 @@
 //!
 //! Text is one line unless its style lets it wrap, up to [`MAX_LINES`]
 //! lines, and every character of every text a node
-//! shows must be one the glyph atlases draw and a person can see
+//! shows must be one the faces draw and a person can see
 //! ([`text::check_printable`]): a control character such as `'\n'`, an
-//! invisible one such as a direction override, or one outside the atlases'
+//! invisible one such as a direction override, or one outside the faces'
 //! set is refused with a typed error that never names it - fixed text when
 //! its node is added, text set later ([`Tree::set_slot`],
 //! [`Tree::set_value`], [`Tree::set_text`], [`Tree::set_field_error`]) when

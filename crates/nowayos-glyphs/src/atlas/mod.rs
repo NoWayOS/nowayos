@@ -18,81 +18,21 @@
 // a Modified Version of the fonts, made by NoWayOS's glyph atlas tool (tools/glyph-atlas).
 // The licence is OFL.txt in this crate's folder.
 
-mod bold_14;
-mod bold_16;
-mod bold_18;
-mod bold_20;
-mod bold_24;
-mod bold_28;
-mod bold_32;
-mod bold_36;
-mod bold_40;
-mod bold_48;
-mod bold_56;
-mod bold_72;
 mod bold_kerning;
 mod bold_outline;
-mod bolditalic_18;
-mod bolditalic_24;
 mod bolditalic_kerning;
 mod bolditalic_outline;
-mod code_18;
-mod code_24;
 mod code_kerning;
 mod code_outline;
-mod codebold_18;
-mod codebold_24;
 mod codebold_kerning;
 mod codebold_outline;
-mod display_192;
-mod display_96;
 mod display_kerning;
 mod display_outline;
-mod italic_18;
-mod italic_24;
 mod italic_kerning;
 mod italic_outline;
-mod regular_14;
-mod regular_16;
-mod regular_18;
-mod regular_24;
-mod regular_28;
-mod regular_32;
-mod regular_36;
-mod regular_48;
 mod regular_kerning;
 mod regular_outline;
 
-pub use regular_14::REGULAR_14;
-pub use regular_16::REGULAR_16;
-pub use regular_18::REGULAR_18;
-pub use regular_24::REGULAR_24;
-pub use regular_28::REGULAR_28;
-pub use regular_32::REGULAR_32;
-pub use regular_36::REGULAR_36;
-pub use regular_48::REGULAR_48;
-pub use bold_14::BOLD_14;
-pub use bold_16::BOLD_16;
-pub use bold_18::BOLD_18;
-pub use bold_20::BOLD_20;
-pub use bold_24::BOLD_24;
-pub use bold_28::BOLD_28;
-pub use bold_32::BOLD_32;
-pub use bold_36::BOLD_36;
-pub use bold_40::BOLD_40;
-pub use bold_48::BOLD_48;
-pub use bold_56::BOLD_56;
-pub use bold_72::BOLD_72;
-pub use display_96::DISPLAY_96;
-pub use display_192::DISPLAY_192;
-pub use italic_18::ITALIC_18;
-pub use italic_24::ITALIC_24;
-pub use bolditalic_18::BOLDITALIC_18;
-pub use bolditalic_24::BOLDITALIC_24;
-pub use code_18::CODE_18;
-pub use code_24::CODE_24;
-pub use codebold_18::CODEBOLD_18;
-pub use codebold_24::CODEBOLD_24;
 pub use regular_outline::REGULAR;
 pub use bold_outline::BOLD;
 pub use display_outline::DISPLAY;
@@ -101,10 +41,6 @@ pub use bolditalic_outline::BOLDITALIC;
 pub use code_outline::CODE;
 pub use codebold_outline::CODEBOLD;
 
-/// Every atlas: each face in the order glyphs.toml lists them, at each of its sizes, smallest
-/// first.
-pub static ATLASES: [&crate::Atlas; 30] = [&REGULAR_14, &REGULAR_16, &REGULAR_18, &REGULAR_24, &REGULAR_28, &REGULAR_32, &REGULAR_36, &REGULAR_48, &BOLD_14, &BOLD_16, &BOLD_18, &BOLD_20, &BOLD_24, &BOLD_28, &BOLD_32, &BOLD_36, &BOLD_40, &BOLD_48, &BOLD_56, &BOLD_72, &DISPLAY_96, &DISPLAY_192, &ITALIC_18, &ITALIC_24, &BOLDITALIC_18, &BOLDITALIC_24, &CODE_18, &CODE_24, &CODEBOLD_18, &CODEBOLD_24];
-
-/// The notice every copy of the atlases carries: the fonts' copyright lines, and their licence
+/// The notice every copy of the outlines carries: the fonts' copyright lines, and their licence
 /// (OFL-1.1; the licence's text is OFL.txt in this crate's folder).
 pub const NOTICE: &str = "Copyright 2020-2024 The Atkinson Hyperlegible Next Project Authors (https://github.com/googlefonts/atkinson-hyperlegible-next). Copyright 2020-2024 The Atkinson Hyperlegible Mono Project Authors (https://github.com/googlefonts/atkinson-hyperlegible-next-mono). This Font Software is licensed under the SIL Open Font License, Version 1.1.";

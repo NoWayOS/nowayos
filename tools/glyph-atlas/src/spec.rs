@@ -84,7 +84,7 @@ pub struct PinnedFile {
     pub sha256: String,
 }
 
-/// One face: a font file, at each of its sizes.
+/// One face: a font file, and the sizes its outlines are checked at.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Face {
@@ -95,7 +95,8 @@ pub struct Face {
     pub style: String,
     /// Its font file, a pinned file in `fonts/`.
     pub file: String,
-    /// Its sizes, in pixels per em, in increasing order.
+    /// The sizes, in pixels per em, in increasing order, that the tool's
+    /// tests check the face's outlines at against `swash`.
     pub sizes: Vec<u16>,
     /// Its own character set, as ranges, if it draws only part of the
     /// whole set - a display face's digits and capitals: every

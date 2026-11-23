@@ -1,14 +1,17 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! NoWayOS's glyph atlas generator: the build-time tool behind
+//! NoWayOS's glyph outline generator: the build-time tool behind
 //! `make atlases`.
 //!
-//! It reads an atlas crate's `glyphs.toml` - the font files with their
-//! versions and sha256 pins, the faces and their sizes, the character set
-//! and its aliases - checks every file against its pin and refuses any file
-//! in `fonts/` that is not pinned, then rasterises every character of the
-//! set at every size of every face with `swash`: unhinted, 8-bit
-//! coverage, metrics and GPOS pair kerning in 1/64 pixel, ligatures off. It
-//! writes the generated Rust modules, their coverage files and a manifest.
+//! It reads the glyph crate's `glyphs.toml` - the font files with their
+//! versions and sha256 pins, the faces and the sizes they are checked at,
+//! the character set and its aliases - checks every file against its pin
+//! and refuses any file in `fonts/` that is not pinned, then reads every
+//! character's outline and advance and the font's GPOS pair kerning with
+//! `swash`, in font units, unhinted, ligatures off. It writes each face's
+//! outlines and kerning as Rust modules, and a manifest. Its tests
+//! rasterise every face at every size `glyphs.toml` lists with `swash`, in
+//! memory, and check that the outlines, drawn by `nowayos-raster` as a
+//! device draws them, measure and draw the same.
 //!
 //! Everything is made in memory first: if any check fails - a pin, a
 //! character the font lacks - nothing is written. The output depends on the
@@ -154,8 +157,8 @@ pub fn generate(crate_dir: &Path) -> Result<Atlases, Error> {
         let data = inputs
             .get(&face.file)
             .ok_or_else(|| Error::Spec(format!("{} is not read", face.file)))?;
-        let atlas =
-            raster::rasterise(&face.file, data, &pinned.version, &spec, chars, &face.sizes)?;
+        // The outlines and kerning only: the sizes are for the tests' check.
+        let atlas = raster::rasterise(&face.file, data, &pinned.version, &spec, chars, &[])?;
         faces.push((face, pinned, atlas));
     }
     let (files, summary) = emit::files(&spec, &faces)?;

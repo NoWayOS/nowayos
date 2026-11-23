@@ -45,7 +45,7 @@ patch or misconfigure.
   and queue has a set size. The one exception, the TLS client, works in a
   fixed arena of its own.
 - **A light, native UI.** Drawn with `embedded-graphics`, repainting only what
-  changed, with anti-aliased text from glyph atlases made at build time.
+  changed, with anti-aliased text drawn from the font's outlines, read at build time.
 - **Low-cost hardware.** Built for the Raspberry Pi 5, as well as QEMU.
 
 ### Easier to work with
@@ -85,7 +85,7 @@ patch or misconfigure.
 | Drivers | Display (QEMU's `ramfb`, the Pi 5's framebuffer); input (virtio, USB keyboards, mice and tablets); network (virtio-net, the Pi 5's Ethernet); USB host (xHCI, with HID, audio and video); UART; timers; the Pi 5's fan |
 | Networking | An IP stack on smoltcp with DHCP and TCP, connecting only to the destinations a system allows; a TLS 1.3 client on rustls and RustCrypto |
 | Time and trust | Monotonic and wall-clock time as types that never mix; ECDSA P-256 signature checks; the records of signed updates; seeds from a health-tested hardware random source |
-| User interface | A bounded declarative UI core with layout, focus and hit-testing; a renderer on `embedded-graphics`; glyph atlases and icons drawn in advance |
+| User interface | A bounded declarative UI core with layout, focus and hit-testing; a renderer on `embedded-graphics`; glyph outlines read at build time and icons drawn in advance |
 | Tooling | The dev container; make fragments that product repositories build with; the grants, `unsafe`, licence and secrets checks; SBOM and release-evidence tools; QEMU and Raspberry Pi runners |
 
 The full inventory, crate by crate and system by system, is in
@@ -161,7 +161,7 @@ queues, [smoltcp](https://github.com/smoltcp-rs/smoltcp),
 ## Licence
 
 Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or
-[MIT licence](LICENSE-MIT), at your option - but for the glyph atlases
+[MIT licence](LICENSE-MIT), at your option - but for the glyph outlines
 (`crates/nowayos-glyphs`, OFL-1.1, their font's licence) and the icons
 (`crates/nowayos-icons`, ISC, Lucide's licence). Every crate declares its
 licence, and every source file carries an SPDX identifier. Detail:

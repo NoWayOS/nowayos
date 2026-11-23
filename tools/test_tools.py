@@ -3404,7 +3404,7 @@ class CheckBaseline(unittest.TestCase):
                 return self.tool.local_crate_problems(metadata, root, house=("MIT", "Apache-2.0", "ISC"))
 
             self.assertEqual(problems(), [])
-            # The reviewed allowance: NoWayOS's glyph atlases, OFL-1.1, where they are.
+            # The reviewed allowance: NoWayOS's glyph outlines, OFL-1.1, where they are.
             glyphs = package("nowayos-glyphs", os.path.join(root, "nowayos", "crates", "nowayos-glyphs", "Cargo.toml"),
                              licence="OFL-1.1")
             self.assertEqual(problems(glyphs), [])

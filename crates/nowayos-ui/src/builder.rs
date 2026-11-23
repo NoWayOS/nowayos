@@ -657,7 +657,7 @@ pub trait UiBuilder {
     /// # Errors
     ///
     /// The builder's error, for example when it is full, or text the
-    /// role's atlases do not draw.
+    /// role's face does not draw.
     fn text_styled(
         &mut self,
         text: &'static str,
@@ -710,7 +710,7 @@ pub trait UiBuilder {
     /// # Errors
     ///
     /// As [`slot_template`](Self::slot_template), or literals the role's
-    /// atlases do not draw.
+    /// face does not draw.
     fn slot_template_styled(
         &mut self,
         slot: SlotId,
@@ -1096,7 +1096,7 @@ impl<const N: usize, const T: usize> UiBuilder for Tree<N, T> {
         template: &'static Template,
         style: TextStyle,
     ) -> Result<NodeId, UiError> {
-        // The literals in the role's atlases, before the node is made.
+        // The literals in the role's face, before the node is made.
         NodeKind::Slot {
             slot,
             text: nowayos_bounded::BoundedStr::new(),

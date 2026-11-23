@@ -264,7 +264,7 @@ impl GroupId {
 /// refused, and so is a value holding one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum InputMode {
-    /// Any character the glyph atlases draw ([`text::is_printable`]).
+    /// Any character the faces draw ([`text::is_printable`]).
     ///
     /// [`text::is_printable`]: crate::text::is_printable
     #[default]
@@ -685,8 +685,8 @@ impl Look {
 }
 
 /// What a line of text is for: its size in the theme's type scale,
-/// from the largest to the smallest. The theme gives each role its size, an
-/// atlas at each device scale, and its colour.
+/// from the largest to the smallest. The theme gives each role its size, a
+/// face at each device scale, and its colour.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum TextRole {
     /// A number or a short reference to read across a room - a queue
@@ -1331,7 +1331,7 @@ pub enum NodeKind {
         /// child - a column of the pool's rows - places itself.
         rows: Option<Rows>,
     },
-    /// A single line of fixed text, every character one the glyph atlases
+    /// A single line of fixed text, every character one the faces
     /// draw and a person can see ([`NodeKind::check_text`]).
     Text(&'static str),
     /// A button that reports `action` when activated.
@@ -1758,7 +1758,7 @@ impl NodeKind {
     }
 
     /// [`check_text`](Self::check_text), and, in the display role, every
-    /// character one the display role's atlases draw
+    /// character one the display face draws
     /// ([`text::check_display`](crate::text::check_display)). Only a
     /// text, a slot and a button may be in the display role: a text input,
     /// a field's error, a checkbox and a radio group show text a person
@@ -1807,7 +1807,7 @@ impl NodeKind {
     }
 
     /// Checks that every text this kind shows can be shown: one line,
-    /// nothing invisible, and every character one the glyph atlases draw
+    /// nothing invisible, and every character one the faces draw
     /// ([`crate::text::check_printable`]) - a text, a label, a placeholder,
     /// an option, an error message, a value or a slot's text.
     ///
@@ -1818,7 +1818,7 @@ impl NodeKind {
     /// line, and `embedded-graphics` would start a new one at a `'\n'`,
     /// drawing outside the node), [`UiError::InvisibleCharacter`] (a
     /// zero-width space, a direction override…) or [`UiError::NoGlyph`]
-    /// (outside the atlases' set). None of them names the character.
+    /// (outside the faces' set). None of them names the character.
     pub fn check_text(&self) -> Result<(), UiError> {
         use crate::text::check_printable;
         match self {

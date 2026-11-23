@@ -31,7 +31,11 @@ const FEATURES: [(&str, u16); 6] = [
 /// Coverage comes from the glyph outlines only.
 const SOURCES: [Source; 1] = [Source::Outline];
 
-/// One glyph of an atlas at one size.
+/// One glyph of a face at one size, as `swash` rasterises it.
+#[allow(
+    dead_code,
+    reason = "read by the tool's tests alone: the outlines' check against swash"
+)]
 pub struct GlyphRow {
     /// The character it draws.
     pub ch: char,
@@ -98,11 +102,20 @@ pub struct FaceAtlas {
     /// The kerned pairs, in order of the first character, then the second;
     /// none of them 0.
     pub kerning: Vec<KernRow>,
-    /// The face at each size.
+    /// The face at each size it was rasterised at: none for `make atlases`,
+    /// every size `glyphs.toml` lists for the tests' check against `swash`.
+    #[allow(
+        dead_code,
+        reason = "read by the tool's tests alone: the outlines' check against swash"
+    )]
     pub sizes: Vec<SizeAtlas>,
 }
 
-/// One face at one size.
+/// One face at one size, as `swash` rasterises it.
+#[allow(
+    dead_code,
+    reason = "read by the tool's tests alone: the outlines' check against swash"
+)]
 pub struct SizeAtlas {
     /// Pixels per em.
     pub size: u16,
@@ -203,9 +216,11 @@ pub fn show(ch: char) -> String {
     format!("U+{:04X} {ch:?}", u32::from(ch))
 }
 
-/// Rasterises the face in `data` (the file `file`, pinned at `version`) for
-/// the character set `chars` - the face's own, from `spec` - at each of
-/// `sizes`, with its kerning in font units.
+/// Reads the face in `data` (the file `file`, pinned at `version`) for the
+/// character set `chars` - the face's own, from `spec`: every character's
+/// outline and the face's kerning, in font units, and its coverage at each
+/// of `sizes` (none for `make atlases`; every size `glyphs.toml` lists for
+/// the tests' check against `swash`).
 pub fn rasterise(
     file: &str,
     data: &[u8],

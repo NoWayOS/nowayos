@@ -135,7 +135,7 @@ impl Scale {
     }
 
     /// `units` at this size in 1/64 pixel, rounded half away from zero - as
-    /// the glyph atlases' metrics were scaled.
+    /// the glyph tool scales every metric (its `to_64`).
     ///
     /// ```
     /// use nowayos_raster::Scale;

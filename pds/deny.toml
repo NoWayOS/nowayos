@@ -42,7 +42,7 @@ confidence-threshold = 0.93
 include-dev = true
 exceptions = [
     # outside house list - signed off: nowayos-glyphs, the glyph
-    # atlases, a Modified Version of the signed-off font, is OFL-1.1.
+    # outlines, a Modified Version of the signed-off font, is OFL-1.1.
     { crate = "nowayos-glyphs", allow = ["OFL-1.1"] },
     # outside house list - signed off 2026-10-04: smoltcp 0.14.0, the IP stack NoWayOS's network stack PD runs, and its
     # dependency managed 0.8.0, at those versions. 0BSD asks less than MIT.

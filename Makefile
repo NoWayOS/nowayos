@@ -33,7 +33,7 @@ PUBLICATION_REPOS ?= . ../screen-compiler ../showcase
 # Where make update-bundles writes the update tests' public keys and records.
 UPDATE_BUNDLES_OUT := build/update-bundles
 
-# The glyph atlases: tools/glyph-atlas, a host tool in a Cargo
+# The glyph outlines: tools/glyph-atlas, a host tool in a Cargo
 # workspace of its own, makes them from the signed-off font in
 # GLYPHS_CRATE - its glyphs.toml pins every font file - into its src/atlas/,
 # where they are checked in, and make atlases-check makes them again into
@@ -91,7 +91,7 @@ help:
 	@echo "  make doc               build the API docs, warnings as errors"
 	@echo "  make demo              the demo's scripted session, every frame checked"
 	@echo "                         (NOWAYOS_UPDATE_SNAPSHOTS=1 rewrites its golden images)"
-	@echo "  make atlases           the glyph atlases, made again from the pinned font into $(GLYPHS_CRATE)/src/atlas/,"
+	@echo "  make atlases           the glyph outlines, made again from the pinned font into $(GLYPHS_CRATE)/src/atlas/,"
 	@echo "                         the icons' masks, from the pinned Lucide icons into $(ICONS_CRATE)/src/masks/,"
 	@echo "                         and the pictures of $(PICTURE_CRATES), from the files each pictures.toml pins"
 	@echo "                         ($(ATLAS_TOOL), $(PICTURE_TOOL)); review the change and commit it"
@@ -188,7 +188,7 @@ doc:
 demo:
 	$(CARGO) run --locked --quiet -p nowayos-demo --example session
 
-# The glyph atlases made again from the pinned font, into the atlas
+# The glyph outlines made again from the pinned font, into the glyph
 # crate: the tool refuses a font that differs from its pin, an unpinned file
 # in fonts/ or a character the font lacks, and then writes nothing. The same
 # inputs give the same bytes, on the host or in the container.
@@ -245,7 +245,7 @@ deny:
 # into them (pds/std-crates.txt). The fuzz harness is a test harness: nothing
 # in it ships, so everything in its SBOM is `excluded`. The atlas tool runs
 # on the build host only: its SBOM lists what it is built from as `required`
-# for the tool, which ships nothing but the atlases it writes. Two runs on
+# for the tool, which ships nothing but the outlines it writes. Two runs on
 # one commit give the same bytes.
 sbom:
 	@mkdir -p $(SBOM_DIR) && { test -f build/.gitignore || printf '*\n' > build/.gitignore; }
@@ -366,8 +366,8 @@ kani:
 	fi
 	$(if $(_ci_skip_mutants),@echo "kani-mutation: SKIP - no mutant's crate reaches a change $(_ci_scope_note)",python3 tools/kani-mutation --out $(KANI_OUT) $(addprefix --mutation ,$(KANI_MUTATIONS)))
 
-# The glyph atlases checked: the tool's rustfmt, clippy and tests
-# (the pins, an unpinned font file, a character the font lacks), then the
+# The glyph outlines checked: the tool's rustfmt, clippy and tests (the pins,
+# an unpinned font file, a character the font lacks, the outlines against swash), then the
 # atlases made again from the pinned font into ATLAS_OUT and compared, file
 # by file, with the checked-in ones; then cargo tree over the other three
 # workspaces - the root's no_std crates, the PDs and the fuzz harness - for

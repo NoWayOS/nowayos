@@ -120,7 +120,7 @@ fn literals_are_checked_as_any_text_and_bounded() {
         UiBuilder::slot_template(&mut tree, NAME, &LONG),
         Err(UiError::TextTooLong(_))
     ));
-    // In the display role, the literals in its atlases: digits,
+    // In the display role, the literals in its face: digits,
     // capitals and a few signs.
     static GATE: ui::Template = ui::Template {
         before: "Gate ",

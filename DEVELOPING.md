@@ -9,12 +9,12 @@ What exists today (the README's Status says what runs where):
 - the library crates in `crates/` (below): host-tested, with no `unsafe` code,
   and every one but the host-only `nowayos-testkit` and `nowayos-dev-window` builds for bare-metal
   `aarch64-unknown-none` with no heap;
-- glyph atlases of the signed-off font, made at build time by a tool of
+- glyph outlines of the signed-off font, read at build time by a tool of
   their own (`make atlases`) and checked in: every printable Latin-1
-  character at the four sizes the themes use, with metrics and kerning, for
-  proportional text. Layout measures text with them (`nowayos-ui`), and
-  both themes draw it from them, anti-aliased (`nowayos-render-eg`): 24 px
-  in the light theme, 36 px in the large-text one. The built-in monospace
+  character of each face, with its metrics and kerning, for proportional
+  text at any size. Layout measures text with them (`nowayos-ui`), and
+  both themes draw it from them, anti-aliased (`nowayos-render-eg`): 18 px
+  body text in the light theme, 24 px in the large-text one. The built-in monospace
   fonts remain for bring-up and debug screens only;
 - a demo in host simulation (`make demo`): a scripted session of taps,
   clicks and keys, every frame checked against an approved image (to click
@@ -218,14 +218,14 @@ may change.
 | `crates/nowayos-signature` | Checks ECDSA P-256 signatures over SHA-256 in a protection domain - verification only, no private key and no randomness - with RustCrypto's `p256` and `sha2`, default features off; keys and signatures of the wrong form refused with typed errors; one known answer made with OpenSSL, its private key discarded; property tests and a fuzz target |
 | `crates/nowayos-update` | The update records the update PD decodes before it trusts anything about an update: the signed trust list, the update manifest - product, version and security version, the image's length and SHA-256, the trust-list version it needs, a development mark, opaque reference values and the image key's signature - and the fixed-size chunks a bundle arrives in, each naming its part and offset; fixed-layout, versioned records whose decoders cannot panic and refuse every encoding but one. Property tests, fuzz targets and Kani proofs (`make kani`) |
 | `crates/nowayos-ui` | First cut of the declarative UI core: bounded node tree, layout, hit-testing, focus and actions, plus the children-first `builder` API that Screen Compiler-generated screens call. Layout measures text with a glyph atlas's advances, pair kerning and line height (`TextMetrics::from_atlas`) or, the special case, a built-in monospace font's; every text a node shows is refused, with a typed error, unless each character is one the atlases draw and a person can see |
-| `crates/nowayos-render-eg` | Draws a laid-out UI tree to any `embedded-graphics` draw target, each node clipped to its own rectangle, repainting only dirty areas; text from the glyph atlases, anti-aliased - each glyph's coverage blended over the colour its node is known to draw beneath it, never read back - in any RGB colour type; `RawFramebuffer`, a draw target over raw framebuffer memory in any `nowayos-display` pixel format |
-| `crates/nowayos-glyphs` | The glyph atlases: every character of the UI's set drawn in advance from the signed-off font at each size the themes use - 8-bit coverage, metrics and pair kerning in 1/64 pixel - as generated Rust tables (`src/atlas/`, written by `make atlases`, never by hand), with lookups that never parse anything. Licensed `OFL-1.1`, the font's licence (its `OFL.txt`), not NoWayOS's; `glyphs.toml` pins the font file it is made from |
+| `crates/nowayos-render-eg` | Draws a laid-out UI tree to any `embedded-graphics` draw target, each node clipped to its own rectangle, repainting only dirty areas; text from the glyph outlines, anti-aliased - each glyph's coverage blended over the colour its node is known to draw beneath it, never read back - in any RGB colour type; `RawFramebuffer`, a draw target over raw framebuffer memory in any `nowayos-display` pixel format |
+| `crates/nowayos-glyphs` | The glyph outlines: every character of the UI's set, for each face of the signed-off font - its path, advance, metrics and pair kerning in font units, which `nowayos-raster` draws at any size - as generated Rust tables (`src/atlas/`, written by `make atlases`, never by hand), with lookups that never parse anything. Licensed `OFL-1.1`, the font's licence (its `OFL.txt`), not NoWayOS's; `glyphs.toml` pins the font file it is made from |
 | `crates/nowayos-demo` | A small synthetic form demo and its scripted session of taps, clicks and keys: `make demo` checks every step's frame against a golden image (`session/`); the same screens and session run in a UI PD |
 | `crates/nowayos-testkit` | Host-only test harness: in-memory framebuffer and golden-image snapshots (PNG) |
 | `crates/nowayos-dev-window` | Host-only developer's tool: an application on `nowayos-ui`, built for the host, shown in a browser window on the developer's machine (`http://localhost:8017/`) and taking its clicks and keys as canonical input events; it can keep the session in a file and play it back into a program started again. A small HTTP server on the standard library, listening on the loopback address, answering only as `localhost` and changing nothing without its page's own header; everything it reads is bounded, property-tested and fuzzed (`dev_window_text`). `tools/dev-window` keeps such a program running, rebuilt on every save. No part of any image |
 | `pds/` | Microkit protection domains and the libraries they share: a separate Cargo workspace on the nightly toolchain rust-sel4 needs (see `pds/README.md`) |
 | `fuzz/` | The fuzz harness: libFuzzer targets for the decoders of untrusted input (`fuzz_targets/`), a Cargo workspace of its own that `make fuzz` builds and runs; libFuzzer is for development and CI fuzzing only and never ships |
-| `tools/glyph-atlas` | The glyph atlas tool: a host program in a Cargo workspace of its own, so the rasteriser (`swash`) and its font parsers are in no device crate's dependency graph. It checks every font file against its pin, then writes `crates/nowayos-glyphs/src/atlas/` (`make atlases`); `make atlases-check` writes it again and compares |
+| `tools/glyph-atlas` | The glyph outline tool: a host program in a Cargo workspace of its own, so the rasteriser (`swash`) and its font parsers are in no device crate's dependency graph. It checks every font file against its pin, then writes `crates/nowayos-glyphs/src/atlas/` (`make atlases`); `make atlases-check` writes it again and compares, and the tool's tests rasterise every face with `swash` at every size `glyphs.toml` lists and check that the outlines, drawn by `nowayos-raster`, measure and draw the same |
 | `platforms/` | One board file per Microkit board (`qemu_virt_aarch64.toml`, `rpi5b_2gb.toml`): the devices a PD can be granted, each with its register window, interrupts and source (read by `tools/check-system`, and by `tools/board-system`, which fills them into each board's system description: the descriptions in `systems/` name devices, never addresses); the Pi 5's U-Boot settings (`rpi5b_2gb-u-boot.config`, read by `make uboot`) and `config.txt` (`rpi5b_2gb-config.txt`, copied by `make sdcard`) |
 | `systems/` | Microkit system descriptions (`*.system`), the output each must print in QEMU or on a board (`*.expect`) and everything each grants (`*.grants`); see `systems/README.md` |
 | `tools/container/` | The dev container: Microkit SDK, QEMU, Rust toolchains, cargo-deny (see its README) |
@@ -256,7 +256,7 @@ Everyday targets - in the dev container, which they start for you; add
 ```sh
 make test          # unit, property, doc and golden-image tests
 make demo          # the demo's scripted session, every frame checked against its approved image
-make atlases       # the glyph atlases made again from the pinned font (review the change, then commit it)
+make atlases       # the glyph outlines made again from the pinned font (review the change, then commit it)
 make lint          # rustfmt --check, then clippy with warnings as errors
 make fmt           # format everything
 make doc           # API docs, warnings as errors
@@ -275,7 +275,7 @@ make sbom                          # a CycloneDX SBOM per workspace: build/sbom/
 make secrets                       # the tree and every commit scanned for keys and credentials, offline (secrets-allow.toml)
 make fuzz                          # every fuzz target built with libFuzzer and run for FUZZ_SECONDS (10) s; corpus and
                                    # crashes in build/fuzz/ (FUZZ_TARGETS=ipc_decode for one; FUZZ_INPUT=FILE to rerun one input)
-make atlases-check                 # the atlas tool's checks and tests, the atlases made again and compared with the
+make atlases-check                 # the glyph tool's checks and tests, the outlines made again and compared with the
                                    # checked-in ones, and no rasteriser crate in any other workspace's cargo tree
 make qemu-test SYSTEM=ipc-demo     # build, check the grants, boot headless, check the output
                                    # (each image's seL4 configuration is recorded beside it: sel4-config.txt,
@@ -354,7 +354,7 @@ rule adds `-p 127.0.0.1:PORT:PORT` to `CONTAINER_RUN_ARGS` and passes
   `fuzz/fuzz_targets/`, which `make fuzz` runs in `make ci`.
 - A change to a system description that adds or widens a capability also
   changes its `.grants` file, and is called out as a security change.
-- The glyph atlases are the signed-off font's, under its licence (OFL-1.1):
+- The glyph outlines are the signed-off font's, under its licence (OFL-1.1):
   their crate is the one with a licence of its own, carries the font's
   notice, and is named for its job, never for the font. `nowayos-ui`
   depends on it, to measure text. Every image has the notice beside it and
@@ -376,7 +376,7 @@ NoWayOS is licensed under **MIT OR Apache-2.0**, at your option
 field and every source file carries an `SPDX-License-Identifier` line, but
 for three:
 
-- `crates/nowayos-glyphs`, the glyph atlases, is a Modified Version of a font
+- `crates/nowayos-glyphs`, the glyph outlines, is a Modified Version of a font
   under the SIL Open Font License 1.1 and is licensed under it alone (its
   `OFL.txt`);
 - `crates/nowayos-icons`, the icons' masks, is ISC, the licence of the Lucide

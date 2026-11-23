@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! The generated files: a Rust module and a coverage file for each face at
-//! each size, `mod.rs` naming them all, and `manifest.toml`, which says
-//! what they were made from.
+//! The generated files: each face's outlines and its kerning as Rust
+//! modules, `mod.rs` naming them all, and `manifest.toml`, which says what
+//! they were made from.
 //!
 //! The Rust is plain ASCII, in a fixed order, with no time, path or host in
 //! it: the same inputs give the same bytes.
@@ -9,14 +9,14 @@
 use std::fmt::Write as _;
 
 use crate::Error;
-use crate::raster::{FaceAtlas, SizeAtlas};
+use crate::raster::FaceAtlas;
 use crate::spec::{Face, PinnedFile, Spec};
 
-/// What `swash` version made the coverage: a new one can change it.
+/// What `swash` version read the outlines and the kerning: a new one can
+/// change them.
 const RASTERISER: &str = "swash 0.2.10";
-/// How every atlas is made.
-const HOW: &str = "unhinted, 8-bit coverage, metrics in 1/64 pixel, GPOS pair kerning in font units \
-                   scaled at each size, no ligatures";
+/// How the outlines and the kerning are read.
+const HOW: &str = "outlines, advances and GPOS pair kerning in font units, unhinted, no ligatures";
 
 /// A character as a Rust character literal, in ASCII.
 #[must_use]
@@ -117,7 +117,7 @@ fn header(comment: &str, spec: &Spec, fonts: &[(&Face, &PinnedFile)]) -> String 
     text
 }
 
-/// The notice every copy of the atlases carries, on one line: each
+/// The notice every copy of the outlines carries, on one line: each
 /// family's copyright line and the licence, as the OFL's own header gives
 /// them.
 fn notice(spec: &Spec) -> String {
@@ -136,11 +136,6 @@ fn notice(spec: &Spec) -> String {
     text
 }
 
-/// The atlas's module name: `regular_24`.
-fn module(face: &Face, size: u16) -> String {
-    format!("{}_{size}", face.name)
-}
-
 /// The face's kerning module's name: `regular_kerning`.
 fn kerning_module(face: &Face) -> String {
     format!("{}_kerning", face.name)
@@ -149,9 +144,9 @@ fn kerning_module(face: &Face) -> String {
 /// Generated files: (file name, contents), sorted by name.
 pub type Files = Vec<(String, Vec<u8>)>;
 
-/// The generated files for `faces`, each with its pinned file and its
-/// atlases, size by size, and its kerning, shared by its sizes.
-/// Returns them, sorted by name, and a summary of what was made.
+/// The generated files for `faces`, each with its pinned file, its
+/// outlines and its kerning. Returns them, sorted by name, and a summary of
+/// what was made.
 pub fn files(
     spec: &Spec,
     faces: &[(&Face, &PinnedFile, FaceAtlas)],
@@ -159,14 +154,10 @@ pub fn files(
     let fonts: Vec<(&Face, &PinnedFile)> =
         faces.iter().map(|(face, file, _)| (*face, *file)).collect();
     let mut files = Vec::new();
-    let mut statics = Vec::new();
     let mut kerning_modules = Vec::new();
     let mut outline_statics = Vec::new();
-    let mut atlas_entries = String::new();
-    let mut coverage_bytes = 0_usize;
-    let mut glyph_count = Vec::new();
-    for (index, ((face, file, atlas), (chars, ranges))) in
-        faces.iter().zip(&spec.face_sets).enumerate()
+    let mut made = Vec::new();
+    for (index, ((face, file, atlas), (chars, _))) in faces.iter().zip(&spec.face_sets).enumerate()
     {
         // Each face's number, from 1, in the order glyphs.toml lists them: what a
         // glyph cache tells the faces apart by.
@@ -184,65 +175,26 @@ pub fn files(
             outline_rs(spec, face, file, atlas, &kerning, id)?.into_bytes(),
         ));
         outline_statics.push((outline.clone(), face.name.to_uppercase()));
-        glyph_count.push(chars.len());
-        for size in &atlas.sizes {
-            let name = module(face, size.size);
-            let rust = size_module(spec, face, file, size, &name, &kerning, &outline)?;
-            files.push((format!("{name}.rs"), rust.into_bytes()));
-            files.push((format!("{name}.coverage"), size.coverage.clone()));
-            statics.push((
-                name.clone(),
-                name.to_uppercase(),
-                face.style.clone(),
-                size.size,
-            ));
-            coverage_bytes = coverage_bytes.saturating_add(size.coverage.len());
-            let _ = write!(
-                atlas_entries,
-                "\n[[atlas]]\nstatic = {}\nmodule = {}\nfont = {}\nsize = {}\nglyphs = {}\n\
-                 kerning-pairs = {}\ncoverage-bytes = {}\ncoverage-sha256 = {}\n",
-                toml_string(&name.to_uppercase()),
-                toml_string(&name),
-                toml_string(&file.path),
-                size.size,
-                size.glyphs.len(),
-                atlas.kerning.len(),
-                size.coverage.len(),
-                toml_string(&crate::spec::sha256_hex(&size.coverage)),
-            );
-            if face.ranges.is_some() {
-                let _ = writeln!(atlas_entries, "ranges = [{}]", show_ranges(ranges));
-            }
-        }
+        made.push(format!(
+            "{} {} from {}, {} characters, {} kerned pairs",
+            face.name,
+            face.style,
+            file.path,
+            chars.len(),
+            atlas.kerning.len()
+        ));
     }
     files.push((
         "mod.rs".into(),
-        mod_rs(spec, &fonts, &statics, &kerning_modules, &outline_statics).into_bytes(),
+        mod_rs(spec, &fonts, &kerning_modules, &outline_statics).into_bytes(),
     ));
-    files.push((
-        "manifest.toml".into(),
-        manifest(spec, faces, &atlas_entries).into_bytes(),
-    ));
+    files.push(("manifest.toml".into(), manifest(spec, faces).into_bytes()));
     files.sort_by(|a, b| a.0.cmp(&b.0));
-
-    let mut summary = format!("glyph-atlas: PASS - {} atlases:", statics.len());
-    for ((face, file, atlas), count) in faces.iter().zip(&glyph_count) {
-        let sizes: Vec<String> = atlas
-            .sizes
-            .iter()
-            .map(|size| size.size.to_string())
-            .collect();
-        let _ = write!(
-            summary,
-            " {} {} at {} px from {}, {count} characters, {} kerned pairs;",
-            face.name,
-            face.style,
-            sizes.join(", "),
-            file.path,
-            atlas.kerning.len()
-        );
-    }
-    let _ = write!(summary, " {coverage_bytes} bytes of coverage");
+    let summary = format!(
+        "glyph-atlas: PASS - {} faces' outlines and kerning: {}",
+        faces.len(),
+        made.join("; ")
+    );
     Ok((files, summary))
 }
 
@@ -449,94 +401,19 @@ fn outline_rs(
     }
 }
 
-/// One face at one size, as a Rust module.
-fn size_module(
-    spec: &Spec,
-    face: &Face,
-    file: &PinnedFile,
-    atlas: &SizeAtlas,
-    name: &str,
-    kerning: &str,
-    outline: &str,
-) -> Result<String, Error> {
-    let face_static = face.name.to_uppercase();
-    let mut text = header("//", spec, &[(face, file)]);
-    let _ = write!(
-        text,
-        "//\n// {size} pixels per em: {HOW}.\n\n\
-         use super::{kerning}::{{CHARS, KERNING, UPEM}};\n\
-         use super::{outline}::{face_static};\n\
-         use crate::{{Atlas, Glyph, LineMetrics, is_whole, lay_out, same_chars}};\n\n\
-         /// Every glyph's coverage, in the order of `GLYPHS`, each row by row from the top: one byte a\n\
-         /// pixel, 0 for none and 255 for full.\n\
-         const COVERAGE: &[u8; {bytes}] = include_bytes!(\"{name}.coverage\");\n\n\
-         /// A glyph: its character; its advance, bearing x and bearing y in 1/64 pixel; and its ink box's\n\
-         /// left and top from the pen on the baseline, its width and height, in pixels. Its pixels are the\n\
-         /// next width * height bytes of `COVERAGE`, in the order of `GLYPHS`: `lay_out` gives them.\n\
-         #[allow(clippy::too_many_arguments, reason = \"one row a glyph keeps the generated table readable\")]\n\
-         const fn g(\n    ch: char,\n    advance: i32,\n    bearing_x: i32,\n    bearing_y: i32,\n    left: i16,\n    top: i16,\n    \
-         width: u16,\n    height: u16,\n) -> Glyph {{\n    \
-         Glyph {{ ch, advance, bearing_x, bearing_y, left, top, width, height, coverage: &[] }}\n}}\n\n\
-         static GLYPHS: [Glyph; {glyphs}] = lay_out(COVERAGE, [\n",
-        size = atlas.size,
-        bytes = atlas.coverage.len(),
-        glyphs = atlas.glyphs.len(),
-        kerning = kerning,
-    );
-    for glyph in &atlas.glyphs {
-        let _ = writeln!(
-            text,
-            "    g({}, {}, {}, {}, {}, {}, {}, {}),",
-            char_literal(glyph.ch),
-            glyph.advance,
-            glyph.bearing_x,
-            glyph.bearing_y,
-            glyph.left,
-            glyph.top,
-            glyph.width,
-            glyph.height
-        );
-    }
-    text.push_str("]);\n");
-    let [ascent, descent, line_gap] = atlas.line;
-    let _ = write!(
-        text,
-        "\n/// The {style} face at {size} pixels per em.\n\
-         pub static {upper}: Atlas = Atlas::new({size}, LineMetrics::new({ascent}, {descent}, {line_gap}), &GLYPHS, &KERNING, UPEM, &{face_static});\n\n\
-         // Checked when this module compiles: both tables in the order the lookups search them in, no\n\
-         // character twice; the glyphs exactly the face's characters, in order; every glyph's pixels\n\
-         // exactly its width times its height, the glyphs taking all of COVERAGE; every kerned pair\n\
-         // naming two glyphs, and none 0. The values - every pixel, metric and adjustment - are checked\n\
-         // by `make atlases-check`, which makes the atlases again and compares them byte for byte.\n\
-         const _: () = assert!(same_chars(&GLYPHS, &CHARS) && is_whole(&GLYPHS, &KERNING, COVERAGE.len()));\n",
-        style = face.style,
-        size = atlas.size,
-        upper = name.to_uppercase(),
-    );
-    if text.is_ascii() {
-        Ok(text)
-    } else {
-        Err(Error::Spec(format!(
-            "{}'s text must be ASCII, for the generated Rust: the family's name and copyright line",
-            crate::SPEC_FILE
-        )))
-    }
-}
-
-/// `mod.rs`: every atlas module, the atlases' statics and the notice.
+/// `mod.rs`: every face's outline and kerning modules, the faces' statics
+/// and the notice.
 fn mod_rs(
     spec: &Spec,
     fonts: &[(&Face, &PinnedFile)],
-    statics: &[(String, String, String, u16)],
     kerning_modules: &[String],
     outlines: &[(String, String)],
 ) -> String {
     let mut text = header("//", spec, fonts);
     text.push('\n');
-    let mut modules: Vec<&str> = statics
+    let mut modules: Vec<&str> = kerning_modules
         .iter()
-        .map(|(module, _, _, _)| module.as_str())
-        .chain(kerning_modules.iter().map(String::as_str))
+        .map(String::as_str)
         .chain(outlines.iter().map(|(module, _)| module.as_str()))
         .collect();
     modules.sort_unstable();
@@ -544,27 +421,14 @@ fn mod_rs(
         let _ = writeln!(text, "mod {module};");
     }
     text.push('\n');
-    for (module, upper, _, _) in statics {
-        let _ = writeln!(text, "pub use {module}::{upper};");
-    }
     for (module, upper) in outlines {
         let _ = writeln!(text, "pub use {module}::{upper};");
     }
-    let names: Vec<String> = statics
-        .iter()
-        .map(|(_, upper, _, _)| format!("&{upper}"))
-        .collect();
     let _ = write!(
         text,
-        "\n/// Every atlas: each face in the order {} lists them, at each of its sizes, smallest\n\
-         /// first.\n\
-         pub static ATLASES: [&crate::Atlas; {count}] = [{names}];\n\n\
-         /// The notice every copy of the atlases carries: the fonts' copyright lines, and their licence\n\
+        "\n/// The notice every copy of the outlines carries: the fonts' copyright lines, and their licence\n\
          /// ({licence}; the licence's text is {licence_file} in this crate's folder).\n\
          pub const NOTICE: &str = {notice};\n",
-        crate::SPEC_FILE,
-        count = statics.len(),
-        names = names.join(", "),
         licence = spec.licence(),
         licence_file = spec.notice,
         notice = rust_string(&notice(spec)),
@@ -572,9 +436,9 @@ fn mod_rs(
     text
 }
 
-/// `manifest.toml`: what the atlases were made from and of, for each
+/// `manifest.toml`: what the outlines were made from and of, for each
 /// image's SBOM (tools/image-sbom) and for checking text against the set.
-fn manifest(spec: &Spec, faces: &[(&Face, &PinnedFile, FaceAtlas)], atlas_entries: &str) -> String {
+fn manifest(spec: &Spec, faces: &[(&Face, &PinnedFile, FaceAtlas)]) -> String {
     let mut text = header(
         "#",
         spec,
@@ -585,7 +449,7 @@ fn manifest(spec: &Spec, faces: &[(&Face, &PinnedFile, FaceAtlas)], atlas_entrie
     );
     let _ = write!(
         text,
-        "#\n# What the atlases in this folder were made from and hold: tools/image-sbom names the font\n\
+        "#\n# What the outlines in this folder were made from and hold: tools/image-sbom names the font\n\
          # in every image's SBOM from it, and Screen Compiler can check text against the character set.\n\n\
          crate = {}\nlicence = {}\nnotice = {}\ncopyright = {}\nrasteriser = {}\nmade = {}\n",
         toml_string(&spec.crate_name),
@@ -623,7 +487,6 @@ fn manifest(spec: &Spec, faces: &[(&Face, &PinnedFile, FaceAtlas)], atlas_entrie
             toml_string(&family.decision),
         );
     }
-    text.push_str(atlas_entries);
     let _ = write!(
         text,
         "\n[characters]\ncount = {}\nranges = [{}]\n",

@@ -457,7 +457,7 @@ fn text_is_its_coverage_blended_over_its_nodes_known_background() {
 
 // ---- Any text, anywhere ----------------------------------------------------
 
-/// Any character of the atlases' set.
+/// Any character of the faces' set.
 fn printable() -> impl Strategy<Value = char> {
     prop_oneof![
         3 => (0x20_u32..=0x7E).prop_map(|code| char::from_u32(code).unwrap()),

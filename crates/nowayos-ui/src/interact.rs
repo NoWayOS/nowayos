@@ -818,7 +818,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
             KeyCode::BACKSPACE => ((step(text, at, Step::Left), at), ""),
             KeyCode::DELETE => ((at, step(text, at, Step::Right)), ""),
             _ => {
-                // A key types only characters the glyph atlases draw, as
+                // A key types only characters the faces draw, as
                 // text set any other way must be (the layouts type no
                 // other), and only ones the input's mode takes: a key that
                 // types none is refused, reporting nothing.
