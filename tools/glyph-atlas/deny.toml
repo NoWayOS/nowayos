@@ -30,6 +30,10 @@ exceptions = [
     # outside house list - signed off 2026-10-01 for every repo: unicode-ident, reached through the
     # procedural macros of serde and bytemuck, at build time only.
     { crate = "unicode-ident", allow = ["Unicode-3.0"] },
+    # outside house list - signed off, as in the root workspace's deny.toml:
+    # nowayos-glyphs, the outlines, a Modified Version of the signed-off font,
+    # is OFL-1.1. Here a dev-dependency, for the outlines' check.
+    { crate = "nowayos-glyphs", allow = ["OFL-1.1"] },
 ]
 
 [licenses.private]
