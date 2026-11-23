@@ -8,8 +8,8 @@ rust-version.workspace = true
 publish.workspace = true
 
 # A library, so that a product's system can run the USB host PD from a
-# program of its own (wrapping `init`), and the program NoWayOS's systems run
-# (Showcase's kitchen sink).
+# program of its own (wrapping `init`), as the Showcase's Pi systems do, and
+# the program NoWayOS's systems run.
 [lib]
 path = "src/lib.rs"
 test = false
