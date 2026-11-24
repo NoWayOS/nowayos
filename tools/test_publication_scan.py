@@ -141,6 +141,23 @@ class PublicationScanTest(unittest.TestCase):
         status, output = self.scan()
         self.assertEqual(status, 0, output)
 
+    def test_record_references_in_the_tree_are_listed(self):
+        # Built from fragments, so this file holds none the real scan would list.
+        refs = ["#" + "10084", "ADR-" + "0026", "D-" + "143", "KI-" + "07", "R-" + "45"]
+        self.repo.write("src/lib.rs", "// as decided (" + refs[0] + ", " + refs[1] + ")\n// " + refs[2] + "\n")
+        self.repo.write("docs/notes.md", refs[3] + " and " + refs[4] + ".\n")
+        self.repo.write("style.css", "a { color: #10a0ff; } /* &#8212; #800 */\n")
+        self.repo.write("CLAUDE.md", "Story " + refs[0] + ".\n")
+        self.repo.commit("Notes")
+        status, output = self.scan()
+        self.assertEqual(status, 1, output)
+        for where in ("src/lib.rs:1 (" + refs[0] + ",", "src/lib.rs:1 (" + refs[1] + ",", "src/lib.rs:2 (" + refs[2] + ",",
+                      "docs/notes.md:1 (" + refs[3] + ",", "docs/notes.md:1 (" + refs[4] + ","):
+            self.assertIn("record-reference: " + where, output)
+        self.assertNotIn("record-reference: style.css", output, "hex colours and HTML entities")
+        self.assertNotIn("record-reference: CLAUDE.md", output, "assistant files are their own kind")
+        self.assertIn("5 record references", output)
+
     def test_links_assistant_files_wiki_references_and_co_authors(self):
         # Built from fragments, so this file holds no link the real scan would list.
         self.repo.write("README.md", "Design: https://dev." + "azure.com/example/Project/_wiki (the wiki).\n")

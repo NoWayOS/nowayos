@@ -36,6 +36,11 @@ What it lists, for the Product Owner to review:
 * wiki-reference: a file in the tree that mentions the wiki (the private
   project wiki, where design lives), with how many lines do. The
   tree only: the history holds earlier versions of the same pointers.
+* record-reference: a line in the tree that cites a story number (#8xxx,
+  #9xxx or #10xxx), an ADR (ADR-NNNN), a decision (D-NNN), a known issue (KI-N) or
+  a risk (R-N) of the private project - things a public reader cannot look
+  up; the tree carries the rule or reason in words instead. The tree only,
+  and never an assistant file.
 * identity: every author, committer, tagger and co-author (Co-Authored-By
   trailers), with how many commits name each - what publishing the history
   would publish.
@@ -72,10 +77,15 @@ LINK = re.compile(
     r"|github\.com[/:]NoWayOS/Wiki\b)"
 )
 WIKI = re.compile(r"(?i)\bwiki\b")
+# A story number, ADR, decision, known issue or risk of the private project.
+# The lookarounds leave HTML entities (&#8212;) and hex colours alone.
+RECORD_REFERENCE = re.compile(
+    r"(?<![&\w])#(?:8|9|10)\d{3}(?![0-9A-Za-z])|\bADR-\d{4}\b|\bD-\d{3}\b|\bKI-\d+\b|\bR-\d+\b"
+)
 ASSISTANT_FILE = re.compile(r"(?i)(?:^|/)(?:CLAUDE\.md|\.claude/.*)$")
 CO_AUTHOR = re.compile(r"(?im)^co-authored-by:[ \t]*(.+?)[ \t]*$")
 # The order findings are listed in.
-ORDER = ("term", "link", "assistant-file", "wiki-reference")
+ORDER = ("term", "link", "assistant-file", "wiki-reference", "record-reference")
 
 
 # tools/secrets-scan, for its read-only git plumbing.
@@ -190,6 +200,10 @@ def scan_repository(repo, terms):
         wiki = len({line_of(text, m.start()) for m in WIKI.finditer(text)})
         if wiki:
             add("wiki-reference", f"{shown} ({wiki} line{'s' if wiki != 1 else ''} in the tree)", (0, path, 0))
+        if not ASSISTANT_FILE.search(path):
+            for match in RECORD_REFERENCE.finditer(text):
+                line = line_of(text, match.start())
+                add("record-reference", f"{shown}:{line} ({match.group(0)}, in the tree)", (0, path, line))
 
     commits, versions = scan_git.history(repo)
     age = {commit: index for index, commit in enumerate(commits)}
@@ -265,7 +279,8 @@ def main():
             to_review += len(findings)
             print(f"    summary: {totals.get('term', 0)} term findings, {totals.get('link', 0)} links, "
                   f"{totals.get('assistant-file', 0)} assistant-file findings, "
-                  f"{totals.get('wiki-reference', 0)} files mentioning the wiki, {len(people)} identities")
+                  f"{totals.get('wiki-reference', 0)} files mentioning the wiki, "
+                  f"{totals.get('record-reference', 0)} record references, {len(people)} identities")
     except InputError as err:
         print(f"publication-scan: {err}", file=sys.stderr)
         return EXIT_ERROR
