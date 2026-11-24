@@ -26,6 +26,8 @@ sel4_config = load("sel4-config")
 
 ARM64_SHA = "a" * 64
 AMD64_SHA = "b" * 64
+SEL4_COMMIT = "6e7c3b733d296cfd88d5fbf635c96e447a882374"
+MICROKIT_COMMIT = "ec86afdcd662b5976d11d4994acf1b11a2979882"
 
 CONTAINERFILE = f"""\
 ARG RUST_STABLE=1.93.1
@@ -33,6 +35,9 @@ ARG RUST_STABLE=1.93.1
 ARG MICROKIT_VERSION=2.3.1
 ARG MICROKIT_SHA256_ARM64={ARM64_SHA}
 ARG MICROKIT_SHA256_AMD64={AMD64_SHA}
+ARG SEL4_COMMIT={SEL4_COMMIT}
+ARG MICROKIT_COMMIT={MICROKIT_COMMIT}
+ARG SEL4_RPI5B_RAM_END=0x3f400000
 """
 
 POSITION = f"""\
@@ -42,6 +47,9 @@ sha256-arm64 = "{ARM64_SHA}"
 sha256-amd64 = "{AMD64_SHA}"
 sel4 = "16.0.0"
 checked = "2026-10-03"
+sel4-commit = "{SEL4_COMMIT}"
+microkit-commit = "{MICROKIT_COMMIT}"
+rpi5b-ram-end = "0x3f400000"
 
 [configuration]
 SEL4_ARCH = "aarch64"
@@ -165,6 +173,17 @@ class Sel4Config(unittest.TestCase):
             "not seL4's AArch64 verified configuration: differs in MAX_NUM_BOOTINFO_UNTYPED_CAPS",
         ])
 
+    def test_a_kernel_the_dev_image_builds_is_named_by_its_commit(self):
+        status, output, text = self.record("rpi5b_2gb", "release", RELEASE)
+        self.assertEqual(status, 0, output)
+        kernel = self.fields(text)["kernel"][0]
+        self.assertIn(f"built in the dev image from seL4 {SEL4_COMMIT}", kernel)
+        self.assertIn("ending at 0x3f400000, below the framebuffer", kernel)
+        self.assertNotIn("in the SDK", kernel)
+        status, output, text = self.record("qemu_virt_aarch64", "debug", dict(DEBUG, PLAT="qemu-arm-virt"))
+        self.assertEqual(status, 0, output)
+        self.assertEqual(self.fields(text)["kernel"], ["board/qemu_virt_aarch64/debug/elf/sel4.elf in the SDK"])
+
     def test_a_debug_configuration_is_labelled_a_development_build(self):
         status, output, text = self.record("qemu_virt_aarch64", "debug", dict(DEBUG, PLAT="qemu-arm-virt"))
         self.assertEqual(status, 0, output)
@@ -239,6 +258,15 @@ class Sel4Config(unittest.TestCase):
                 self.assertEqual(status, 1)
                 self.assertIn(f"pins the {arch} SDK archive sha256 {'e' * 64}", stderr)
 
+    def test_check_fails_when_a_kernel_pin_moves(self):
+        for arg, old in (("SEL4_COMMIT", SEL4_COMMIT), ("MICROKIT_COMMIT", MICROKIT_COMMIT),
+                         ("SEL4_RPI5B_RAM_END", "0x3f400000")):
+            with self.subTest(arg=arg):
+                write(self.dir, "Containerfile", CONTAINERFILE.replace(f"ARG {arg}={old}", f"ARG {arg}=0x1"))
+                status, _, stderr = self.check()
+                self.assertEqual(status, 1)
+                self.assertIn(f"pins {arg}=0x1", stderr)
+
     def test_check_needs_exactly_one_pin_of_each(self):
         write(self.dir, "Containerfile", CONTAINERFILE.replace(f"ARG MICROKIT_SHA256_AMD64={AMD64_SHA}\n", ""))
         status, _, stderr = self.check()
@@ -252,10 +280,12 @@ class Sel4Config(unittest.TestCase):
         self.assertIn("NOT_AN_OPTION", stderr)
 
     def test_the_position_needs_its_sdk_fields(self):
-        write(self.dir, "position.toml", POSITION.replace('checked = "2026-10-03"\n', ""))
-        status, _, stderr = self.check()
-        self.assertEqual(status, 2)
-        self.assertIn("checked", stderr)
+        for line in ('checked = "2026-10-03"\n', f'sel4-commit = "{SEL4_COMMIT}"\n', 'rpi5b-ram-end = "0x3f400000"\n'):
+            with self.subTest(line=line):
+                write(self.dir, "position.toml", POSITION.replace(line, ""))
+                status, _, stderr = self.check()
+                self.assertEqual(status, 2)
+                self.assertIn(line.split(" ")[0], stderr)
 
 
 if __name__ == "__main__":

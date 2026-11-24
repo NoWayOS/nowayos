@@ -27,6 +27,13 @@
 version = "2.3.1"
 sha256-arm64 = "979553f288e8e2c099dae8fbec86cbe2cfda2ca006ee36de8234649d6d23bbee"
 sha256-amd64 = "b1b285b8785db7557eba6d0665dd4fbf2f265ea5c0b39d6f91ae3dcc43d2c424"
+# The commits the dev image builds the Pi 5's kernel from, and where its RAM
+# ends: tools/container/Containerfile's SEL4_COMMIT, MICROKIT_COMMIT and
+# SEL4_RPI5B_RAM_END. A change to any of them is a kernel this position has
+# not been checked for.
+sel4-commit = "6e7c3b733d296cfd88d5fbf635c96e447a882374"
+microkit-commit = "ec86afdcd662b5976d11d4994acf1b11a2979882"
+rpi5b-ram-end = "0x3f400000"
 # The seL4 release the SDK's kernels are built from.
 sel4 = "16.0.0"
 checked = "2026-10-03"

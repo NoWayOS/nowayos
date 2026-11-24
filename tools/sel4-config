@@ -72,16 +72,27 @@ def sha256_file(path):
     return digest.hexdigest()
 
 
+# The boards whose kernel the dev image builds from seL4's source, at the
+# Containerfile's SEL4_COMMIT, in place of the Microkit SDK's (its
+# sel4-rpi5b stage ends the Pi 5's RAM below the framebuffer); as
+# tools/image-sbom's KERNEL_FROM_SOURCE.
+KERNEL_FROM_SOURCE = ("rpi5b_2gb",)
+# The Containerfile ARGs the position is tied to: [sdk] key, ARG.
+PINNED_ARGS = (("version", "MICROKIT_VERSION"), ("arm64", "MICROKIT_SHA256_ARM64"),
+               ("amd64", "MICROKIT_SHA256_AMD64"), ("sel4-commit", "SEL4_COMMIT"),
+               ("microkit-commit", "MICROKIT_COMMIT"), ("rpi5b-ram-end", "SEL4_RPI5B_RAM_END"))
+
+
 def containerfile_pins(path):
-    """{'version': ..., 'arm64': sha256, 'amd64': sha256} from the Containerfile's ARGs."""
+    """{'version', 'arm64', 'amd64', 'sel4-commit', 'microkit-commit',
+    'rpi5b-ram-end'} from the Containerfile's ARGs (PINNED_ARGS)."""
     try:
         with open(path, encoding="utf-8") as handle:
             text = handle.read()
     except OSError as err:
         raise InputError(f"cannot read {path}: {err}") from err
     pins = {}
-    for key, arg in (("version", "MICROKIT_VERSION"), ("arm64", "MICROKIT_SHA256_ARM64"),
-                     ("amd64", "MICROKIT_SHA256_AMD64")):
+    for key, arg in PINNED_ARGS:
         found = re.findall(rf"^ARG {arg}=(\S+)\s*$", text, re.MULTILINE)
         if len(found) != 1:
             raise InputError(f"{path}: expected exactly one 'ARG {arg}=...', found {len(found)}")
@@ -99,7 +110,8 @@ def load_position(path):
     sdk = position.get("sdk")
     if not isinstance(sdk, dict):
         raise InputError(f"{path}: no [sdk] table")
-    for key in ("version", "sha256-arm64", "sha256-amd64", "sel4", "checked"):
+    for key in ("version", "sha256-arm64", "sha256-amd64", "sel4", "checked", "sel4-commit",
+                "microkit-commit", "rpi5b-ram-end"):
         if not isinstance(sdk.get(key), str) or not sdk.get(key):
             raise InputError(f"{path}: [sdk] needs {key} = \"...\"")
     configuration = position.get("configuration")
@@ -134,7 +146,22 @@ def position_problems(position, pins, position_path, containerfile):
         if sdk[f"sha256-{arch}"] != pins[arch]:
             problems.append(f"{containerfile} pins the {arch} SDK archive sha256 {pins[arch]}, "
                             f"but {position_path} was checked against {sdk[f'sha256-{arch}']}")
+    for key, arg in PINNED_ARGS[3:]:
+        if sdk[key] != pins[key]:
+            problems.append(f"{containerfile} pins {arg}={pins[key]}, but {position_path} was checked "
+                            f"against {sdk[key]}")
     return problems
+
+
+def kernel_line(board, config, sdk_version, pins):
+    """The record's `kernel:` line: the SDK's kernel, or the one the dev image builds."""
+    path = f"board/{board}/{config}/elf/sel4.elf"
+    if board not in KERNEL_FROM_SOURCE:
+        return f"kernel: {path} in the SDK"
+    return (f"kernel: {path}, built in the dev image from seL4 {pins['sel4-commit']} with {board}'s RAM "
+            f"ending at {pins['rpi5b-ram-end']}, below the framebuffer, in place of the Microkit SDK "
+            f"{sdk_version}'s (tools/container/Containerfile); its device tree differs from the release's "
+            f"by that one overlay")
 
 
 def show(value):
@@ -224,7 +251,7 @@ def record(args):
         f"sdk: Microkit {sdk_version}",
         f"sdk-archive: microkit-sdk-{sdk_version}-{SDK_ARCHES[arch]}.tar.gz",
         f"sdk-sha256: {pins[arch]} (pinned in tools/container/Containerfile; checked when the dev image was built)",
-        f"kernel: board/{args.board}/{args.config}/elf/sel4.elf in the SDK",
+        kernel_line(args.board, args.config, sdk_version, pins),
         f"kernel-sha256: {sha256_file(kernel)}",
         f"position: {position_line}",
     ]
