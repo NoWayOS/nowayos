@@ -1,10 +1,10 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # container.mk: run make targets inside the NoWayOS dev container.
 #
-# Shared by all four repos. Include it with -include, so that a missing file
-# never breaks host-only targets:
+# Shared by every NoWayOS repo. The other repos include it with -include, so
+# that a missing clone never breaks host-only targets:
 #
-#   nowayos:      -include tools/make/container.mk
+#   nowayos:      include tools/make/container.mk
 #   other repos:  -include ../nowayos/tools/make/container.mk
 #
 # Then run any target in the container with:

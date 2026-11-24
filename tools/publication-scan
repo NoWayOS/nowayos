@@ -5,7 +5,7 @@
 Usage:
     publication-scan --terms FILE REPO [REPO ...]
 
-Before NoWayOS and Screen Compiler are published, each repository is read
+Each open repository is read
 - its tree, every version of every file and every file name in its history,
 every commit message, the author, committer and co-authors of every commit,
 every ref and every annotated tag - for what must not become public with it.
