@@ -43,7 +43,7 @@ version = "seL4"
 description = "The seL4 microkernel, as the Microkit SDK builds it for the image's board and configuration"
 licence = "GPL-2.0-only"
 vcs = "https://github.com/seL4/seL4"
-checked = "Licensing Options, the kernel (decision 1); development use approved, distribution pending"
+checked = "The kernel: development use approved, distribution pending"
 
 [sdk.loader]
 file = "loader.elf"
@@ -53,7 +53,7 @@ version = "Microkit"
 description = "Microkit's loader: starts the CPU, places the kernel and the initial task in memory and jumps to the kernel"
 licence = "BSD-2-Clause"
 vcs = "https://github.com/seL4/microkit"
-checked = "Licensing Options, Microkit: checked for the pinned 2.3.1 on 2026-10-01"
+checked = "Microkit: checked for the pinned 2.3.1 on 2026-10-01"
 
 [sdk.monitor]
 file = "monitor.elf"
@@ -63,7 +63,7 @@ version = "Microkit"
 description = "Microkit's monitor: the protection domains' fault handler, which reports their faults"
 licence = "BSD-2-Clause"
 vcs = "https://github.com/seL4/microkit"
-checked = "Licensing Options, Microkit: checked for the pinned 2.3.1 on 2026-10-01"
+checked = "Microkit: checked for the pinned 2.3.1 on 2026-10-01"
 
 [sdk.initialiser]
 file = "initialiser.elf"
@@ -76,7 +76,7 @@ vcs = "https://github.com/seL4/microkit"
 checked = "Microkit 2.3.1's initialiser crate and rust-sel4's sel4-capdl-initializer, which it wraps, are BSD-2-Clause (2026-10-04)"
 composition = "audited"
 audit = "initialiser-audit.toml"
-note = "Audited for Microkit 2.3.1: 41 crates, all on the house list but compiler_builtins, whose licence is signed off for the protection domains (item 12) and for the initialiser's copy"
+note = "Audited for Microkit 2.3.1: 41 crates, all on the house list but compiler_builtins, whose licence is signed off for the protection domains and for the initialiser's copy"
 
 # The Microkit tool made the image but is not in it: listed as excluded.
 [sdk-tool]
@@ -87,7 +87,7 @@ version = "Microkit"
 description = "The Microkit tool, which made loader.img from the system description, the program images and the parts above"
 licence = "BSD-2-Clause"
 vcs = "https://github.com/seL4/microkit"
-checked = "Licensing Options, Microkit: checked for the pinned 2.3.1 on 2026-10-01"
+checked = "Microkit: checked for the pinned 2.3.1 on 2026-10-01"
 
 # ---- The Raspberry Pi 5's SD card: beside loader.img --------------------------
 
@@ -99,12 +99,12 @@ licence = "GPL-2.0-or-later"
 vcs = "https://source.denx.de/u-boot/u-boot"
 # {version}: the Containerfile's UBOOT_VERSION.
 distribution = "https://ftp.denx.de/pub/u-boot/u-boot-{version}.tar.bz2"
-checked = "Licensing Options, U-Boot (decision 2); development use approved, distribution pending"
+checked = "U-Boot: development use approved, distribution pending"
 
 [firmware]
 name = "raspberrypi-firmware"
 vcs = "https://github.com/raspberrypi/firmware"
-checked = "Licensing Options, Raspberry Pi firmware and boot assets; development use approved, distribution pending"
+checked = "Raspberry Pi firmware and boot assets: development use approved, distribution pending"
 
 # Every file in tools/container/rpi-firmware.sha256 matches exactly one entry
 # (fnmatch patterns on its path there). `type` is its CycloneDX component type.
