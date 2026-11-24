@@ -1,6 +1,6 @@
 [package]
 name = "nowayos-bounded"
-description = "Fixed-capacity containers (vector, queue, UTF-8 string) for no_std code that must not allocate"
+description = "Fixed-capacity containers (vector, UTF-8 string) for no_std code that must not allocate"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
