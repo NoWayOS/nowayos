@@ -217,8 +217,8 @@ fn errors_are_typed_and_leave_nothing_drawn() {
 }
 
 #[test]
-fn scale_matches_the_atlas_rounding() {
-    // The atlases' metrics: units x size x 64 / upem, half away from zero.
+fn scale_matches_the_glyph_tools_rounding() {
+    // The glyph tool's metrics: units x size x 64 / upem, half away from zero.
     let scale = Scale::new(24 * 64, 1000).unwrap();
     assert_eq!(scale.to_64(857), 1316);
     assert_eq!(scale.to_64(-123), -189);

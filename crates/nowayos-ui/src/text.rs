@@ -3,7 +3,7 @@
 //!
 //! A line's width is the sum of its characters' advances and of its pairs'
 //! kerning, in 1/64 pixel with checked arithmetic, rounded up to whole
-//! pixels - from a glyph atlas, or from a built-in monospace font, where
+//! pixels - from a face's outlines, or from a built-in monospace font, where
 //! every advance is the same and nothing is kerned ([`TextMetrics`]).
 //! Fitting keeps as many whole characters as fit: a label its start
 //! ([`fit_start`]), a text input the end being typed ([`fit_end`]). Cuts
@@ -12,7 +12,7 @@
 //! lines breaks after spaces ([`wrap`]).
 //!
 //! Every text a node shows must be printable ([`check_printable`]): every
-//! character one the glyph atlases draw and a person can see. Fixed text is
+//! character one the faces draw and a person can see. Fixed text is
 //! checked when its node is added, and text set later - a slot's, a text
 //! input's value, a field's error - when it is set, keeping the previous
 //! text on error.
@@ -56,17 +56,17 @@ pub fn is_invisible(ch: char) -> bool {
         .any(|&(first, last)| (first..=last).contains(&code))
 }
 
-/// Whether the UI's fonts can draw `ch`: the glyph atlases' set, printable
+/// Whether the UI's fonts can draw `ch`: the faces' set, printable
 /// Latin-1 - the space to `~` and the no-break space to `ÿ`, less the soft
 /// hyphen - which is also the repertoire of the built-in ISO 8859-1 fonts.
-/// Every atlas holds exactly these characters, and a test keeps the two the
+/// Every face but the display face holds exactly these characters, and a test keeps the two the
 /// same. Provisional.
 #[must_use]
 pub const fn is_printable(ch: char) -> bool {
     matches!(ch, ' '..='~' | '\u{A0}'..='\u{FF}') && ch != '\u{AD}'
 }
 
-/// Whether the display role's atlases draw `ch`: the digits, the
+/// Whether the display face draws `ch`: the digits, the
 /// capitals, the space and `# % + , - . / : £` - what a queue number, an
 /// amount, a time or a reference needs - and nothing else, since the
 /// display role's large sizes would cost megabytes for the whole set. The
@@ -78,7 +78,7 @@ pub const fn is_display(ch: char) -> bool {
 }
 
 /// Checks text for a node in the display role: [`check_printable`]'s
-/// checks, and every character one the display role's atlases draw
+/// checks, and every character one the display face draws
 /// ([`is_display`]).
 ///
 /// # Errors
@@ -95,7 +95,7 @@ pub fn check_display(text: &str) -> Result<(), UiError> {
 }
 
 /// Checks text for a node: one line, nothing invisible, and every character
-/// one the glyph atlases draw. [`Tree::add`](crate::Tree::add) checks every
+/// one the faces draw. [`Tree::add`](crate::Tree::add) checks every
 /// fixed text a node shows this way, and every call that sets text checks it
 /// first.
 ///
@@ -105,7 +105,7 @@ pub fn check_display(text: &str) -> Result<(), UiError> {
 /// [`UiError::ControlCharacter`] for a control character (a line break, a
 /// tab, NUL…), [`UiError::InvisibleCharacter`] for one that would not be
 /// seen ([`is_invisible`]: a zero-width space, a direction override…),
-/// [`UiError::NoGlyph`] for one outside the atlases' set
+/// [`UiError::NoGlyph`] for one outside the faces' set
 /// ([`is_printable`]). The error never says which character, so text a
 /// person typed cannot leak through it.
 ///
@@ -143,7 +143,7 @@ pub fn char_count(text: &str) -> u32 {
 /// Each start of `text`, measured: for each character, its byte index and
 /// the width of the line up to and including it, in 1/64 pixel - `None`
 /// once the sum is too large to count. A character with no glyph in the
-/// atlas adds nothing and is kerned with neither neighbour.
+/// face adds nothing and is kerned with neither neighbour.
 pub(crate) fn starts<'a>(
     text: &'a str,
     metrics: &'a TextMetrics,

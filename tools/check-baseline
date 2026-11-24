@@ -43,7 +43,7 @@ a Cargo.toml with [workspace] and a deny.toml, this checks:
   must have `publish = false`; and may carry a licence field only with
   licences from the house list (NoWayOS's own, MIT OR Apache-2.0, among
   them) - but for the reviewed allowances, LICENSED_LOCAL_CRATES: NoWayOS's
-  glyph atlases, which are the signed-off font's licence, OFL-1.1, at their
+  glyph outlines, which are the signed-off font's licence, OFL-1.1, at their
   path. No crate from a registry or git may be marked `publish = false`. This runs
   `cargo metadata`; --no-metadata skips it.
 
@@ -86,7 +86,7 @@ GRAPH_NARROWING = {
 GRAPH_KEYS_AT_TOP = ("targets", "exclude", "features", "all-features", "no-default-features",
                      "exclude-dev")
 # The local crates that may declare a licence, each at one place with one
-# licence, reviewed. nowayos-glyphs: the glyph atlases are a Modified Version
+# licence, reviewed. nowayos-glyphs: the glyph outlines are a Modified Version
 # of the signed-off font under the SIL Open Font License 1.1 and nothing else,
 # so their crate says so, whatever licence NoWayOS takes.
 LICENSED_LOCAL_CRATES = {

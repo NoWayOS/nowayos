@@ -6,8 +6,8 @@
 //! its advance, the box its points lie in, and its path: lines and
 //! quadratic curves, as the font holds them, composites already resolved -
 //! with the face's line metrics and pair kerning in font units. Metrics
-//! scale to 1/64 pixel at any size as the atlases' did (`Scale::to_64`),
-//! so a size an atlas exists for measures exactly as that atlas does.
+//! scale to 1/64 pixel at any size (`Scale::to_64`), exactly as the glyph
+//! tool scales `swash`'s at the sizes its tests check.
 //!
 //! A path's points are in half font units, as TrueType puts the point it
 //! implies between two curves' pulls halfway between them: draw them at
@@ -15,7 +15,7 @@
 
 use nowayos_raster::{Command, Placement, Point, Scale};
 
-use crate::{KernPair, LineMetrics, NoGlyph};
+use crate::{KernPair, LineMetrics, NoGlyph, kerning_is_whole};
 
 /// One character's outline, y up: its advance in font units, its path and
 /// its box in half font units.
@@ -202,6 +202,12 @@ impl Face {
             glyphs,
             kerning,
         }
+    }
+
+    /// Whether its kerned pairs are whole ([`kerning_is_whole`]): checked
+    /// for every face when the crate compiles.
+    pub(crate) const fn kerning_is_whole(&self) -> bool {
+        kerning_is_whole(self.kerning, self.glyphs.len())
     }
 
     /// Its number, from 1, in the order `glyphs.toml` lists the faces: what

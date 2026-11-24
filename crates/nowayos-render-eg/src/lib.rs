@@ -2243,7 +2243,7 @@ where
     /// square as high as the text's em - its size, 18 pixels in the light
     /// theme and 24 in the large-text theme at scale 1 - centred in the mark's
     /// place ([`Self::mark`]), a line high. So the background shows all
-    /// round it even where a row is only a line high, as with the atlases:
+    /// round it even where a row is only a line high, as with the faces' text:
     /// between one option's ring and the next, and between the mark and a
     /// focus ring. In a bitmap font, which has no em, it fills its
     /// place, as it always has.

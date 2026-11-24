@@ -182,7 +182,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
 
     /// Creates a detached node. Every text it shows is checked first
     /// ([`NodeKind::check_text`]): one line, nothing invisible, every
-    /// character one the glyph atlases draw.
+    /// character one the faces draw.
     ///
     /// # Errors
     ///
@@ -234,7 +234,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
     /// [`UiError::TreeFull`], or the error of
     /// [`check_printable`](crate::text::check_printable) if `text` cannot be
     /// shown: a control character, an invisible one, or one outside the
-    /// glyph atlases' set.
+    /// faces' set.
     pub fn text(&mut self, text: &'static str) -> Result<NodeId, UiError> {
         self.add(NodeKind::Text(text), Style::DEFAULT)
     }
@@ -1061,7 +1061,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
     /// # Errors
     ///
     /// For a character that is a control character, invisible or outside
-    /// the glyph atlases' set, [`UiError::ControlCharacter`],
+    /// the faces' set, [`UiError::ControlCharacter`],
     /// [`UiError::InvisibleCharacter`] or [`UiError::NoGlyph`]
     /// ([`check_printable`](crate::text::check_printable));
     /// [`UiError::UnknownField`]; [`UiError::ValueTooLong`] beyond the
@@ -1165,7 +1165,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
         check_printable(text)?;
         let metrics = self.metrics;
         let node = self.node_mut(id)?;
-        // A slot in the display role takes only what its atlases draw.
+        // A slot in the display role takes only what its face draws.
         if node.style.text.role == crate::TextRole::Display {
             crate::text::check_display(text)?;
         }
@@ -1859,7 +1859,7 @@ impl<const N: usize, const T: usize> Tree<N, T> {
     /// The device scale the tree was last laid out at
     /// ([`TextMetrics::scale`](crate::TextMetrics::scale)): pixels each way
     /// for each layout unit. A renderer draws at it - lines, rings and text
-    /// from the theme's atlas for it - so drawing matches layout.
+    /// from the theme's face and size for it - so drawing matches layout.
     /// 1 before the first layout.
     #[must_use]
     pub const fn scale(&self) -> nowayos_display::DeviceScale {
@@ -2478,7 +2478,7 @@ mod tests {
         );
         assert_eq!(t.value(FieldId(1)), Some("ok"));
         // Printable Latin-1 is fine. Fixed text with a
-        // character outside the glyph atlases' set is refused as well.
+        // character outside the faces' set is refused as well.
         assert!(t.text("Grüße, Zoë").is_ok());
         assert_eq!(t.text("Grüße, Zoë — 東京"), Err(UiError::NoGlyph));
     }

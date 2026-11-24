@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! Rendering tests against the in-memory framebuffer from `nowayos-testkit`:
 //! golden-image snapshots of synthetic screens - in both themes, with text
-//! drawn from the glyph atlases, as `Rgb888` and as `Rgb565`, and
+//! drawn from the faces' outlines, as `Rgb888` and as `Rgb565`, and
 //! once in the bring-up bitmap font - and the guarantee that repainting
 //! only the dirty areas gives exactly the same pixels as a full repaint.
 //!
@@ -155,7 +155,7 @@ fn themes() -> [(Theme<Rgb888>, u32, u32, &'static str); 2] {
 }
 
 /// Lines of text, typed text with its caret, labels on buttons and a focus
-/// ring, in each theme's atlas text.
+/// ring, in each theme's text.
 #[test]
 fn focused_input_with_text_matches_golden_images_in_every_theme() {
     for (theme, width, height, suffix) in themes() {
@@ -264,7 +264,7 @@ fn dirty_repaint_equals_full_repaint_in(
 }
 
 /// At device scale 2 a screen is drawn at its viewport's own pixels -
-/// text from the atlas twice the size, rings and borders twice as wide -
+/// text at twice the size, rings and borders twice as wide -
 /// never a scale-1 frame doubled. The focused welcome screen at 2x matches
 /// its approved image; it differs from the 1x frame with each pixel
 /// doubled; and its text has detail a doubled frame cannot have: 2 x 2
@@ -390,8 +390,8 @@ fn a_tree_s_frame_never_holds_the_pointer() {
 
 #[test]
 fn high_contrast_theme_uses_the_large_text() {
-    // Body text: the 24 px atlas in the large-text theme - a
-    // character 16 wide, a line 32 high - and the 18 px atlas in the light
+    // Body text: 24 px in the large-text theme - a
+    // character 16 wide, a line 32 high - and 18 px in the light
     // theme - 12 wide, 24 high.
     let theme = Theme::high_contrast();
     assert_eq!(theme.metrics().char_width(), 16);

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Every text a node shows is checked against the glyph atlases' set:
+//! Every text a node shows is checked against the faces' set:
 //! a character outside
 //! it, an invisible format character such as U+202E (a right-to-left
 //! override) or a control character is refused with a typed error that
@@ -154,7 +154,7 @@ fn the_errors_never_name_the_character() {
 }
 
 /// Typed text is always in the set too: every character the keyboard map
-/// can type is one the atlases draw, so typing never needs the error.
+/// can type is one the faces draw, so typing never needs the error.
 #[test]
 fn every_character_the_keyboard_types_is_in_the_set() {
     let mut typed = 0;

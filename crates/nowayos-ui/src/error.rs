@@ -75,7 +75,7 @@ pub enum UiError {
     /// override, a variation selector - Unicode's default-ignorable code
     /// points ([`crate::text::is_invisible`]).
     InvisibleCharacter,
-    /// Text for a node contains a character outside the glyph atlases'
+    /// Text for a node contains a character outside the faces'
     /// set, which no font of the UI draws: today anything outside printable
     /// Latin-1 ([`crate::text::is_printable`]).
     NoGlyph,

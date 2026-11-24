@@ -72,24 +72,17 @@ fn two_runs_give_the_same_bytes_naming_no_path() {
     assert_eq!(first.files, second.files);
     let names: Vec<&str> = first.files.iter().map(|(name, _)| name.as_str()).collect();
     let mut expected = vec![String::from("manifest.toml"), String::from("mod.rs")];
-    for (face, sizes) in [
-        ("regular", &[14, 16, 18, 24, 28, 32, 36, 48][..]),
-        (
-            "bold",
-            &[14, 16, 18, 20, 24, 28, 32, 36, 40, 48, 56, 72][..],
-        ),
-        ("display", &[96, 192][..]),
-        ("italic", &[18, 24][..]),
-        ("bolditalic", &[18, 24][..]),
-        ("code", &[18, 24][..]),
-        ("codebold", &[18, 24][..]),
+    for face in [
+        "regular",
+        "bold",
+        "display",
+        "italic",
+        "bolditalic",
+        "code",
+        "codebold",
     ] {
         expected.push(format!("{face}_kerning.rs"));
         expected.push(format!("{face}_outline.rs"));
-        for size in sizes {
-            expected.push(format!("{face}_{size}.coverage"));
-            expected.push(format!("{face}_{size}.rs"));
-        }
     }
     expected.sort();
     assert_eq!(names, expected);
@@ -105,7 +98,8 @@ fn two_runs_give_the_same_bytes_naming_no_path() {
         }
     }
     assert!(first.summary.starts_with(
-        "glyph-atlas: PASS - 30 atlases: regular Regular at 14, 16, 18, 24, 28, 32, 36, 48 px"
+        "glyph-atlas: PASS - 7 faces' outlines and kerning: regular Regular from \
+         fonts/AtkinsonHyperlegibleNext-Regular.ttf, 190 characters"
     ));
 }
 
@@ -249,7 +243,7 @@ fn a_character_the_font_lacks_fails_naming_it_and_writes_nothing() {
     let dir = inputs("lacks-cyrillic");
     let out = dir.join("out");
     run_on(&dir, &out).unwrap();
-    let before = fs::read(out.join("regular_24.rs")).unwrap();
+    let before = fs::read(out.join("regular_outline.rs")).unwrap();
     edit(
         &dir,
         "glyphs.toml",
@@ -262,7 +256,7 @@ fn a_character_the_font_lacks_fails_naming_it_and_writes_nothing() {
         "{message}"
     );
     assert!(message.contains("U+0416 '\u{416}'"), "{message}");
-    assert_eq!(fs::read(out.join("regular_24.rs")).unwrap(), before);
+    assert_eq!(fs::read(out.join("regular_outline.rs")).unwrap(), before);
 }
 
 #[test]
@@ -364,10 +358,15 @@ fn the_output_folder_holds_only_what_the_tool_writes() {
     // What the tool wrote before and no longer makes goes.
     fs::remove_file(out.join("notes.txt")).unwrap();
     fs::write(out.join("regular_99.rs"), "// an atlas no longer made").unwrap();
+    fs::write(out.join("regular_24.coverage"), [0_u8; 4]).unwrap();
     let summary = run_on(&dir, &out).unwrap();
     assert!(summary.contains("written to"), "{summary}");
     assert!(!out.join("regular_99.rs").exists());
-    assert_eq!(fs::read_dir(&out).unwrap().count(), 76);
+    assert!(
+        !out.join("regular_24.coverage").exists(),
+        "an old atlas's coverage goes"
+    );
+    assert_eq!(fs::read_dir(&out).unwrap().count(), 16);
 }
 
 #[test]

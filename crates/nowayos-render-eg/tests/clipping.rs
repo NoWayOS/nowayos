@@ -2,7 +2,7 @@
 //! Every node draws only inside its own rectangle, so repainting the dirty
 //! areas gives exactly the pixels of a full repaint — whatever the sizes,
 //! including nodes squeezed smaller than their content, in both themes'
-//! atlas text — and nothing a tree can lay out makes drawing overflow.
+//! text — and nothing a tree can lay out makes drawing overflow.
 
 #![allow(
     clippy::unwrap_used,

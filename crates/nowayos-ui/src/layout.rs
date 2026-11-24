@@ -14,7 +14,7 @@ use core::fmt;
 use core::hash::{Hash, Hasher};
 
 use nowayos_display::{DeviceScale, Rect, Size};
-use nowayos_glyphs::{Atlas, Face};
+use nowayos_glyphs::Face;
 
 use crate::node::INPUT_WIDTH_CHARS;
 use crate::tree::MAX_DEPTH;
@@ -39,10 +39,8 @@ const UNITS_PER_PIXEL: u32 = 64;
 /// a theme.
 ///
 /// Text is measured from a face's outlines at a size in 1/64 pixel per em
-/// ([`TextMetrics::from_face`], or [`TextMetrics::from_atlas`] for the size
-/// an atlas was drawn at): each character's own advance and the font's pair
-/// kerning, scaled to 1/64 pixel as the atlases were, and the face's line
-/// height. Or, the special case, from a built-in monospace
+/// ([`TextMetrics::from_face`]): each character's own advance and the
+/// font's pair kerning, scaled to 1/64 pixel, and the face's line height. Or, the special case, from a built-in monospace
 /// font ([`TextMetrics::new`]): every character the same advance and no
 /// kerning. The same code measures both - [`text_width`](Self::text_width),
 /// [`text::fit_start`](crate::text::fit_start) and
@@ -79,7 +77,7 @@ pub struct TextMetrics {
     /// measured with `face`, the body text's.
     faces: [Option<FaceRef>; TextStyle::COUNT],
     /// The line height of each style, in pixels, where the theme sets one;
-    /// 0 for its atlas's own.
+    /// 0 for its face's own.
     lines: [u32; TextStyle::COUNT],
     /// What each spacing token measures, in layout units: the theme's.
     spacing: Spacing,
@@ -128,14 +126,6 @@ impl TextMetrics {
         }
     }
 
-    /// Metrics measured as [`from_face`](Self::from_face) measures the face
-    /// `atlas` was drawn from at the size it was drawn at: exactly as the
-    /// atlas measures.
-    #[must_use]
-    pub const fn from_atlas(atlas: &'static Atlas) -> Self {
-        Self::from_face(atlas.face(), (atlas.size() as u32).saturating_mul(64))
-    }
-
     /// The same metrics, with text in `style` measured from `face` at
     /// `size64` 1/64 pixel per em: a theme's type scale, one role and
     /// weight at a time. Text in a style given no face is measured as body
@@ -147,17 +137,6 @@ impl TextMetrics {
             *slot = Some(FaceRef { face, size64 });
         }
         Self { faces, ..self }
-    }
-
-    /// The same metrics, with text in `style` measured as `atlas` measures:
-    /// its face at the size it was drawn at.
-    #[must_use]
-    pub fn with_atlas(self, style: TextStyle, atlas: &'static Atlas) -> Self {
-        self.with_face(
-            style,
-            atlas.face(),
-            u32::from(atlas.size()).saturating_mul(64),
-        )
     }
 
     /// The same metrics, with text in `style` measured from `face` at
@@ -265,8 +244,8 @@ impl TextMetrics {
     /// length a style names - padding, gaps, fixed widths and heights,
     /// which a screen states in layout units - `scale` pixels for each
     /// unit, so a screen written for a 960 x 540 layout fills a 1920 x 1080
-    /// viewport at scale 2. Text is measured in pixels from the atlas the
-    /// metrics were made from, which must be the one drawn at that scale (a
+    /// viewport at scale 2. Text is measured in pixels from the face and size
+    /// the metrics were made from, which must be the ones drawn at that scale (a
     /// theme's metrics at a scale give it: `nowayos-render-eg`'s
     /// `Theme::metrics_at`), and so is the minimum target size. A scale of
     /// 0 is taken as 1.
@@ -283,7 +262,7 @@ impl TextMetrics {
     }
 
     /// The width of one character, in pixels: a monospace font's advance;
-    /// with an atlas, the digit zero's advance, rounded up (CSS's `ch`). A
+    /// with a face, the digit zero's advance, rounded up (CSS's `ch`). A
     /// text input's natural width is counted in it
     /// ([`INPUT_WIDTH_CHARS`](crate::INPUT_WIDTH_CHARS)), and a mark is
     /// followed by one of it ([`marked_width`](Self::marked_width)).
@@ -320,7 +299,7 @@ impl TextMetrics {
     }
 
     /// How far the pen moves for `ch`, in 1/64 pixel: its glyph's advance,
-    /// or a monospace font's. `None` for a character the atlas has no glyph
+    /// or a monospace font's. `None` for a character the face has no glyph
     /// for, which takes no width and is kerned with neither neighbour (text
     /// a tree holds never has one: it is refused when it is set, see
     /// [`text::check_printable`](crate::text::check_printable)). A
@@ -334,7 +313,7 @@ impl TextMetrics {
     }
 
     /// The adjustment to the pen between `left` and `right`, in 1/64 pixel:
-    /// the atlas's pair kerning; 0 for a monospace font.
+    /// the face's pair kerning; 0 for a monospace font.
     pub(crate) fn kerning(&self, left: char, right: char) -> i64 {
         self.face.map_or(0, |face| face.kerning(left, right))
     }
@@ -2118,8 +2097,8 @@ mod tests {
         assert_eq!(rect_of(&t, fixed).size, Size::new(45, 14));
     }
 
-    /// Text is measured in the pixels of the metrics' own atlas - the one
-    /// drawn at that scale - and controls get the minimum target size the
+    /// Text is measured in the pixels of the metrics' own face and size -
+    /// the ones drawn at that scale - and controls get the minimum target size the
     /// metrics give, in pixels: neither is scaled again.
     #[test]
     fn at_scale_2_text_and_targets_are_the_metrics_own_pixels() {

@@ -1,10 +1,10 @@
-# The glyph atlases: the UI's characters drawn in advance from the
-# signed-off font by the build-time tool in tools/glyph-atlas (`make
-# atlases`), so the device draws proportional text without parsing a font.
+# The glyph outlines: the UI's characters read from the signed-off font by
+# the build-time tool in tools/glyph-atlas (`make atlases`), so the device
+# draws proportional text at any size without parsing a font.
 #
-# A crate of its own, because the atlases are a Modified Version of the font
+# A crate of its own, because the outlines are a Modified Version of the font
 # under the SIL Open Font License 1.1 and nothing else:
-# this crate - the atlases, the small API over them, the font file they are
+# this crate - the outlines, the small API over them, the font file they are
 # made from and glyphs.toml - is OFL-1.1, whatever licence NoWayOS's own
 # crates take. OFL.txt here is the font's licence text with its copyright
 # line, unchanged. The crate is named for its job, never for the font, whose
@@ -13,7 +13,7 @@
 
 [package]
 name = "nowayos-glyphs"
-description = "NoWayOS's glyph atlases: the UI's characters drawn at build time from the signed-off font, with metrics and kerning in 1/64 pixel"
+description = "NoWayOS's glyph outlines: the UI's characters read at build time from the signed-off font, with metrics and kerning in font units"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

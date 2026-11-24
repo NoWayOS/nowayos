@@ -1,58 +1,57 @@
 // SPDX-License-Identifier: OFL-1.1
-//! NoWayOS's glyph atlases: every character the UI draws, rasterised in
-//! advance from the signed-off font at every size the themes use, so the
-//! device draws proportional text without ever parsing a font file. And
-//! each face's outlines ([`Face`], [`Outline`]), from the same tool, which
-//! `nowayos-raster` draws on the device at any size.
+//! NoWayOS's glyph outlines: every character the UI draws, as the outlines
+//! of the signed-off font's faces ([`Face`], [`Outline`]), which
+//! `nowayos-raster` draws on the device at any size, so the device draws
+//! proportional text without ever parsing a font file.
 //!
-//! **Provisional**: `nowayos-ui` lays text out with these metrics,
-//! and `nowayos-render-eg`'s tests measure the text it draws from
-//! outlines against these glyphs;
-//! either may change this API.
+//! **Provisional**: `nowayos-ui` lays text out with these metrics, and
+//! `nowayos-render-eg` draws it from these outlines; either may change this
+//! API.
 //!
-//! Each [`Atlas`] is one face at one size: a [`Glyph`] for every character
-//! of the set - its advance and bearings in 1/64 pixel, its ink box in whole
-//! pixels and its 8-bit coverage - the face's [`LineMetrics`], and the
-//! font's pair kerning in 1/64 pixel. A character outside the set has no
-//! glyph ([`NoGlyph`]): nothing is ever drawn as a box. Lookups search sorted
+//! Each [`Face`] holds an [`Outline`] for every character of its set - its
+//! advance and its path, in font units - the face's line metrics and the
+//! font's pair kerning, in font units, which [`Face::scale`] scales to 1/64
+//! pixel at any size. A character outside the set has no glyph
+//! ([`NoGlyph`]): nothing is ever drawn as a box. Lookups search sorted
 //! tables; nothing allocates and nothing panics.
 //!
 //! ```
-//! use nowayos_glyphs::{NoGlyph, REGULAR_24};
+//! use nowayos_glyphs::{NoGlyph, REGULAR};
 //!
-//! let t = REGULAR_24.glyph('T')?;
-//! let o = REGULAR_24.glyph('o')?;
+//! let at_24 = REGULAR.scale(24 * 64).ok_or(NoGlyph)?;
+//! let (t, o) = (REGULAR.glyph('T')?, REGULAR.glyph('o')?);
+//! let advances = at_24.to_64(t.advance()) + at_24.to_64(o.advance());
 //! // "To" is narrower than its two advances: the font kerns the pair.
-//! let width = t.advance() + REGULAR_24.kerning('T', 'o') + o.advance();
-//! assert!(width < t.advance() + o.advance());
-//! assert_eq!(t.coverage().len(), usize::from(t.width()) * usize::from(t.height()));
-//! assert_eq!(REGULAR_24.glyph('\u{3BC}'), Err(NoGlyph)); // outside the set
+//! let kerned = at_24.to_64(REGULAR.kerning_units('T', 'o'));
+//! assert!(advances + kerned < advances);
+//! assert!(REGULAR.glyph('\u{3BC}').is_err()); // outside the set
 //! # Ok::<(), NoGlyph>(())
 //! ```
 //!
-//! # Where the atlases come from
+//! # Where the outlines come from
 //!
-//! `tools/glyph-atlas`, a host tool in a Cargo workspace of its own, makes
-//! them with `swash` from the font files and settings in
-//! `glyphs.toml` - every file pinned by its sha256 - and writes the
-//! generated modules, their coverage files and `manifest.toml` into
-//! `src/atlas/` (`make atlases`). They are checked in; `make atlases-check`,
-//! in `make ci`, writes them again and fails on any difference, so it is
-//! what checks their values: every pixel, metric and kerned pair.
+//! `tools/glyph-atlas`, a host tool in a Cargo workspace of its own, reads
+//! them with `swash` from the font files and settings in `glyphs.toml` -
+//! every file pinned by its sha256 - and writes each face's outline and
+//! kerning modules and `manifest.toml` into `src/atlas/` (`make atlases`).
+//! They are checked in; `make atlases-check`, in `make ci`, writes them
+//! again and fails on any difference, so it is what checks their values:
+//! every point, advance, metric and kerned pair. The tool's tests rasterise
+//! every face with `swash` at every size `glyphs.toml` lists, in memory,
+//! and check that these outlines, drawn by `nowayos-raster`, measure exactly
+//! the same and draw the same to within a level or two of coverage.
 //!
-//! Their structure is checked when they compile. A generated table holds no
-//! offsets: each glyph's pixels are the next `width * height` bytes of its
-//! coverage file, in table order, so no glyph's pixels can be another's. A
-//! constant assertion in each module then refuses to build an atlas whose
-//! glyphs are out of order or name a character twice, whose glyphs do not
-//! take exactly the whole coverage file, or whose kerned pairs are out of
-//! order, name a character outside the set or adjust by nothing.
+//! Their structure is checked when they compile: each face's outlines are
+//! exactly its characters, in order, every outline's steps take exactly its
+//! points, and its kerned pairs are in order, each naming two of its
+//! characters, none adjusting by nothing.
 //!
 //! The character set is printable Latin-1, the 190 characters
 //! `nowayos_ui::text::is_printable` accepts. The font has no micro sign, so
 //! U+00B5 is drawn with the glyph of U+03BC, the Greek mu: the one alias,
-//! signed off with the font. Glyphs are unhinted, each meant to be drawn at
-//! a whole pixel; ligatures are off, so every character is one glyph.
+//! signed off with the font. Outlines are unhinted, each glyph meant to be
+//! drawn at a whole pixel; ligatures are off, so every character is one
+//! glyph.
 //!
 //! # Faces
 //!
@@ -63,7 +62,7 @@
 //!
 //! # Licence
 //!
-//! The atlases are a Modified Version of Atkinson Hyperlegible Next 2.001
+//! The outlines are a Modified Version of Atkinson Hyperlegible Next 2.001
 //! and Atkinson Hyperlegible Mono 2.001 under the SIL Open Font License
 //! 1.1, and so is this whole crate: `OFL-1.1`, whatever licence NoWayOS's
 //! own crates take ([`NOTICE`]; the licence is `OFL.txt` beside this
@@ -108,7 +107,7 @@ pub fn styled(face: &'static Face, italic: bool, code: bool) -> (&'static Face, 
     }
 }
 
-/// No glyph: the character is outside the atlas's set. It never says which
+/// No glyph: the character is outside the face's set. It never says which
 /// character, so text a person typed cannot leak through it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct NoGlyph;
@@ -153,9 +152,12 @@ impl LineMetrics {
     /// together, rounded up; 0 if they come to nothing.
     ///
     /// ```
+    /// use nowayos_glyphs::REGULAR;
+    ///
     /// // 984, 316 and 0 font units of 1,000 a line, at 24 pixels per em:
     /// // 31.2 pixels, so 32.
-    /// assert_eq!(nowayos_glyphs::REGULAR_24.line_metrics().line_height(), 32);
+    /// let at_24 = REGULAR.scale(24 * 64).unwrap();
+    /// assert_eq!(REGULAR.line_metrics(at_24).line_height(), 32);
     /// ```
     #[must_use]
     pub const fn line_height(&self) -> u32 {
@@ -171,88 +173,9 @@ impl LineMetrics {
     }
 }
 
-/// One character's glyph at one size.
-///
-/// Its pen position is on the baseline, at a whole pixel. Its ink box is
-/// [`width`](Self::width) by [`height`](Self::height) pixels, its top-left
-/// corner [`left`](Self::left) pixels right of the pen and
-/// [`top`](Self::top) pixels above the baseline; [`coverage`](Self::coverage)
-/// fills it row by row from the top, one byte a pixel.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Glyph {
-    pub(crate) ch: char,
-    pub(crate) advance: i32,
-    pub(crate) bearing_x: i32,
-    pub(crate) bearing_y: i32,
-    pub(crate) left: i16,
-    pub(crate) top: i16,
-    pub(crate) width: u16,
-    pub(crate) height: u16,
-    pub(crate) coverage: &'static [u8],
-}
-
-impl Glyph {
-    /// The character this glyph draws.
-    #[must_use]
-    pub const fn ch(&self) -> char {
-        self.ch
-    }
-
-    /// How far the pen moves after this glyph, in 1/64 pixel.
-    #[must_use]
-    pub const fn advance(&self) -> i32 {
-        self.advance
-    }
-
-    /// From the pen to the left edge of the outline, in 1/64 pixel
-    /// (negative when the glyph reaches back over the one before).
-    #[must_use]
-    pub const fn bearing_x(&self) -> i32 {
-        self.bearing_x
-    }
-
-    /// From the baseline up to the top of the outline, in 1/64 pixel.
-    #[must_use]
-    pub const fn bearing_y(&self) -> i32 {
-        self.bearing_y
-    }
-
-    /// From the pen to the ink box's left edge, in pixels.
-    #[must_use]
-    pub const fn left(&self) -> i16 {
-        self.left
-    }
-
-    /// From the baseline up to the ink box's top edge, in pixels.
-    #[must_use]
-    pub const fn top(&self) -> i16 {
-        self.top
-    }
-
-    /// The ink box's width in pixels: 0 for a glyph with no ink, a space.
-    #[must_use]
-    pub const fn width(&self) -> u16 {
-        self.width
-    }
-
-    /// The ink box's height in pixels.
-    #[must_use]
-    pub const fn height(&self) -> u16 {
-        self.height
-    }
-
-    /// The ink box's coverage, row by row from the top: one byte a pixel,
-    /// 0 for none and 255 for full; `width * height` bytes.
-    #[must_use]
-    pub const fn coverage(&self) -> &'static [u8] {
-        self.coverage
-    }
-}
-
-/// A kerned pair: indexes into its face's characters - every size of a
-/// face has the same glyphs, in the same order - and the adjustment to the
-/// pen between them, in font units, which every size of the face shares:
-/// an atlas scales it to its size when it is looked up.
+/// A kerned pair: indexes into its face's characters, and the adjustment
+/// to the pen between them, in font units, which every size of the face
+/// shares: [`Face::scale`] scales it when it is looked up.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct KernPair {
     left: u16,
@@ -267,9 +190,9 @@ impl KernPair {
 }
 
 /// `units` of a font with `upem` units per em, at `size` pixels per em, in
-/// 1/64 pixel, rounded half away from zero - exactly as the atlas tool
+/// 1/64 pixel, rounded half away from zero - exactly as the glyph tool
 /// scales every metric (`tools/glyph-atlas`'s `to_64`); 0 if it would not
-/// fit, which the tool refuses for every pair of every atlas.
+/// fit.
 #[must_use]
 pub const fn scale_units(units: i32, size: u16, upem: u16) -> i32 {
     let upem = upem as i64;
@@ -293,102 +216,9 @@ pub const fn scale_units(units: i32, size: u16, upem: u16) -> i32 {
     }
 }
 
-/// One face of the font at one size: a glyph for every character of its
-/// set, the face's line metrics and its pair kerning.
-pub struct Atlas {
-    size: u16,
-    line: LineMetrics,
-    glyphs: &'static [Glyph],
-    kerning: &'static [KernPair],
-    upem: u16,
-    face: &'static Face,
-}
-
-impl Atlas {
-    pub(crate) const fn new(
-        size: u16,
-        line: LineMetrics,
-        glyphs: &'static [Glyph],
-        kerning: &'static [KernPair],
-        upem: u16,
-        face: &'static Face,
-    ) -> Self {
-        Self {
-            size,
-            line,
-            glyphs,
-            kerning,
-            upem,
-            face,
-        }
-    }
-
-    /// The face it was drawn from, as outlines: what draws the same text
-    /// at any size.
-    #[must_use]
-    pub const fn face(&self) -> &'static Face {
-        self.face
-    }
-
-    /// The size, in pixels per em.
-    #[must_use]
-    pub const fn size(&self) -> u16 {
-        self.size
-    }
-
-    /// The face's vertical metrics at this size.
-    #[must_use]
-    pub const fn line_metrics(&self) -> LineMetrics {
-        self.line
-    }
-
-    /// Every glyph, in the order of their characters: the atlas's whole
-    /// character set.
-    #[must_use]
-    pub const fn glyphs(&self) -> &'static [Glyph] {
-        self.glyphs
-    }
-
-    /// The glyph that draws `ch`.
-    ///
-    /// # Errors
-    ///
-    /// [`NoGlyph`] if `ch` is outside the atlas's set.
-    pub fn glyph(&self, ch: char) -> Result<&'static Glyph, NoGlyph> {
-        let index = self.index(ch)?;
-        self.glyphs.get(index).ok_or(NoGlyph)
-    }
-
-    /// The adjustment to the pen between `left` and `right` when one
-    /// follows the other, in 1/64 pixel: negative brings them closer. 0 for
-    /// a pair the font does not kern, or a character outside the set.
-    #[must_use]
-    pub fn kerning(&self, left: char, right: char) -> i32 {
-        let (Ok(left), Ok(right)) = (self.index(left), self.index(right)) else {
-            return 0;
-        };
-        let (Ok(left), Ok(right)) = (u16::try_from(left), u16::try_from(right)) else {
-            return 0;
-        };
-        self.kerning
-            .binary_search_by(|pair| (pair.left, pair.right).cmp(&(left, right)))
-            .ok()
-            .and_then(|found| self.kerning.get(found))
-            .map_or(0, |pair| {
-                scale_units(i32::from(pair.units), self.size, self.upem)
-            })
-    }
-
-    fn index(&self, ch: char) -> Result<usize, NoGlyph> {
-        self.glyphs
-            .binary_search_by(|glyph| glyph.ch.cmp(&ch))
-            .map_err(|_| NoGlyph)
-    }
-}
-
 /// The index of `ch` in `chars`, sorted, or `u16::MAX` if it is not
-/// there - which [`is_whole`] then refuses, when the atlas compiles. Used
-/// only to build the generated kerning tables.
+/// there - which [`kerning_is_whole`] then refuses, when the crate
+/// compiles. Used only to build the generated kerning tables.
 pub(crate) const fn index_of_char(chars: &[char], ch: char) -> u16 {
     let (mut low, mut high) = (0_usize, chars.len());
     while low < high {
@@ -415,87 +245,12 @@ pub(crate) const fn index_of_char(chars: &[char], ch: char) -> u16 {
     u16::MAX
 }
 
-/// Whether `glyphs` draw exactly `chars`, in order: so a face's kerning,
-/// which names its characters by index, means the same in every atlas of
-/// the face. Checked by a constant assertion in each generated module.
-pub(crate) const fn same_chars(glyphs: &[Glyph], chars: &[char]) -> bool {
-    if glyphs.len() != chars.len() {
-        return false;
-    }
-    let (mut glyphs, mut chars) = (glyphs, chars);
-    while let (Some((glyph, glyph_rest)), Some((&ch, char_rest))) =
-        (glyphs.split_first(), chars.split_first())
-    {
-        if glyph.ch != ch {
-            return false;
-        }
-        glyphs = glyph_rest;
-        chars = char_rest;
-    }
-    true
-}
-
-/// `glyphs`, each given the next `width * height` bytes of `coverage` as its
-/// pixels, in order: so the glyphs take the coverage file's bytes in table
-/// order, each byte at most once, and a generated table holds no offsets. A
-/// glyph whose pixels would run past the end gets none, which [`is_whole`]
-/// then refuses when the atlas compiles, as it refuses bytes left over. Used
-/// only to build the generated tables.
-pub(crate) const fn lay_out<const N: usize>(
-    coverage: &'static [u8],
-    mut glyphs: [Glyph; N],
-) -> [Glyph; N] {
-    let mut rest = coverage;
-    let mut todo: &mut [Glyph] = &mut glyphs;
-    while let Some((glyph, tail)) = todo.split_first_mut() {
-        let len = (glyph.width as usize).saturating_mul(glyph.height as usize);
-        let (pixels, after): (&'static [u8], &'static [u8]) = match rest.split_at_checked(len) {
-            Some(split) => split,
-            None => (&[], &[]),
-        };
-        glyph.coverage = pixels;
-        rest = after;
-        todo = tail;
-    }
-    glyphs
-}
-
-/// Whether a generated atlas's structure is whole, checked by a constant
-/// assertion in each generated module, so one that is not does not compile:
-/// the glyphs in strictly increasing order of their characters, each
-/// glyph's coverage exactly its `width * height` bytes, and all of them
-/// together exactly the `coverage_len` bytes of the atlas's coverage file -
-/// which, as [`lay_out`] gives each glyph the next bytes, means they take
-/// every byte of it once; the kerned pairs in strictly increasing order, each
-/// naming two of the glyphs, and none of them 0. The values themselves - the
-/// pixels, metrics and adjustments - are `make atlases-check`'s to check.
-pub(crate) const fn is_whole(glyphs: &[Glyph], kerning: &[KernPair], coverage_len: usize) -> bool {
-    let mut total: usize = 0;
-    let mut previous: Option<char> = None;
-    let mut rest = glyphs;
-    while let Some((glyph, tail)) = rest.split_first() {
-        if let Some(before) = previous
-            && before >= glyph.ch
-        {
-            return false;
-        }
-        let Some(len) = (glyph.width as usize).checked_mul(glyph.height as usize) else {
-            return false;
-        };
-        if glyph.coverage.len() != len {
-            return false;
-        }
-        total = match total.checked_add(len) {
-            Some(sum) => sum,
-            None => return false,
-        };
-        previous = Some(glyph.ch);
-        rest = tail;
-    }
-    if total != coverage_len {
-        return false;
-    }
-    let count = glyphs.len();
+/// Whether a face's kerned pairs are whole: in strictly increasing order,
+/// each naming two of its `count` characters, and none of them 0 - as
+/// [`Face::kerning_units`]' search needs. Checked for every face when the
+/// crate compiles, so a table that is not does not build; the adjustments
+/// themselves are `make atlases-check`'s to check.
+pub(crate) const fn kerning_is_whole(kerning: &[KernPair], count: usize) -> bool {
     let mut previous: Option<(u16, u16)> = None;
     let mut rest = kerning;
     while let Some((pair, tail)) = rest.split_first() {
@@ -512,6 +267,17 @@ pub(crate) const fn is_whole(glyphs: &[Glyph], kerning: &[KernPair], coverage_le
     }
     true
 }
+
+// Checked when the crate compiles: every face's kerning is whole.
+const _: () = assert!(
+    REGULAR.kerning_is_whole()
+        && BOLD.kerning_is_whole()
+        && DISPLAY.kerning_is_whole()
+        && ITALIC.kerning_is_whole()
+        && BOLDITALIC.kerning_is_whole()
+        && CODE.kerning_is_whole()
+        && CODEBOLD.kerning_is_whole()
+);
 
 #[cfg(test)]
 #[allow(
@@ -534,42 +300,50 @@ mod tests {
         matches!(ch, ' ' | '#' | '%' | '+'..=':' | 'A'..='Z' | '\u{A3}')
     }
 
-    /// Each atlas's set: the display face's or the whole set.
-    fn in_atlas_set(atlas: &Atlas, ch: char) -> bool {
-        if is_display(atlas) {
+    /// Every face.
+    fn faces() -> [&'static Face; 7] {
+        [
+            &REGULAR,
+            &BOLD,
+            &DISPLAY,
+            &ITALIC,
+            &BOLDITALIC,
+            &CODE,
+            &CODEBOLD,
+        ]
+    }
+
+    fn is_display(face: &Face) -> bool {
+        face.id() == DISPLAY.id()
+    }
+
+    /// The monospace face: no kerned pairs, its letters set in cells of
+    /// one width.
+    fn is_code(face: &Face) -> bool {
+        face.id() == CODE.id() || face.id() == CODEBOLD.id()
+    }
+
+    /// Each face's set: the display face's or the whole set.
+    fn in_face_set(face: &Face, ch: char) -> bool {
+        if is_display(face) {
             in_display_set(ch)
         } else {
             in_set(ch)
         }
     }
 
-    /// An atlas of the monospace face: no kerned pairs, its letters set
-    /// in cells of one width.
-    fn is_code(atlas: &Atlas) -> bool {
-        atlas.face().id() == CODE.id() || atlas.face().id() == CODEBOLD.id()
-    }
-
-    fn is_display(atlas: &Atlas) -> bool {
-        core::ptr::eq(atlas, &DISPLAY_96) || core::ptr::eq(atlas, &DISPLAY_192)
+    /// `units` of `face` at `px` pixels per em, in 1/64 pixel.
+    fn at(face: &Face, px: u32, units: i32) -> i32 {
+        face.scale(px * 64).unwrap().to_64(units)
     }
 
     #[test]
-    fn every_atlas_has_its_whole_set_and_nothing_else() {
-        assert_eq!(ATLASES.len(), 30);
-        for atlas in ATLASES {
-            let count = if is_display(atlas) { 46 } else { 190 };
-            assert_eq!(atlas.glyphs().len(), count, "{} px", atlas.size());
-            for code in 0..=0x2FF_u32 {
-                let ch = char::from_u32(code).unwrap();
-                assert_eq!(
-                    atlas.glyph(ch).is_ok(),
-                    in_atlas_set(atlas, ch),
-                    "{ch:?} at {} px",
-                    atlas.size()
-                );
-            }
-            for glyph in atlas.glyphs() {
-                assert_eq!(atlas.glyph(glyph.ch()), Ok(glyph));
+    fn every_face_has_its_whole_set_and_nothing_else() {
+        for face in faces() {
+            let count = if is_display(face) { 46 } else { 190 };
+            assert_eq!(face.glyphs().len(), count, "face {}", face.id());
+            for outline in face.glyphs() {
+                assert!(in_face_set(face, outline.ch()), "{:?}", outline.ch());
             }
         }
     }
@@ -600,105 +374,80 @@ mod tests {
     }
 
     #[test]
-    fn the_sizes_are_every_themes_type_scale() {
-        let sizes: [u16; 30] = core::array::from_fn(|i| ATLASES[i].size());
-        assert_eq!(
-            sizes,
-            [
-                14, 16, 18, 24, 28, 32, 36, 48, // Regular
-                14, 16, 18, 20, 24, 28, 32, 36, 40, 48, 56, 72, // Bold
-                96, 192, // display
-                18, 24, 18, 24, // Italic, Bold Italic
-                18, 24, 18, 24, // code: the monospace Regular and Bold
-            ]
-        );
-        assert_eq!(REGULAR_18.size(), 18);
-        assert_eq!(BOLD_56.size(), 56);
-        assert_eq!(DISPLAY_192.size(), 192);
-    }
-
-    #[test]
     fn glyphs_have_ink_where_they_should() {
-        for atlas in ATLASES {
-            let spaces: &[char] = if is_display(atlas) {
+        for face in faces() {
+            let spaces: &[char] = if is_display(face) {
                 &[' ']
             } else {
                 &[' ', '\u{A0}']
             };
             for &ch in spaces {
-                let space = atlas.glyph(ch).unwrap();
-                assert_eq!(
-                    (space.width(), space.height(), space.coverage()),
-                    (0, 0, &[][..])
-                );
+                let space = face.glyph(ch).unwrap();
+                assert!(!space.has_ink(), "{ch:?}");
                 assert!(space.advance() > 0);
             }
-            for glyph in atlas.glyphs() {
-                assert_eq!(
-                    glyph.coverage().len(),
-                    usize::from(glyph.width()) * usize::from(glyph.height())
-                );
-                if !matches!(glyph.ch(), ' ' | '\u{A0}') {
-                    assert!(glyph.coverage().iter().any(|&c| c > 0), "{:?}", glyph.ch());
+            for outline in face.glyphs() {
+                if !matches!(outline.ch(), ' ' | '\u{A0}') {
+                    assert!(outline.has_ink(), "{:?}", outline.ch());
                 }
             }
-            if is_display(atlas) {
+            if is_display(face) {
                 continue;
             }
-            // Below the baseline: g and j, and j reaches back over the pen
-            // - but in the monospace face, inside its cell.
-            let j = atlas.glyph('j').unwrap();
-            assert!(i32::from(j.top()) < i32::from(j.height()));
-            assert_eq!(j.bearing_x() < 0, !is_code(atlas), "{} px", atlas.size());
+            // Below the baseline: j, which reaches back over the pen - but
+            // in the monospace face, inside its cell.
+            let j = face.glyph('j').unwrap();
+            assert!(j.min().y < 0);
+            assert_eq!(j.min().x < 0, !is_code(face), "face {}", face.id());
             // The micro sign is drawn with the Greek mu: a descender, ink.
-            let micro = atlas.glyph('\u{B5}').unwrap();
-            assert!(i32::from(micro.top()) < i32::from(micro.height()));
+            let micro = face.glyph('\u{B5}').unwrap();
+            assert!(micro.has_ink() && micro.min().y < 0);
         }
     }
 
     #[test]
     fn metrics_scale_with_the_size() {
         // 984 and 316 font units of 1,000, no line gap.
-        for (atlas, ascent, descent, height) in [
-            (&REGULAR_18, 1134, 364, 24),
-            (&REGULAR_24, 1511, 485, 32),
-            (&REGULAR_36, 2267, 728, 47),
-            (&REGULAR_48, 3023, 971, 63),
-            (&BOLD_18, 1134, 364, 24),
-            (&BOLD_56, 3527, 1133, 73),
-            (&DISPLAY_96, 6046, 1942, 125),
+        for (face, px, ascent, descent, height) in [
+            (&REGULAR, 18, 1134, 364, 24),
+            (&REGULAR, 24, 1511, 485, 32),
+            (&REGULAR, 36, 2267, 728, 47),
+            (&REGULAR, 48, 3023, 971, 63),
+            (&BOLD, 18, 1134, 364, 24),
+            (&BOLD, 56, 3527, 1133, 73),
+            (&DISPLAY, 96, 6046, 1942, 125),
         ] {
-            let line = atlas.line_metrics();
+            let line = face.line_metrics(face.scale(px * 64).unwrap());
             assert_eq!(
                 (line.ascent(), line.descent(), line.line_gap()),
                 (ascent, descent, 0),
-                "{} px",
-                atlas.size()
+                "{px} px"
             );
             assert_eq!(line.line_height(), height);
         }
         // Twice the size, twice the advance, to within rounding: what a
         // screen drawn at device scale 2 draws from.
-        for (small, large) in [
-            (&REGULAR_18, &REGULAR_36),
-            (&REGULAR_24, &REGULAR_48),
-            (&BOLD_28, &BOLD_56),
-            (&BOLD_36, &BOLD_72),
-            (&DISPLAY_96, &DISPLAY_192),
+        for (face, small) in [
+            (&REGULAR, 18),
+            (&REGULAR, 24),
+            (&BOLD, 28),
+            (&BOLD, 36),
+            (&DISPLAY, 96),
         ] {
-            for glyph in small.glyphs() {
-                let big = large.glyph(glyph.ch()).unwrap();
+            for outline in face.glyphs() {
+                let (one, two) = (
+                    at(face, small, outline.advance()),
+                    at(face, small * 2, outline.advance()),
+                );
                 assert!(
-                    (big.advance() - 2 * glyph.advance()).abs() <= 1,
-                    "{:?} at {} px",
-                    glyph.ch(),
-                    small.size()
+                    (two - 2 * one).abs() <= 1,
+                    "{:?} at {small} px",
+                    outline.ch()
                 );
             }
         }
         // Bold is wider than Regular.
-        let width = |atlas: &Atlas| atlas.glyph('m').unwrap().advance();
-        assert!(width(&BOLD_18) > width(&REGULAR_18));
+        assert!(BOLD.glyph('m').unwrap().advance() > REGULAR.glyph('m').unwrap().advance());
     }
 
     #[test]
@@ -715,24 +464,32 @@ mod tests {
 
     #[test]
     fn the_font_kerns_its_pairs() {
-        for atlas in ATLASES {
-            if is_code(atlas) {
-                assert!(atlas.kerning.is_empty(), "the monospace face kerns nothing");
+        for face in faces() {
+            if is_code(face) {
+                for left in face.glyphs() {
+                    for right in face.glyphs() {
+                        assert_eq!(
+                            face.kerning_units(left.ch(), right.ch()),
+                            0,
+                            "the monospace face kerns nothing"
+                        );
+                    }
+                }
                 continue;
             }
-            if !is_display(atlas) {
-                assert!(atlas.kerning('T', 'o') < 0, "{} px", atlas.size());
-                assert!(atlas.kerning.len() > 1000);
+            if !is_display(face) {
+                assert!(face.kerning_units('T', 'o') < 0, "face {}", face.id());
             }
-            assert!(atlas.kerning('A', 'V') < 0, "{} px", atlas.size());
-            assert_eq!(atlas.kerning('o', '\u{3BC}'), 0);
-            assert_eq!(atlas.kerning('\u{2014}', 'T'), 0);
+            assert!(face.kerning_units('A', 'V') < 0, "face {}", face.id());
+            assert_eq!(face.kerning_units('o', '\u{3BC}'), 0);
+            assert_eq!(face.kerning_units('\u{2014}', 'T'), 0);
+            assert!(face.kerning_is_whole());
         }
         // "To" closes up by 80 font units of 1,000: 1.92 pixels at 24 px,
         // scaled from the units every size of the face shares.
-        assert_eq!(REGULAR_24.kerning('T', 'o'), -123);
-        assert_eq!(REGULAR_48.kerning('T', 'o'), -246);
-        assert!(is_whole(REGULAR_24.glyphs(), REGULAR_24.kerning, 37_259));
+        assert_eq!(REGULAR.kerning_units('T', 'o'), -80);
+        assert_eq!(at(&REGULAR, 24, -80), -123);
+        assert_eq!(at(&REGULAR, 48, -80), -246);
     }
 
     #[test]
@@ -746,92 +503,13 @@ mod tests {
         assert_eq!(scale_units(1, 1, 129), 0);
         assert_eq!(scale_units(1, 1, 0), 0);
         assert_eq!(scale_units(i32::MAX, u16::MAX, 1), 0);
+        // And as a face scales its kerning.
+        assert_eq!(scale_units(-80, 24, 1000), at(&REGULAR, 24, -80));
     }
 
     #[test]
-    fn every_atlas_takes_its_coverage_file_glyph_by_glyph() {
-        let files: [(&Atlas, &[u8]); 30] = [
-            (&REGULAR_14, include_bytes!("atlas/regular_14.coverage")),
-            (&REGULAR_16, include_bytes!("atlas/regular_16.coverage")),
-            (&REGULAR_18, include_bytes!("atlas/regular_18.coverage")),
-            (&REGULAR_24, include_bytes!("atlas/regular_24.coverage")),
-            (&REGULAR_28, include_bytes!("atlas/regular_28.coverage")),
-            (&REGULAR_32, include_bytes!("atlas/regular_32.coverage")),
-            (&REGULAR_36, include_bytes!("atlas/regular_36.coverage")),
-            (&REGULAR_48, include_bytes!("atlas/regular_48.coverage")),
-            (&BOLD_14, include_bytes!("atlas/bold_14.coverage")),
-            (&BOLD_16, include_bytes!("atlas/bold_16.coverage")),
-            (&BOLD_18, include_bytes!("atlas/bold_18.coverage")),
-            (&BOLD_20, include_bytes!("atlas/bold_20.coverage")),
-            (&BOLD_24, include_bytes!("atlas/bold_24.coverage")),
-            (&BOLD_28, include_bytes!("atlas/bold_28.coverage")),
-            (&BOLD_32, include_bytes!("atlas/bold_32.coverage")),
-            (&BOLD_36, include_bytes!("atlas/bold_36.coverage")),
-            (&BOLD_40, include_bytes!("atlas/bold_40.coverage")),
-            (&BOLD_48, include_bytes!("atlas/bold_48.coverage")),
-            (&BOLD_56, include_bytes!("atlas/bold_56.coverage")),
-            (&BOLD_72, include_bytes!("atlas/bold_72.coverage")),
-            (&DISPLAY_96, include_bytes!("atlas/display_96.coverage")),
-            (&DISPLAY_192, include_bytes!("atlas/display_192.coverage")),
-            (&ITALIC_18, include_bytes!("atlas/italic_18.coverage")),
-            (&ITALIC_24, include_bytes!("atlas/italic_24.coverage")),
-            (
-                &BOLDITALIC_18,
-                include_bytes!("atlas/bolditalic_18.coverage"),
-            ),
-            (
-                &BOLDITALIC_24,
-                include_bytes!("atlas/bolditalic_24.coverage"),
-            ),
-            (&CODE_18, include_bytes!("atlas/code_18.coverage")),
-            (&CODE_24, include_bytes!("atlas/code_24.coverage")),
-            (&CODEBOLD_18, include_bytes!("atlas/codebold_18.coverage")),
-            (&CODEBOLD_24, include_bytes!("atlas/codebold_24.coverage")),
-        ];
-        for (atlas, file) in files {
-            let mut at = 0;
-            for glyph in atlas.glyphs() {
-                let end = at + glyph.coverage().len();
-                assert_eq!(
-                    glyph.coverage(),
-                    &file[at..end],
-                    "{:?} at {} px",
-                    glyph.ch(),
-                    atlas.size()
-                );
-                at = end;
-            }
-            assert_eq!(at, file.len(), "{} px", atlas.size());
-        }
-    }
-
-    #[test]
-    fn a_damaged_table_is_not_whole() {
-        static PIXELS: [u8; 6] = [1, 2, 3, 4, 5, 6];
-        let glyph = |ch, width, height| Glyph {
-            ch,
-            advance: 0,
-            bearing_x: 0,
-            bearing_y: 0,
-            left: 0,
-            top: 0,
-            width,
-            height,
-            coverage: &[],
-        };
-        // Each glyph takes the next width * height bytes, in order: their
-        // pixels follow one another, so no glyph's can be another's.
-        let two = lay_out(&PIXELS, [glyph('a', 2, 2), glyph('b', 1, 2)]);
-        assert_eq!(
-            (two[0].coverage(), two[1].coverage()),
-            (&[1, 2, 3, 4][..], &[5, 6][..])
-        );
-        let pair = KernPair::new(0, 1, -3);
-        assert!(is_whole(&two, &[pair], 6));
+    fn a_damaged_kerning_table_is_not_whole() {
         let chars = ['a', 'b'];
-        assert!(same_chars(&two, &chars));
-        assert!(!same_chars(&two, &['a', 'c']));
-        assert!(!same_chars(&two, &['a']));
         assert_eq!(
             (index_of_char(&chars, 'a'), index_of_char(&chars, 'b')),
             (0, 1)
@@ -840,40 +518,21 @@ mod tests {
             (index_of_char(&chars, 'c'), index_of_char(&[], 'a')),
             (u16::MAX, u16::MAX)
         );
-        // Pixels past the end of the coverage, or bytes left over.
-        let long = lay_out(&PIXELS, [glyph('a', 2, 2), glyph('b', 1, 3)]);
-        assert_eq!(long[1].coverage(), &[] as &[u8]);
-        assert!(!is_whole(&long, &[], 6));
-        assert!(!is_whole(&lay_out(&PIXELS, [glyph('a', 2, 2)]), &[], 6));
-        // A glyph's pixels not its width times its height.
-        let mut changed = two;
-        changed[1].height = 1;
-        assert!(!is_whole(&changed, &[], 6));
-        // Out of order, or twice.
-        assert!(!is_whole(
-            &lay_out(&PIXELS, [glyph('b', 1, 2), glyph('a', 2, 2)]),
-            &[],
-            6
-        ));
-        assert!(!is_whole(
-            &lay_out(&PIXELS, [glyph('a', 1, 2), glyph('a', 2, 2)]),
-            &[],
-            6
-        ));
-        // Pairs: outside the glyphs, out of order, twice or 0.
-        assert!(!is_whole(&two, &[KernPair::new(0, 2, -3)], 6));
-        assert!(!is_whole(
-            &two,
+        let pair = KernPair::new(0, 1, -3);
+        assert!(kerning_is_whole(&[pair], 2));
+        assert!(kerning_is_whole(&[], 2));
+        // Pairs: outside the characters, out of order, twice or 0.
+        assert!(!kerning_is_whole(&[KernPair::new(0, 2, -3)], 2));
+        assert!(!kerning_is_whole(
             &[KernPair::new(index_of_char(&chars, 'c'), 0, -3)],
-            6
+            2
         ));
-        assert!(!is_whole(
-            &two,
+        assert!(!kerning_is_whole(
             &[KernPair::new(1, 0, 1), KernPair::new(0, 1, 1)],
-            6
+            2
         ));
-        assert!(!is_whole(&two, &[pair, pair], 6));
-        assert!(!is_whole(&two, &[KernPair::new(0, 1, 0)], 6));
+        assert!(!kerning_is_whole(&[pair, pair], 2));
+        assert!(!kerning_is_whole(&[KernPair::new(0, 1, 0)], 2));
     }
 
     #[test]
@@ -888,10 +547,10 @@ mod tests {
     proptest! {
         #[test]
         fn lookups_never_panic_and_agree_with_the_set(left in any::<char>(), right in any::<char>()) {
-            for atlas in ATLASES {
-                prop_assert_eq!(atlas.glyph(left).is_ok(), in_atlas_set(atlas, left));
-                if !in_atlas_set(atlas, left) || !in_atlas_set(atlas, right) {
-                    prop_assert_eq!(atlas.kerning(left, right), 0);
+            for face in faces() {
+                prop_assert_eq!(face.glyph(left).is_ok(), in_face_set(face, left));
+                if !in_face_set(face, left) || !in_face_set(face, right) {
+                    prop_assert_eq!(face.kerning_units(left, right), 0);
                 }
             }
         }
