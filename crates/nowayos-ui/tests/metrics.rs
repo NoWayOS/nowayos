@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//! Layout with the glyph atlases' real metrics: a line's width is the sum of its advances and of
+//! Layout with the faces' real metrics: a line's width is the sum of its advances and of
 //! its pairs' kerning, in 1/64 pixel, rounded up to whole pixels, and its
 //! height the face's line height; text too wide for its node is cut on a
 //! character boundary - a label keeping its start, a text input its end -
@@ -16,26 +16,26 @@
 )]
 
 use nowayos_display::Rect;
-use nowayos_glyphs::{ATLASES, REGULAR_18, REGULAR_24, REGULAR_36, REGULAR_48};
+use nowayos_glyphs::REGULAR;
 use nowayos_ui::text::{fit_end, fit_start, is_printable};
 use nowayos_ui::{ActionId, Align, FieldId, Length, NodeId, SlotId, Style, TextMetrics, Tree};
 use proptest::prelude::*;
 
-/// The 24 px atlas's metrics: the large-text theme's body size,
+/// The regular face's metrics at 24 px: the large-text theme's body size,
 /// the size every width and height here was worked by hand from.
-const BODY: TextMetrics = TextMetrics::from_atlas(&REGULAR_24);
+const BODY: TextMetrics = TextMetrics::from_face(&REGULAR, 24 * 64);
 
 fn rect(tree: &Tree<16>, id: NodeId) -> Rect {
     tree.get(id).unwrap().rect()
 }
 
 /// Each kind of node that shows text, laid out at its natural size with the
-/// 24 px atlas: every width and height worked by hand from the atlas's
+/// regular face at 24 px: every width and height worked by hand from its
 /// tables (advances and kerning in 1/64 pixel; a line 1,511 + 485 + 0 =
 /// 1,996/64 = 31.2, so 32 pixels high; the digit zero 995/64, so a
 /// character 16 wide).
 #[test]
-fn layout_measures_every_kind_of_text_with_the_atlas() {
+fn layout_measures_every_kind_of_text_with_the_face() {
     assert_eq!((BODY.line_height(), BODY.char_width()), (32, 16));
     let mut t: Tree<16> = Tree::new();
     let column = t.column(Style::new().align(Align::Start)).unwrap();
@@ -71,7 +71,7 @@ fn layout_measures_every_kind_of_text_with_the_atlas() {
     assert_eq!(rect(&t, to), Rect::new(0, 32, 25, 32));
     // A 962 and V 911, kerned by -61: 1,812/64 = 28.3.
     assert_eq!(rect(&t, av), Rect::new(0, 64, 29, 32));
-    // "Continue": 6,052/64 = 94.6, so 95 - measured in the body atlas, as
+    // "Continue": 6,052/64 = 94.6, so 95 - measured in the body face, as
     // these metrics name no Bold one - its padding 24 each side and 8
     // above and below.
     assert_eq!(rect(&t, button), Rect::new(0, 96, 95 + 48, 32 + 16));
@@ -98,27 +98,22 @@ fn layout_measures_every_kind_of_text_with_the_atlas() {
 /// Every size of every theme's type scale, and the monospace special case
 /// with the built-in fonts' own numbers.
 #[test]
-fn each_atlas_gives_its_own_size_and_monospace_keeps_its_own() {
-    for (atlas, welcome, line, ch) in [
+fn each_size_gives_its_own_measure_and_monospace_keeps_its_own() {
+    for (px, welcome, line, ch) in [
         // 4,649/64 = 72.6; 1,498/64 = 23.4; 746/64 = 11.7.
-        (&REGULAR_18, 73, 24, 12),
-        (&REGULAR_24, 97, 32, 16),
+        (18, 73, 24, 12),
+        (24, 97, 32, 16),
         // 9,300/64 = 145.3; 2,995/64 = 46.8; 1,493/64 = 23.3.
-        (&REGULAR_36, 146, 47, 24),
-        (&REGULAR_48, 194, 63, 32),
+        (36, 146, 47, 24),
+        (48, 194, 63, 32),
     ] {
-        let metrics = TextMetrics::from_atlas(atlas);
-        assert_eq!(
-            metrics.text_width("Welcome"),
-            welcome,
-            "{} px",
-            atlas.size()
-        );
-        assert_eq!(metrics.line_height(), line, "{} px", atlas.size());
-        assert_eq!(metrics.char_width(), ch, "{} px", atlas.size());
+        let metrics = TextMetrics::from_face(&REGULAR, px * 64);
+        assert_eq!(metrics.text_width("Welcome"), welcome, "{px} px");
+        assert_eq!(metrics.line_height(), line, "{px} px");
+        assert_eq!(metrics.char_width(), ch, "{px} px");
         assert_eq!(
             metrics.face().map(|(face, size64)| (face.id(), size64)),
-            Some((atlas.face().id(), u32::from(atlas.size()) * 64))
+            Some((REGULAR.id(), px * 64))
         );
     }
     for (mono, welcome) in [
@@ -130,8 +125,8 @@ fn each_atlas_gives_its_own_size_and_monospace_keeps_its_own() {
     }
     // Metrics name their face by identity and size, and a theme's minimum
     // target size is kept apart from it.
-    assert_eq!(TextMetrics::from_atlas(&REGULAR_24), BODY);
-    assert_ne!(TextMetrics::from_atlas(&REGULAR_36), BODY);
+    assert_eq!(TextMetrics::from_face(&REGULAR, 24 * 64), BODY);
+    assert_ne!(TextMetrics::from_face(&REGULAR, 36 * 64), BODY);
     assert_ne!(BODY.with_min_target(40), BODY);
     assert_eq!(BODY.with_min_target(40).min_target(), 40);
     assert!(std::format!("{BODY:?}").contains(", 24 px)"));
@@ -162,20 +157,20 @@ fn a_label_wider_than_its_node_keeps_its_start() {
     assert_eq!(fit_end("Continue", 45, &BODY), "nue");
 }
 
-/// The atlases with each of the built-in monospace fonts: every metric
+/// Four sizes of the regular face, and each of the built-in monospace fonts: every metric
 /// layout may be given.
 fn any_metrics() -> impl Strategy<Value = TextMetrics> {
     prop_oneof![
-        Just(TextMetrics::from_atlas(&REGULAR_18)),
-        Just(TextMetrics::from_atlas(&REGULAR_24)),
-        Just(TextMetrics::from_atlas(&REGULAR_36)),
-        Just(TextMetrics::from_atlas(&REGULAR_48)),
+        Just(TextMetrics::from_face(&REGULAR, 18 * 64)),
+        Just(TextMetrics::from_face(&REGULAR, 24 * 64)),
+        Just(TextMetrics::from_face(&REGULAR, 36 * 64)),
+        Just(TextMetrics::from_face(&REGULAR, 48 * 64)),
         Just(TextMetrics::new(6, 10)),
         Just(TextMetrics::new(10, 20)),
     ]
 }
 
-/// Mostly text from the atlases' set; sometimes anything at all, including
+/// Mostly text from the faces' set; sometimes anything at all, including
 /// characters with no glyph, which a tree refuses but measuring must not
 /// panic on.
 fn any_text() -> impl Strategy<Value = String> {
@@ -186,30 +181,28 @@ fn any_text() -> impl Strategy<Value = String> {
 }
 
 /// The width a line should have, worked out here independently of
-/// `nowayos-ui`, from the atlas's own lookups: every advance and every
+/// `nowayos-ui`, from the face's own lookups: every advance and every
 /// kerned pair, in 1/64 pixel, rounded up once. A character with no glyph
 /// adds nothing and is kerned with neither neighbour. A monospace font's
 /// characters each take its advance.
 fn expected_width(text: &str, metrics: &TextMetrics) -> u32 {
-    // The atlas of the face and size the metrics measure with.
-    let atlas = metrics.face().and_then(|(face, size64)| {
-        nowayos_glyphs::ATLASES.into_iter().find(|atlas| {
-            core::ptr::eq(atlas.face(), face) && u32::from(atlas.size()) * 64 == size64
-        })
-    });
-    let Some(atlas) = atlas else {
+    // The face and size the metrics measure with.
+    let Some((face, scale)) = metrics
+        .face()
+        .and_then(|(face, size64)| Some((face, face.scale(size64)?)))
+    else {
         return u32::try_from(text.chars().count() * metrics.char_width() as usize)
             .unwrap_or(u32::MAX);
     };
     let mut total: i64 = 0;
     let mut previous: Option<char> = None;
     for ch in text.chars() {
-        match atlas.glyph(ch) {
-            Ok(glyph) => {
+        match face.glyph(ch) {
+            Ok(outline) => {
                 if let Some(left) = previous {
-                    total += i64::from(atlas.kerning(left, ch));
+                    total += i64::from(scale.to_64(face.kerning_units(left, ch)));
                 }
-                total += i64::from(glyph.advance());
+                total += i64::from(scale.to_64(outline.advance()));
                 previous = Some(ch);
             }
             Err(_) => previous = None,
@@ -224,7 +217,7 @@ fn expected_width(text: &str, metrics: &TextMetrics) -> u32 {
 
 proptest! {
     /// A line's width is the sum of its advances and its pairs' kerning,
-    /// rounded up to whole pixels - with every atlas, and with each
+    /// rounded up to whole pixels - at each size given, and with each
     /// monospace font, where it is the characters times the advance.
     #[test]
     fn width_is_advances_plus_kerning_rounded_up(metrics in any_metrics(), text in any_text()) {
@@ -264,7 +257,7 @@ proptest! {
         }
     }
 
-    /// Laid out with an atlas, each text node is as wide as its text and
+    /// Laid out with a face, each text node is as wide as its text and
     /// one line high, until the viewport's width caps it.
     #[test]
     fn layout_gives_text_its_measured_width_and_one_line(
@@ -272,8 +265,8 @@ proptest! {
         which in 0usize..4,
         viewport_width in 0u32..1200,
     ) {
-        let atlas = ATLASES[which];
-        let metrics = TextMetrics::from_atlas(atlas);
+        let size64 = [14, 16, 18, 24][which] * 64;
+        let metrics = TextMetrics::from_face(&REGULAR, size64);
         let mut t: Tree<16> = Tree::new();
         let column = t.column(Style::new().align(Align::Start)).unwrap();
         t.set_root(column).unwrap();
@@ -289,7 +282,7 @@ proptest! {
         for (id, text) in ids {
             let size = rect(&t, id).size;
             prop_assert_eq!(size.width, expected_width(text, &metrics).min(viewport_width));
-            prop_assert_eq!(size.height, atlas.line_metrics().line_height());
+            prop_assert_eq!(size.height, REGULAR.line_metrics(REGULAR.scale(size64).unwrap()).line_height());
         }
     }
 }

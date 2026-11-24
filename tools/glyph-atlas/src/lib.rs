@@ -19,6 +19,8 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 
 mod emit;
+#[cfg(test)]
+mod outlines;
 mod raster;
 mod spec;
 

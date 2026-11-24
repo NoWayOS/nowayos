@@ -50,14 +50,14 @@ const UNITS_PER_PIXEL: u32 = 64;
 /// alike when both use the metrics the theme gives.
 ///
 /// ```
-/// use nowayos_glyphs::REGULAR_24;
+/// use nowayos_glyphs::REGULAR;
 /// use nowayos_ui::TextMetrics;
 ///
-/// let atlas = TextMetrics::from_atlas(&REGULAR_24);
+/// let face = TextMetrics::from_face(&REGULAR, 24 * 64);
 /// // T advances 857/64 pixel and o 842/64, and the pair is kerned by
 /// // -123/64: 1,576/64 = 24.6 pixels, rounded up.
-/// assert_eq!(atlas.text_width("To"), 25);
-/// assert_eq!(atlas.line_height(), 32);
+/// assert_eq!(face.text_width("To"), 25);
+/// assert_eq!(face.line_height(), 32);
 ///
 /// let mono = TextMetrics::new(6, 10);
 /// assert_eq!(mono.text_width("To"), 12);

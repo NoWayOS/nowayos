@@ -202,7 +202,7 @@ fn fits(width: Option<i64>, limit: i64) -> bool {
 /// ([`TextMetrics::text_width`]).
 ///
 /// ```
-/// use nowayos_glyphs::REGULAR_24;
+/// use nowayos_glyphs::REGULAR;
 /// use nowayos_ui::{TextMetrics, text::fit_start};
 ///
 /// let m = TextMetrics::new(6, 10);
@@ -210,9 +210,9 @@ fn fits(width: Option<i64>, limit: i64) -> bool {
 /// // C, o, n and t advance 991, 842, 845 and 501 sixty-fourths of a pixel,
 /// // and the font kerns C-o by +3 and n-t by -26: 3,156/64 = 49.3 pixels,
 /// // so "Cont" takes 50, and "Conti" would take 56.
-/// let atlas = TextMetrics::from_atlas(&REGULAR_24);
-/// assert_eq!(fit_start("Continue", 50, &atlas), "Cont");
-/// assert_eq!(fit_start("Continue", 55, &atlas), "Cont");
+/// let face = TextMetrics::from_face(&REGULAR, 24 * 64);
+/// assert_eq!(fit_start("Continue", 50, &face), "Cont");
+/// assert_eq!(fit_start("Continue", 55, &face), "Cont");
 /// ```
 #[must_use]
 pub fn fit_start<'a>(text: &'a str, width: u32, metrics: &TextMetrics) -> &'a str {
@@ -375,7 +375,7 @@ pub fn changed_area(
 mod tests {
     use super::*;
     use crate::layout::whole_pixels;
-    use nowayos_glyphs::{REGULAR_18, REGULAR_24};
+    use nowayos_glyphs::REGULAR;
 
     const M: TextMetrics = TextMetrics::new(6, 10);
 
@@ -401,12 +401,13 @@ mod tests {
     }
 
     /// A line's width is its advances and its pairs' kerning, in 1/64
-    /// pixel, rounded up - worked by hand from the 24 px atlas's tables.
+    /// pixel, rounded up - worked by hand from the regular face at 24 px.
     #[test]
-    fn atlas_widths_are_advances_plus_kerning_rounded_up() {
-        let m = TextMetrics::from_atlas(&REGULAR_24);
+    fn face_widths_are_advances_plus_kerning_rounded_up() {
+        let m = TextMetrics::from_face(&REGULAR, 24 * 64);
         // A 962, V 911, the pair kerned by -61: 1,812/64 = 28.3, so 29.
-        assert_eq!(REGULAR_24.kerning('A', 'V'), -61);
+        let scale = REGULAR.scale(24 * 64).unwrap();
+        assert_eq!(scale.to_64(REGULAR.kerning_units('A', 'V')), -61);
         assert_eq!(m.text_width("AV"), 29);
         // Apart, each is kerned with the space between them instead (-15
         // and -31): 962 - 15 + 430 - 31 + 911 = 2,257/64 = 35.3, so 36.
@@ -417,8 +418,8 @@ mod tests {
         // A line is rounded up once, as a whole, never character by
         // character: four i's are 1,548/64 = 24.2, so 25 - not 28.
         assert_eq!(m.text_width("iiii"), 25);
-        // The 18 px atlas: T 643, o 631, kerned by -92: 1,182/64 = 18.5.
-        let small = TextMetrics::from_atlas(&REGULAR_18);
+        // At 18 px: T 643, o 631, kerned by -92: 1,182/64 = 18.5.
+        let small = TextMetrics::from_face(&REGULAR, 18 * 64);
         assert_eq!(small.text_width("To"), 19);
         // 1,134 + 364 + 0 = 1,498/64 = 23.4 pixels a line; 0 is 746/64.
         assert_eq!((small.line_height(), small.char_width()), (24, 12));
@@ -426,7 +427,7 @@ mod tests {
 
     #[test]
     fn a_character_with_no_glyph_takes_no_width_and_breaks_kerning() {
-        let m = TextMetrics::from_atlas(&REGULAR_24);
+        let m = TextMetrics::from_face(&REGULAR, 24 * 64);
         // A, then a character outside the set, then V: nothing is kerned,
         // 962 + 911 = 1,873/64 = 29.3, so 30.
         assert_eq!(m.text_width("\u{2014}"), 0);

@@ -3,16 +3,6 @@
 version = 4
 
 [[package]]
-name = "nowayos-glyph-atlas"
-version = "0.1.0"
-dependencies = [
- "serde",
- "sha2",
- "swash",
- "toml",
-]
-
-[[package]]
 name = "block-buffer"
 version = "0.10.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -122,6 +112,29 @@ name = "libc"
 version = "0.2.190"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ce5d3ddc6d3fa000eb1536d85e147bfe31aacaba692ed6a876f95cb7c855be78"
+
+[[package]]
+name = "nowayos-glyph-atlas"
+version = "0.1.0"
+dependencies = [
+ "nowayos-glyphs",
+ "nowayos-raster",
+ "serde",
+ "sha2",
+ "swash",
+ "toml",
+]
+
+[[package]]
+name = "nowayos-glyphs"
+version = "0.1.0"
+dependencies = [
+ "nowayos-raster",
+]
+
+[[package]]
+name = "nowayos-raster"
+version = "0.1.0"
 
 [[package]]
 name = "once_cell"

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 //! Text roles and weights: a node's text is measured in its own
-//! style's atlas, every style has its own place among the twelve, and text
-//! in the display role holds only what its atlases draw - refused, when a
+//! style's face and size, every style has its own place among the twelve, and text
+//! in the display role holds only what its face draws - refused, when a
 //! node is added or text is set, with an error that never names the
 //! character.
 
@@ -13,7 +13,7 @@
 )]
 
 use nowayos_display::Rect;
-use nowayos_glyphs::{BOLD_18, BOLD_28, DISPLAY_96, REGULAR_14, REGULAR_18};
+use nowayos_glyphs::{BOLD, DISPLAY, REGULAR};
 use nowayos_ui::builder::{self as ui, UiBuilder};
 use nowayos_ui::{
     ActionId, Align, FieldId, NodeKind, SlotId, Style, TextMetrics, TextRole, TextStyle, Tree,
@@ -23,12 +23,12 @@ use nowayos_ui::{
 /// A type scale of the light theme's sizes, as `nowayos-render-eg`'s theme
 /// gives it.
 fn metrics() -> TextMetrics {
-    TextMetrics::from_atlas(&REGULAR_18)
-        .with_atlas(TextStyle::BODY, &REGULAR_18)
-        .with_atlas(TextStyle::BODY.bold(), &BOLD_18)
-        .with_atlas(TextStyle::new(TextRole::Title), &BOLD_28)
-        .with_atlas(TextStyle::new(TextRole::Caption), &REGULAR_14)
-        .with_atlas(TextStyle::new(TextRole::Display), &DISPLAY_96)
+    TextMetrics::from_face(&REGULAR, 18 * 64)
+        .with_face(TextStyle::BODY, &REGULAR, 18 * 64)
+        .with_face(TextStyle::BODY.bold(), &BOLD, 18 * 64)
+        .with_face(TextStyle::new(TextRole::Title), &BOLD, 28 * 64)
+        .with_face(TextStyle::new(TextRole::Caption), &REGULAR, 14 * 64)
+        .with_face(TextStyle::new(TextRole::Display), &DISPLAY, 96 * 64)
 }
 
 #[test]
@@ -47,7 +47,7 @@ fn every_style_has_a_place_of_its_own() {
 }
 
 /// Each node's text is measured in its own role and weight: as wide and as
-/// high as that atlas makes it, and a style given no atlas as body text.
+/// high as that face and size make it, and a style given none as body text.
 #[test]
 fn each_node_is_measured_in_its_own_style() {
     let mut t: Tree<16> = Tree::new();
@@ -70,18 +70,19 @@ fn each_node_is_measured_in_its_own_style() {
     let m = metrics();
     t.layout(Rect::new(0, 0, 800, 480), &m).unwrap();
     let size = |id| t.get(id).unwrap().rect().size;
-    for (atlas, id) in [&REGULAR_18, &BOLD_18, &BOLD_28, &REGULAR_14, &REGULAR_18]
-        .iter()
-        .zip(&nodes)
+    for ((face, px), id) in [
+        (&REGULAR, 18),
+        (&BOLD, 18),
+        (&BOLD, 28),
+        (&REGULAR, 14),
+        (&REGULAR, 18),
+    ]
+    .iter()
+    .zip(&nodes)
     {
-        let own = TextMetrics::from_atlas(atlas);
-        assert_eq!(
-            size(*id).width,
-            own.text_width("Room 4"),
-            "{} px",
-            atlas.size()
-        );
-        assert_eq!(size(*id).height, own.line_height(), "{} px", atlas.size());
+        let own = TextMetrics::from_face(face, px * 64);
+        assert_eq!(size(*id).width, own.text_width("Room 4"), "{px} px");
+        assert_eq!(size(*id).height, own.line_height(), "{px} px");
     }
     assert!(size(nodes[1]).width > size(nodes[0]).width, "Bold is wider");
     assert!(
@@ -95,10 +96,10 @@ fn each_node_is_measured_in_its_own_style() {
         (m.scale(), m.min_target())
     );
     let face_of = |metrics: &TextMetrics| metrics.face().map(|(face, size64)| (face.id(), size64));
-    assert_eq!(face_of(&title), Some((BOLD_28.face().id(), 28 * 64)));
+    assert_eq!(face_of(&title), Some((BOLD.id(), 28 * 64)));
     assert_eq!(
         face_of(&title.for_style(TextStyle::BODY)),
-        Some((REGULAR_18.face().id(), 18 * 64))
+        Some((REGULAR.id(), 18 * 64))
     );
 }
 
@@ -106,7 +107,7 @@ fn each_node_is_measured_in_its_own_style() {
 /// refused - when the node is added, through the builder, when its text,
 /// a slot's text or its style is set - and the previous text stays.
 #[test]
-fn display_text_holds_only_what_its_atlases_draw() {
+fn display_text_holds_only_what_its_face_draws() {
     let display = TextStyle::new(TextRole::Display);
     let mut t: Tree<16> = Tree::new();
     for good in ["A047", "\u{A3}27.40", "12:30", "#4 - 50%", "G/7+"] {
