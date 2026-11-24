@@ -28,7 +28,8 @@ unsound = "all"
 yanked = "deny"
 ignore = [
     # rsa 0.9.10's Marvin attack: timing that can recover an RSA private key
-    # from its decryption or signing (no patched release). nowayos-tls-crypto
+    # from its decryption or signing (patched in rsa 0.10.0, not used here
+    # yet). nowayos-tls-crypto
     # only verifies signatures, with public keys, and its key provider loads
     # no private key.
     { id = "RUSTSEC-2023-0071", reason = "no RSA private key is used: rsa only verifies signatures, with public keys" },

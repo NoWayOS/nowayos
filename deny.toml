@@ -23,7 +23,8 @@ unsound = "all"
 yanked = "deny"
 ignore = [
     # rsa 0.9.10's Marvin attack: timing that can recover an RSA private key
-    # from its decryption or signing (no patched release). nowayos-tls-crypto
+    # from its decryption or signing (patched in rsa 0.10.0, not used here
+    # yet). nowayos-tls-crypto
     # only verifies signatures, with public keys, and its key provider loads
     # no private key.
     { id = "RUSTSEC-2023-0071", reason = "no RSA private key is used: rsa only verifies signatures, with public keys" },
@@ -147,8 +148,7 @@ reason = "no allocation in a PD: smoltcp's default `map` only"
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
-# The root workspace uses no git dependencies today. rust-sel4 is the only
-# git source the project allows, for protection-domain crates (pds/ has its
-# own deny.toml with the same rule).
-allow-git = ["https://github.com/seL4/rust-sel4"]
+# No git dependencies here. rust-sel4 is the only git source the project
+# allows, and only for the protection-domain workspace: pds/deny.toml.
+allow-git = []
 unused-allowed-source = "allow"
