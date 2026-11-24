@@ -7,7 +7,7 @@
 
 # A test system: the client runs nowayos-audio-loop and the ticker
 # the watchdog's stand-in, test instruments; usb0 and usb1 are the USB host
-# PD itself, as in usb-test.
+# PD itself, as in usb-input-test.
 system test
 role run_watchdog watchdog
 role timer driver

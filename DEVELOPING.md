@@ -49,10 +49,10 @@ What exists today (the README's Status says what runs where):
     Debug Probe - decoded into canonical key events and sent through the
     input broker; malformed sequences dropped and counted. It runs on the
     Pi 5 too, the keys typed through the probe by `make pi-run`;
-  - `usb-test` (spike S1): a USB host PD for each xHCI controller -
-    QEMU's `qemu-xhci`, RP1's two on the Pi 5 - identifies it, halts and
-    resets it, and runs it from its own DMA memory, a No Op command coming
-    back through DMA; it runs on the Pi 5 too;
+  - `usb-test` (spike S1), the Pi 5's: a USB host PD for each of RP1's two
+    xHCI controllers identifies it, halts and resets it, and runs it from
+    its own DMA memory, a No Op command coming back through DMA; in QEMU the
+    same system, on two `qemu-xhci`, is `usb-input-test`;
   - `usb-input-test`: QEMU's USB keyboard, mouse and
     tablet enumerated by the USB host PD and driven over QMP - typed, moved,
     clicked, unplugged with a key held and plugged back, a key held until it

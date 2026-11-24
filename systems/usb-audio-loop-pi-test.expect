@@ -1,7 +1,7 @@
 # Lines make check-serial (and tools/pi-run, live) must see on the Pi 5, in
 # this order, as whole serial lines: rpi5b_2gb/usb-audio-loop-pi-test.system,
 # the Pi 5 only. Each USB host PD runs its controller as
-# usb-test's do, and the client starts; what is plugged in, on which port,
+# usb-input-test's do, and the client starts; what is plugged in, on which port,
 # differs by desk and is printed between these lines, not checked here - the
 # run's log shows each side's devices, each stream's 10 s reports, and each
 # recording made and played back; the person at the desk hears the tone and

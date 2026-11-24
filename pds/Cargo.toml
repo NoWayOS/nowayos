@@ -104,7 +104,7 @@ members = [
     # frames on it, and its test pattern (systems/rpi5b_2gb/fb-test)
     "fb",
     "fb-test",
-    # systems/usb-test.system, the USB host PD for an xHCI controller
+    # systems/usb-input-test.system, the USB host PD for an xHCI controller
     # - QEMU's qemu-xhci, RP1's on the Pi 5
     "usb-host",
     # systems/usb-audio-test.system's test instrument: the USB host PD

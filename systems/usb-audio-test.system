@@ -3,7 +3,7 @@
     Isochronous transfers: the USB host PD streams a USB speaker.
     usb0 runs nowayos-usb-tone, a test instrument: the USB host PD
     (nowayos-usb-host) started to stream every USB audio interface it finds.
-    It drives xhci0, QEMU's qemu-xhci, as usb-test's usb0 does, and
+    It drives xhci0, QEMU's qemu-xhci, as usb-input-test's usb0 does, and
     enumerates QEMU's USB audio device (usb-audio-test.qemu): it sets up the
     isochronous OUT endpoint of the device's audio streaming interface,
     selects that interface's alternate setting, and plays a 440 Hz tone to
@@ -19,7 +19,7 @@
 
     Capabilities, for usb0: xhci0's register window and its PCI
     configuration page, uncached, read-write; its DMA region, 188 KiB -
-    usb-test's 76 KiB and, after it, each of four streams' ring and buffers
+    usb-input-test's 76 KiB and, after it, each of four streams' ring and buffers
     and a large control buffer for long configurations
     (nowayos_hw::xhci::DMA_SIZE_STREAMING) - uncached, whose physical address
     it learns to give the controller; the board's facts about xhci0,

@@ -129,7 +129,7 @@ trigger = "edge"
 source = "As virtio_mmio_0_7: transports 24-31"
 
 # xHCI USB host controllers: two of QEMU's `qemu-xhci` PCI functions,
-# which systems/usb-test.qemu puts on PCI bus 0 as devices 2 and 3 (addr=2,
+# which systems/usb-input-test.qemu puts on PCI bus 0 as devices 2 and 3 (addr=2,
 # addr=3). QEMU's virt machine has no firmware to enumerate PCI, so the xHCI
 # PD places each controller's BAR 0 itself, through its function's
 # configuration page (nowayos_hw::pci), at the bus address `pci_bar0` -
@@ -155,7 +155,7 @@ address = 0x40_1001_0000
 size = 0x1000
 irqs = []
 trigger = "level"
-source = "QEMU 7.2's device tree for this machine (observed 2026-10-07, above): ECAM at 0x40_1000_0000; bus 0, device 2 (systems/usb-test.qemu's addr=2), function 0: 0x40_1000_0000 + (2 << 15) = 0x40_1001_0000"
+source = "QEMU 7.2's device tree for this machine (observed 2026-10-07, above): ECAM at 0x40_1000_0000; bus 0, device 2 (systems/usb-input-test.qemu's addr=2), function 0: 0x40_1000_0000 + (2 << 15) = 0x40_1001_0000"
 note = "The configuration space of the first qemu-xhci function: its header, Command register and BARs. Only the xHCI PD that drives xhci0 maps it, to place xhci0's window."
 
 [[device]]

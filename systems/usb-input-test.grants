@@ -1,4 +1,4 @@
-# Everything systems/usb-input-test.system grants: the same as usb-test.grants, one fact per line.
+# Everything systems/usb-input-test.system grants, one fact per line.
 # tools/check-system fails the build if the system description grants anything
 # not listed here, or lists anything it does not grant, and checks the map
 # rights again in the kernel objects the Microkit tool generates (format: see
