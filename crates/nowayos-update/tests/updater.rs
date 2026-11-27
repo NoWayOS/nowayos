@@ -87,6 +87,22 @@ impl Crypto for Real {
     }
 }
 
+/// 32 bytes from the process's own randomness, different at every run:
+/// each `RandomState` is keyed afresh.
+fn random_bytes() -> [u8; 32] {
+    use std::hash::{BuildHasher, Hasher};
+    let word = || {
+        std::collections::hash_map::RandomState::new()
+            .build_hasher()
+            .finish()
+            .to_le_bytes()
+    };
+    [word(), word(), word(), word()]
+        .concat()
+        .try_into()
+        .unwrap()
+}
+
 /// A key made now, from `seed`: never stored.
 struct Key {
     signing: SigningKey,
@@ -97,17 +113,9 @@ impl Key {
     /// A new key, from the process's own randomness: made at test time,
     /// never stored, different at every run.
     fn fresh() -> Self {
-        use std::hash::{BuildHasher, Hasher};
         loop {
-            let mut bytes = [0u8; 32];
-            for chunk in bytes.chunks_mut(8) {
-                let random = std::collections::hash_map::RandomState::new()
-                    .build_hasher()
-                    .finish();
-                chunk.copy_from_slice(&random.to_le_bytes());
-            }
             // Any scalar from 1 to n - 1; the rare other draw, again.
-            if let Ok(signing) = SigningKey::from_slice(&bytes) {
+            if let Ok(signing) = SigningKey::from_slice(&random_bytes()) {
                 return Self::new(signing);
             }
         }
@@ -944,33 +952,35 @@ fn with_a_deployment_key_only_what_a_fresh_signed_record_names_is_taken() {
     let wanted = manifest(Release::of(IMAGE, 5), &world.image);
     let other = manifest(Release::of(IMAGE, 6), &world.image);
     let ours = (PRODUCT, BOARD);
+    // Nonces as the device makes them: fresh at every run.
+    let (asked, stale, again) = (random_bytes(), random_bytes(), random_bytes());
     // Signed and in the list, but no record names it.
     assert_eq!(logic.manifest(&wanted), Err(Refusal::NotDeployed));
     // No check-in awaits an answer.
     assert_eq!(
-        logic.deployment(&deployment(&deploy, [1; 32], ours, named(&wanted))),
+        logic.deployment(&deployment(&deploy, asked, ours, named(&wanted))),
         Err(Refusal::NoCheckIn)
     );
-    logic.expect_answer([1; 32]);
+    logic.expect_answer(asked);
     let refused = [
         (
-            deployment(&deploy, [2; 32], ours, named(&wanted)),
+            deployment(&deploy, stale, ours, named(&wanted)),
             Refusal::StaleNonce,
         ),
         (
-            deployment(&world.stranger, [1; 32], ours, named(&wanted)),
+            deployment(&world.stranger, asked, ours, named(&wanted)),
             Refusal::DeploymentNotSigned,
         ),
         (
-            deployment(&world.image, [1; 32], ours, named(&wanted)),
+            deployment(&world.image, asked, ours, named(&wanted)),
             Refusal::DeploymentNotSigned,
         ),
         (
-            deployment(&deploy, [1; 32], ("printer", BOARD), named(&wanted)),
+            deployment(&deploy, asked, ("printer", BOARD), named(&wanted)),
             Refusal::DeploymentOtherProduct,
         ),
         (
-            deployment(&deploy, [1; 32], (PRODUCT, "rpi5b_2gb"), named(&wanted)),
+            deployment(&deploy, asked, (PRODUCT, "rpi5b_2gb"), named(&wanted)),
             Refusal::DeploymentOtherBoard,
         ),
     ];
@@ -978,7 +988,7 @@ fn with_a_deployment_key_only_what_a_fresh_signed_record_names_is_taken() {
         assert_eq!(logic.deployment(&record), Err(refusal));
     }
     // The genuine answer, still awaited after each refusal.
-    let answer = deployment(&deploy, [1; 32], ours, named(&wanted));
+    let answer = deployment(&deploy, asked, ours, named(&wanted));
     assert_eq!(logic.deployment(&answer), Ok(named(&wanted)));
     // Answered once: the same record again is no answer.
     assert_eq!(logic.deployment(&answer), Err(Refusal::NoCheckIn));
@@ -986,10 +996,10 @@ fn with_a_deployment_key_only_what_a_fresh_signed_record_names_is_taken() {
     assert_eq!(logic.manifest(&other), Err(Refusal::NotDeployed));
     assert!(logic.manifest(&wanted).is_ok());
     // A new check-in forgets the old answer.
-    logic.expect_answer([3; 32]);
+    logic.expect_answer(again);
     assert_eq!(logic.manifest(&wanted), Err(Refusal::NotDeployed));
     // "Current" names nothing to take.
-    let current = deployment(&deploy, [3; 32], ours, Instruction::Current);
+    let current = deployment(&deploy, again, ours, Instruction::Current);
     assert_eq!(logic.deployment(&current), Ok(Instruction::Current));
     assert_eq!(logic.manifest(&wanted), Err(Refusal::NotDeployed));
 }
@@ -1007,8 +1017,9 @@ fn an_older_release_installs_only_when_a_deployment_record_names_it() {
         &[&world.root],
     );
     logic.take_trust_list(&with_deployment).unwrap();
-    logic.expect_answer([9; 32]);
-    let answer = deployment(&deploy, [9; 32], (PRODUCT, BOARD), named(&older));
+    let asked = random_bytes();
+    logic.expect_answer(asked);
+    let answer = deployment(&deploy, asked, (PRODUCT, BOARD), named(&older));
     assert_eq!(logic.deployment(&answer), Ok(named(&older)));
     assert!(logic.manifest(&older).is_ok());
     assert_eq!(send_image(&mut logic, IMAGE), Ok(Slot::B));
