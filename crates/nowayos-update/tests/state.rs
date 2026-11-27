@@ -35,7 +35,7 @@ fn list(version: u32, fill: u8) -> TrustList {
         purpose: Purpose::TrustList,
         key: [fill; KEY_LEN],
     }];
-    let contents = TrustListContents::new(version, false, &keys).unwrap();
+    let contents = TrustListContents::new(version, false, u32::MAX, &keys).unwrap();
     let signature = NamedSignature {
         key_id: [fill; KEY_ID_LEN],
         signature: [fill.wrapping_add(1); SIGNATURE_LEN],
@@ -385,7 +385,7 @@ fn the_copy_length_holds_the_largest_list() {
             key: [u8::try_from(entry).unwrap() + 1; KEY_LEN],
         })
         .collect();
-    let contents = TrustListContents::new(u32::MAX, true, &keys).unwrap();
+    let contents = TrustListContents::new(u32::MAX, true, u32::MAX, &keys).unwrap();
     let signatures = [
         NamedSignature {
             key_id: [1; KEY_ID_LEN],

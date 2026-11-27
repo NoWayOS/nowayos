@@ -21,13 +21,26 @@
 //!    no image key in the held list signed it, if it is marked development
 //!    and the held list is not, if its security version is below the
 //!    rollback index, if it needs a newer trust list than the one held, if
-//!    it names another product, or if its image is longer than a slot.
+//!    it names another product or another board, if its security version
+//!    is above the held list's ceiling, if the held list names a deployment
+//!    key and no deployment record accepted since the last check-in names
+//!    it, if - with no deployment key - its version is below the running
+//!    release's, or if its image is longer than a slot.
 //! 3. [`image`](Updater::image): the image's chunks, in order, written to
 //!    the slot that is **not** running - never the running one - and hashed
 //!    as they are written.
 //! 4. [`bundle_end`](Updater::bundle_end): the slot is marked for one trial
 //!    boot only if the length and the SHA-256 match the manifest; then a
 //!    restart is wanted.
+//!
+//! Where the held trust list names a deployment key, a manifest is taken
+//! only once [`deployment`](Updater::deployment) has accepted a deployment
+//! record naming it: one that echoes the nonce of the check-in the PD last
+//! sent ([`expect_answer`](Updater::expect_answer)), names this product and
+//! board, and a deployment key in the held list signed. Only then may a
+//! release older than the running one be installed: the operator's signed
+//! choice. With no deployment key, a release older than the running one is
+//! refused, and a bad release is fixed by a newer one.
 //!
 //! At a trial boot, [`health`](Updater::health): only a verdict that the
 //! trial passed marks the slot good and raises the rollback index to the
@@ -48,8 +61,10 @@
 //! no curve arithmetic; storage is the PD's too ([`StateStorage`],
 //! [`SlotStorage`]).
 
+use crate::checkin::NONCE_LEN;
 use crate::chunk::{Chunk, Part};
-use crate::manifest::Manifest;
+use crate::deployment::{Deployment, Instruction};
+use crate::manifest::{Manifest, Version};
 use crate::state::{Slot, StateStorage, StateStore, StorageError, StoreError, Trial, UpdateState};
 use crate::trust_list::{Purpose, TrustList};
 use crate::{DIGEST_LEN, KEY_ID_LEN, KEY_LEN, NamedSignature, SIGNATURE_LEN};
@@ -96,6 +111,11 @@ pub trait SlotStorage {
 pub struct Config<'a> {
     /// The product it runs, as a manifest names it.
     pub product: &'a str,
+    /// The board it is, as a manifest names it.
+    pub board: &'a str,
+    /// The running release's version: with no deployment key, no older
+    /// release is taken.
+    pub version: Version,
     /// The slot running now, as the bootloader says.
     pub running: Slot,
     /// A slot's length: no longer image fits.
@@ -177,6 +197,67 @@ pub enum Refusal {
     Trial,
     /// Storage failed; nothing is marked.
     Storage(StoreError),
+    /// A manifest for another board.
+    OtherBoard,
+    /// A security version above the held trust list's ceiling.
+    AboveCeiling {
+        /// The held list's ceiling.
+        ceiling: u32,
+        /// The manifest's security version.
+        offered: u32,
+    },
+    /// The held trust list names a deployment key, and no deployment record
+    /// accepted since the last check-in names this manifest.
+    NotDeployed,
+    /// With no deployment key, a release older than the running one.
+    Downgrade {
+        /// The running release's version.
+        running: Version,
+        /// The manifest's version.
+        offered: Version,
+    },
+    /// A deployment record with no check-in awaiting an answer.
+    NoCheckIn,
+    /// A deployment record whose nonce is not the last check-in's.
+    StaleNonce,
+    /// A deployment record no deployment key in the held list signed.
+    DeploymentNotSigned,
+    /// A deployment record for another product.
+    DeploymentOtherProduct,
+    /// A deployment record for another board.
+    DeploymentOtherBoard,
+}
+
+impl Refusal {
+    /// The refusal's code in a check-in's last result: from 1, one for
+    /// each kind, never reused for another.
+    #[must_use]
+    pub const fn code(self) -> u16 {
+        match self {
+            Self::TrustListNotNewer { .. } => 1,
+            Self::TrustListNotSigned => 2,
+            Self::ManifestNotSigned => 3,
+            Self::Development => 4,
+            Self::Rollback { .. } => 5,
+            Self::NeedsNewerTrustList { .. } => 6,
+            Self::OtherProduct => 7,
+            Self::TooLong => 8,
+            Self::NotExpected => 9,
+            Self::OutOfOrder => 10,
+            Self::Mismatch => 11,
+            Self::Trial => 12,
+            Self::Storage(_) => 13,
+            Self::OtherBoard => 14,
+            Self::AboveCeiling { .. } => 15,
+            Self::NotDeployed => 16,
+            Self::Downgrade { .. } => 17,
+            Self::NoCheckIn => 18,
+            Self::StaleNonce => 19,
+            Self::DeploymentNotSigned => 20,
+            Self::DeploymentOtherProduct => 21,
+            Self::DeploymentOtherBoard => 22,
+        }
+    }
 }
 
 /// A trust list taken.
@@ -236,6 +317,11 @@ pub struct Updater<'a, C: Crypto, S, B> {
     /// used, and the anchors alone are trusted.
     list_used: bool,
     staging: Option<Staging<C::Hash>>,
+    /// The nonce of the check-in awaiting an answer.
+    awaiting: Option<[u8; NONCE_LEN]>,
+    /// The manifest the last accepted deployment record names: the SHA-256
+    /// of its signed bytes.
+    deployed: Option<[u8; DIGEST_LEN]>,
 }
 
 impl<'a, C: Crypto, S: StateStorage, B: SlotStorage> Updater<'a, C, S, B> {
@@ -275,6 +361,8 @@ impl<'a, C: Crypto, S: StateStorage, B: SlotStorage> Updater<'a, C, S, B> {
             state,
             list_used,
             staging: None,
+            awaiting: None,
+            deployed: None,
         };
         Ok((updater, started))
     }
@@ -359,6 +447,58 @@ impl<'a, C: Crypto, S: StateStorage, B: SlotStorage> Updater<'a, C, S, B> {
         })
     }
 
+    /// The PD has sent a check-in with `nonce`: the answer must echo it. Any
+    /// deployment record accepted before is forgotten.
+    pub fn expect_answer(&mut self, nonce: [u8; NONCE_LEN]) {
+        self.awaiting = Some(nonce);
+        self.deployed = None;
+    }
+
+    /// Offers a deployment record, the answer to the last check-in; see the
+    /// [module](self). Accepted, it answers that check-in, and the manifest
+    /// it names, if any, may be taken.
+    ///
+    /// # Errors
+    ///
+    /// A [`Refusal`]: no check-in awaiting an answer, another nonce, not
+    /// signed by a deployment key in the held list, another product or
+    /// board, or on trial. Refused, the check-in still awaits its answer.
+    pub fn deployment(&mut self, record: &Deployment) -> Result<Instruction, Refusal> {
+        self.not_on_trial()?;
+        let awaiting = self.awaiting.ok_or(Refusal::NoCheckIn)?;
+        if record.nonce() != awaiting {
+            return Err(Refusal::StaleNonce);
+        }
+        let signature = record.signature();
+        let signed = self.trust_list().is_some_and(|list| {
+            keys_for(list, Purpose::Deployment)
+                .iter()
+                .flatten()
+                .any(|key| {
+                    self.crypto.key_id(key) == signature.key_id
+                        && self
+                            .crypto
+                            .verify(key, &record.signed_bytes(), &signature.signature)
+                })
+        });
+        if !signed {
+            return Err(Refusal::DeploymentNotSigned);
+        }
+        if record.product() != self.config.product {
+            return Err(Refusal::DeploymentOtherProduct);
+        }
+        if record.board() != self.config.board {
+            return Err(Refusal::DeploymentOtherBoard);
+        }
+        self.awaiting = None;
+        let instruction = record.instruction();
+        self.deployed = match instruction {
+            Instruction::Install(hash) => Some(hash),
+            Instruction::Current => None,
+        };
+        Ok(instruction)
+    }
+
     /// Offers a manifest; see the [module](self). Accepted, a slot marked
     /// for a trial is unmarked before its image is written over.
     ///
@@ -399,6 +539,27 @@ impl<'a, C: Crypto, S: StateStorage, B: SlotStorage> Updater<'a, C, S, B> {
         }
         if manifest.product() != self.config.product {
             return Err(Refusal::OtherProduct);
+        }
+        if manifest.board() != self.config.board {
+            return Err(Refusal::OtherBoard);
+        }
+        if manifest.security_version() > list.security_ceiling() {
+            return Err(Refusal::AboveCeiling {
+                ceiling: list.security_ceiling(),
+                offered: manifest.security_version(),
+            });
+        }
+        if list.names_deployment_key() {
+            let mut hash = self.crypto.hash();
+            hash.update(&manifest.signed_bytes());
+            if self.deployed != Some(hash.finish()) {
+                return Err(Refusal::NotDeployed);
+            }
+        } else if manifest.version() < self.config.version {
+            return Err(Refusal::Downgrade {
+                running: self.config.version,
+                offered: manifest.version(),
+            });
         }
         if manifest.image_len() > self.config.slot_len {
             return Err(Refusal::TooLong);

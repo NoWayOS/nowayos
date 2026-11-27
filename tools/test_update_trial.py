@@ -36,7 +36,7 @@ def report(which, data, per_line=64):
 class StateTest(unittest.TestCase):
     def test_a_copy_is_as_long_as_the_stand_ins(self):
         # 8 + the state record (56) + the trust list's record (792) + 4.
-        self.assertEqual(trial.COPY_LEN, 860)
+        self.assertEqual(trial.COPY_LEN, 868)
         self.assertEqual(len(copy(1, "A")), trial.COPY_LEN)
 
     def test_a_copy_decodes_to_its_generation_and_slots(self):

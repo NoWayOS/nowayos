@@ -30,10 +30,11 @@ fn built(input: &Input<'_>) -> Option<TrustList> {
         key: [0; 64],
     }; MAX_KEYS];
     for key in keys.iter_mut().take(key_count) {
-        key.purpose = Purpose::from_code(input.byte() % 4).unwrap_or(Purpose::TrustList);
+        key.purpose = Purpose::from_code(input.byte() % 5).unwrap_or(Purpose::TrustList);
         key.key = input.array();
     }
-    let contents = TrustListContents::new(version, development, keys.get(..key_count)?);
+    let ceiling = input.u32();
+    let contents = TrustListContents::new(version, development, ceiling, keys.get(..key_count)?);
     let signature_count = usize::from(input.byte()) % (MAX_SIGNATURES + 2);
     let mut signatures = [NamedSignature {
         key_id: [0; 32],

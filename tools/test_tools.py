@@ -4606,16 +4606,16 @@ class BoardSystem(unittest.TestCase):
             with open(os.path.join(folder, "anchors.bin"), "wb") as handle:
                 handle.write(bytes(range(64)) * 2)
             with open(os.path.join(folder, "state-initial.bin"), "wb") as handle:
-                handle.write(bytes(860))
+                handle.write(bytes(868))
             self.assertEqual(self.tool.prefills(anchors, update_bundles=folder),
                              ({"test-trust-anchors.bin": (2).to_bytes(4, "little") + bytes(range(64)) * 2}, []))
             self.assertEqual(self.tool.prefills(state, update_bundles=folder),
-                             ({"test-update-state.bin": bytes(860)}, []))
+                             ({"test-update-state.bin": bytes(868)}, []))
             with open(os.path.join(folder, "anchors.bin"), "wb") as handle:
                 handle.write(bytes(65))
             with open(os.path.join(folder, "state-initial.bin"), "wb") as handle:
-                handle.write(bytes(861))
-            for text, reason in ((anchors, "not 1 to 4 keys"), (state, "not one state copy's 860")):
+                handle.write(bytes(869))
+            for text, reason in ((anchors, "not 1 to 4 keys"), (state, "not one state copy's 868")):
                 files, problems = self.tool.prefills(text, update_bundles=folder)
                 self.assertEqual(files, {})
                 self.assertIn(reason, problems[0])

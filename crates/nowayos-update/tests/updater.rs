@@ -28,15 +28,25 @@ use nowayos_update::updater::{
     Config, Crypto, ImageHash, Judged, Refusal, SlotStorage, StartError, Started, Updater, Verdict,
 };
 use nowayos_update::{
-    DIGEST_LEN, KEY_ID_LEN, KEY_LEN, ListedKey, Manifest, ManifestContents, ManifestFields,
-    NamedSignature, Part, Purpose, SIGNATURE_LEN, TrustList, TrustListContents,
+    DIGEST_LEN, Deployment, DeploymentContents, DeploymentFields, Instruction, KEY_ID_LEN, KEY_LEN,
+    ListedKey, Manifest, ManifestContents, ManifestFields, NamedSignature, Part, Purpose,
+    SIGNATURE_LEN, TrustList, TrustListContents,
 };
 use p256::ecdsa::SigningKey;
 use p256::ecdsa::signature::Signer;
 use proptest::prelude::*;
 
 const PRODUCT: &str = "kiosk";
+const BOARD: &str = "qemu_virt_aarch64";
 const SLOT_LEN: u64 = 4_096;
+/// The trust lists' security-version ceiling: above every release here.
+const CEILING: u32 = 1_000;
+/// The running release's version: every release here is 1.0.0.
+const RUNNING: Version = Version {
+    major: 1,
+    minor: 0,
+    patch: 0,
+};
 
 /// `nowayos-signature`, as a PD gives it.
 struct Real;
@@ -142,7 +152,7 @@ fn list(
             key: key.public,
         }))
         .collect();
-    let contents = TrustListContents::new(version, development, &keys).unwrap();
+    let contents = TrustListContents::new(version, development, CEILING, &keys).unwrap();
     let signed = contents.signed_bytes();
     let signatures: Vec<NamedSignature> = signers.iter().map(|key| key.sign(&signed)).collect();
     TrustList::new(contents, &signatures).unwrap()
@@ -175,6 +185,7 @@ impl Release {
 fn manifest(release: Release, signer: &Key) -> Manifest {
     let fields = ManifestFields {
         product: release.product,
+        board: BOARD,
         version: Version {
             major: 1,
             minor: 0,
@@ -329,6 +340,8 @@ impl World {
     fn start(&self, running: Slot) -> Result<(Logic<'_>, Started), StartError> {
         let config = Config {
             product: PRODUCT,
+            board: BOARD,
+            version: RUNNING,
             running,
             slot_len: SLOT_LEN,
             anchors: &self.anchors,
@@ -513,6 +526,7 @@ fn each_manifest_rule_is_refused_with_its_own_reason() {
     tampered.signature[10] ^= 1;
     let contents = ManifestContents::new(&ManifestFields {
         product: PRODUCT,
+        board: BOARD,
         version: Version {
             major: 1,
             minor: 0,
@@ -807,4 +821,244 @@ proptest! {
             }
         }
     }
+}
+
+/// A trust list of `version` naming `roots`, `images` and `deployments`,
+/// with `ceiling`, signed by `signers`.
+fn list_with(
+    version: u32,
+    ceiling: u32,
+    (roots, images, deployments): (&[&Key], &[&Key], &[&Key]),
+    signers: &[&Key],
+) -> TrustList {
+    let listed = |keys: &[&Key], purpose| -> Vec<ListedKey> {
+        keys.iter()
+            .map(|key| ListedKey {
+                purpose,
+                key: key.public,
+            })
+            .collect()
+    };
+    let mut keys = listed(roots, Purpose::TrustList);
+    keys.extend(listed(images, Purpose::Image));
+    keys.extend(listed(deployments, Purpose::Deployment));
+    let contents = TrustListContents::new(version, false, ceiling, &keys).unwrap();
+    let signed = contents.signed_bytes();
+    let signatures: Vec<NamedSignature> = signers.iter().map(|key| key.sign(&signed)).collect();
+    TrustList::new(contents, &signatures).unwrap()
+}
+
+/// A manifest for `release` on `board`, at `version`, signed by `signer`.
+fn manifest_on(release: Release, signer: &Key, board: &str, version: Version) -> Manifest {
+    let fields = ManifestFields {
+        product: release.product,
+        board,
+        version,
+        security_version: release.security_version,
+        trust_list_version: release.trust_list_version,
+        development: release.development,
+        image_len: release.image_len,
+        image_sha256: release.image_sha256,
+        reference_values: &[],
+    };
+    let contents = ManifestContents::new(&fields).unwrap();
+    let signature = signer.sign(&contents.signed_bytes());
+    Manifest::new(contents, &signature)
+}
+
+/// A deployment record answering `nonce`, signed by `signer`.
+fn deployment(
+    signer: &Key,
+    nonce: [u8; 32],
+    (product, board): (&str, &str),
+    instruction: Instruction,
+) -> Deployment {
+    let contents = DeploymentContents::new(&DeploymentFields {
+        product,
+        board,
+        nonce,
+        cohort: 7,
+        instruction,
+    })
+    .unwrap();
+    let signature = signer.sign(&contents.signed_bytes());
+    Deployment::new(contents, &signature)
+}
+
+/// What a deployment record names a manifest by.
+fn named(manifest: &Manifest) -> Instruction {
+    Instruction::Install(sha256(&manifest.signed_bytes()))
+}
+
+const OLDER: Version = Version {
+    major: 0,
+    minor: 9,
+    patch: 0,
+};
+
+#[test]
+fn another_board_a_release_above_the_ceiling_or_an_older_one_is_refused() {
+    let world = World::new(true);
+    let (mut logic, _) = world.start(Slot::A).unwrap();
+    let release = Release::of(IMAGE, 5);
+    assert_eq!(
+        logic.manifest(&manifest_on(release, &world.image, "rpi5b_2gb", RUNNING)),
+        Err(Refusal::OtherBoard)
+    );
+    assert_eq!(
+        logic.manifest(&manifest_on(release, &world.image, BOARD, OLDER)),
+        Err(Refusal::Downgrade {
+            running: RUNNING,
+            offered: OLDER
+        })
+    );
+    // A list whose ceiling is 4: security version 5 is above it.
+    let low = list_with(2, 4, (&[&world.root], &[&world.image], &[]), &[&world.root]);
+    logic.take_trust_list(&low).unwrap();
+    assert_eq!(
+        logic.manifest(&manifest(release, &world.image)),
+        Err(Refusal::AboveCeiling {
+            ceiling: 4,
+            offered: 5
+        })
+    );
+    assert!(
+        logic
+            .manifest(&manifest(Release::of(IMAGE, 4), &world.image))
+            .is_ok()
+    );
+}
+
+#[test]
+fn with_a_deployment_key_only_what_a_fresh_signed_record_names_is_taken() {
+    let world = World::new(true);
+    let deploy = Key::fresh();
+    let (mut logic, _) = world.start(Slot::A).unwrap();
+    let with_deployment = list_with(
+        2,
+        CEILING,
+        (&[&world.root], &[&world.image], &[&deploy]),
+        &[&world.root],
+    );
+    logic.take_trust_list(&with_deployment).unwrap();
+    let wanted = manifest(Release::of(IMAGE, 5), &world.image);
+    let other = manifest(Release::of(IMAGE, 6), &world.image);
+    let ours = (PRODUCT, BOARD);
+    // Signed and in the list, but no record names it.
+    assert_eq!(logic.manifest(&wanted), Err(Refusal::NotDeployed));
+    // No check-in awaits an answer.
+    assert_eq!(
+        logic.deployment(&deployment(&deploy, [1; 32], ours, named(&wanted))),
+        Err(Refusal::NoCheckIn)
+    );
+    logic.expect_answer([1; 32]);
+    let refused = [
+        (
+            deployment(&deploy, [2; 32], ours, named(&wanted)),
+            Refusal::StaleNonce,
+        ),
+        (
+            deployment(&world.stranger, [1; 32], ours, named(&wanted)),
+            Refusal::DeploymentNotSigned,
+        ),
+        (
+            deployment(&world.image, [1; 32], ours, named(&wanted)),
+            Refusal::DeploymentNotSigned,
+        ),
+        (
+            deployment(&deploy, [1; 32], ("printer", BOARD), named(&wanted)),
+            Refusal::DeploymentOtherProduct,
+        ),
+        (
+            deployment(&deploy, [1; 32], (PRODUCT, "rpi5b_2gb"), named(&wanted)),
+            Refusal::DeploymentOtherBoard,
+        ),
+    ];
+    for (record, refusal) in refused {
+        assert_eq!(logic.deployment(&record), Err(refusal));
+    }
+    // The genuine answer, still awaited after each refusal.
+    let answer = deployment(&deploy, [1; 32], ours, named(&wanted));
+    assert_eq!(logic.deployment(&answer), Ok(named(&wanted)));
+    // Answered once: the same record again is no answer.
+    assert_eq!(logic.deployment(&answer), Err(Refusal::NoCheckIn));
+    // Only the manifest it names is taken.
+    assert_eq!(logic.manifest(&other), Err(Refusal::NotDeployed));
+    assert!(logic.manifest(&wanted).is_ok());
+    // A new check-in forgets the old answer.
+    logic.expect_answer([3; 32]);
+    assert_eq!(logic.manifest(&wanted), Err(Refusal::NotDeployed));
+    // "Current" names nothing to take.
+    let current = deployment(&deploy, [3; 32], ours, Instruction::Current);
+    assert_eq!(logic.deployment(&current), Ok(Instruction::Current));
+    assert_eq!(logic.manifest(&wanted), Err(Refusal::NotDeployed));
+}
+
+#[test]
+fn an_older_release_installs_only_when_a_deployment_record_names_it() {
+    let world = World::new(true);
+    let deploy = Key::fresh();
+    let (mut logic, _) = world.start(Slot::A).unwrap();
+    let older = manifest_on(Release::of(IMAGE, 5), &world.image, BOARD, OLDER);
+    let with_deployment = list_with(
+        2,
+        CEILING,
+        (&[&world.root], &[&world.image], &[&deploy]),
+        &[&world.root],
+    );
+    logic.take_trust_list(&with_deployment).unwrap();
+    logic.expect_answer([9; 32]);
+    let answer = deployment(&deploy, [9; 32], (PRODUCT, BOARD), named(&older));
+    assert_eq!(logic.deployment(&answer), Ok(named(&older)));
+    assert!(logic.manifest(&older).is_ok());
+    assert_eq!(send_image(&mut logic, IMAGE), Ok(Slot::B));
+}
+
+#[test]
+fn each_refusal_has_its_own_code() {
+    use nowayos_update::state::StoreError;
+    let all = [
+        Refusal::TrustListNotNewer {
+            held: 1,
+            offered: 1,
+        },
+        Refusal::TrustListNotSigned,
+        Refusal::ManifestNotSigned,
+        Refusal::Development,
+        Refusal::Rollback {
+            index: 1,
+            offered: 0,
+        },
+        Refusal::NeedsNewerTrustList { held: 1, needed: 2 },
+        Refusal::OtherProduct,
+        Refusal::TooLong,
+        Refusal::NotExpected,
+        Refusal::OutOfOrder,
+        Refusal::Mismatch,
+        Refusal::Trial,
+        Refusal::Storage(StoreError::Lost),
+        Refusal::OtherBoard,
+        Refusal::AboveCeiling {
+            ceiling: 1,
+            offered: 2,
+        },
+        Refusal::NotDeployed,
+        Refusal::Downgrade {
+            running: RUNNING,
+            offered: OLDER,
+        },
+        Refusal::NoCheckIn,
+        Refusal::StaleNonce,
+        Refusal::DeploymentNotSigned,
+        Refusal::DeploymentOtherProduct,
+        Refusal::DeploymentOtherBoard,
+    ];
+    let mut codes: Vec<u16> = all.iter().map(|refusal| refusal.code()).collect();
+    assert!(
+        codes.iter().all(|code| *code != 0),
+        "0 means nothing to report"
+    );
+    codes.sort_unstable();
+    codes.dedup();
+    assert_eq!(codes.len(), all.len());
 }

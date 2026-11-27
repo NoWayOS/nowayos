@@ -4,7 +4,7 @@
 NOWAYOS: supervisor: starting; children update_storage (0), update (1) and update_bundles (2)
 NOWAYOS: update-bundles: starting
 NOWAYOS: update-bundles: this image is release 1
-NOWAYOS: update-bundles: the disk handed to the storage stand-in: 1736 bytes
+NOWAYOS: update-bundles: the disk handed to the storage stand-in: 1752 bytes
 NOWAYOS: update-bundles: no bundles and no health check this run
 NOWAYOS: update-storage: starting
 NOWAYOS: update-storage: the disk the last run left: booted slot A

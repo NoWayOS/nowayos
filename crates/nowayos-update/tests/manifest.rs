@@ -16,7 +16,8 @@
 
 use nowayos_ipc::{DecodeError, HEADER_LEN, decode_exact, encode};
 use nowayos_update::manifest::{
-    MAX_PRODUCT_LEN, MAX_REFERENCE_VALUES, RECORD_LEN, SIGNED_LEN, is_product_character,
+    MAX_BOARD_LEN, MAX_PRODUCT_LEN, MAX_REFERENCE_VALUES, RECORD_LEN, SIGNED_LEN,
+    is_board_character, is_product_character,
 };
 use nowayos_update::{
     DIGEST_LEN, KEY_ID_LEN, Manifest, ManifestContents, ManifestError, ManifestFields,
@@ -30,7 +31,9 @@ const DEVELOPMENT_AT: usize = HEADER_LEN + 1;
 const PRODUCT_AT: usize = HEADER_LEN + 8;
 const IMAGE_LEN_AT: usize = HEADER_LEN + 48;
 const REFERENCE_COUNT_AT: usize = HEADER_LEN + 88;
+const BOARD_LEN_AT: usize = HEADER_LEN + 89;
 const REFERENCES_AT: usize = HEADER_LEN + 96;
+const BOARD_AT: usize = HEADER_LEN + 1120;
 
 /// The characters a product name may have.
 const PRODUCT_CHARACTERS: &[u8] = b"abcdefghijklmnopqrstuvwxyz0123456789-";
@@ -66,6 +69,7 @@ fn manifest() -> impl Strategy<Value = Manifest> {
             )| {
                 let contents = ManifestContents::new(&ManifestFields {
                     product: &product,
+                    board: &product,
                     version: Version {
                         major,
                         minor,
@@ -114,6 +118,10 @@ fn decode_both(bytes: &[u8]) -> Result<Manifest, ManifestError> {
         assert_eq!(product, manifest.contents().product_bytes());
         assert!((1..=MAX_PRODUCT_LEN).contains(&product.len()));
         assert!(product.iter().all(|byte| is_product_character(*byte)));
+        let board = manifest.board().as_bytes();
+        assert_eq!(board, manifest.contents().board_bytes());
+        assert!((1..=MAX_BOARD_LEN).contains(&board.len()));
+        assert!(board.iter().all(|byte| is_board_character(*byte)));
         assert_ne!(manifest.image_len(), 0);
         let values: Vec<[u8; DIGEST_LEN]> = manifest.reference_values().collect();
         assert_eq!(values.len(), manifest.contents().reference_value_count());
@@ -131,16 +139,17 @@ fn decode_both(bytes: &[u8]) -> Result<Manifest, ManifestError> {
     decoded
 }
 
-/// Every byte of `bytes` that must be zero: the reserved bytes, the name's
+/// Every byte of `bytes` that must be zero: the reserved bytes, each name's
 /// bytes past its length and the reference values past their number.
 fn reserved_offsets(manifest: &Manifest) -> Vec<usize> {
     let name_len = manifest.product().len();
     let mut offsets: Vec<usize> = (PRODUCT_AT + name_len..PRODUCT_AT + MAX_PRODUCT_LEN).collect();
-    offsets.extend(REFERENCE_COUNT_AT + 1..REFERENCES_AT);
+    offsets.extend(BOARD_LEN_AT + 1..REFERENCES_AT);
     let count = manifest.contents().reference_value_count();
     offsets.extend(
         REFERENCES_AT + count * DIGEST_LEN..REFERENCES_AT + MAX_REFERENCE_VALUES * DIGEST_LEN,
     );
+    offsets.extend(BOARD_AT + manifest.board().len()..BOARD_AT + MAX_BOARD_LEN);
     offsets
 }
 
@@ -224,6 +233,30 @@ proptest! {
     }
 
     #[test]
+    fn a_board_name_of_no_length_or_too_long_is_refused(manifest in manifest(), len in 33u8..) {
+        let mut bytes = encoded(&manifest);
+        bytes[BOARD_LEN_AT] = 0;
+        prop_assert_eq!(decode_both(&bytes), Err(ManifestError::BoardNameLength { len: 0 }));
+        bytes[BOARD_LEN_AT] = len;
+        prop_assert_eq!(
+            decode_both(&bytes),
+            Err(ManifestError::BoardNameLength { len: usize::from(len) })
+        );
+    }
+
+    #[test]
+    fn a_board_name_outside_its_characters_is_refused(
+        manifest in manifest(),
+        at in any::<prop::sample::Index>(),
+        byte in any::<u8>().prop_filter("not allowed", |byte| !is_board_character(*byte)),
+    ) {
+        let mut bytes = encoded(&manifest);
+        let at = at.index(manifest.board().len());
+        bytes[BOARD_AT + at] = byte;
+        prop_assert_eq!(decode_both(&bytes), Err(ManifestError::BoardNameCharacter { at, byte }));
+    }
+
+    #[test]
     fn an_empty_image_is_refused(manifest in manifest()) {
         let mut bytes = encoded(&manifest);
         bytes[IMAGE_LEN_AT..IMAGE_LEN_AT + 8].copy_from_slice(&0u64.to_le_bytes());
@@ -244,7 +277,7 @@ proptest! {
     fn a_bad_frame_is_refused(
         manifest in manifest(),
         kind in prop_oneof![0u16..2, 3u16..],
-        version in 2u16..,
+        version in prop_oneof![0u16..2, 3u16..],
         length in any::<u16>(),
         cut in 0..RECORD_LEN,
     ) {
@@ -259,7 +292,7 @@ proptest! {
         bad[2..4].copy_from_slice(&version.to_le_bytes());
         prop_assert_eq!(
             decode_both(&bad),
-            Err(ManifestError::Frame(DecodeError::UnsupportedVersion { expected: 1, found: version }))
+            Err(ManifestError::Frame(DecodeError::UnsupportedVersion { expected: 2, found: version }))
         );
         prop_assume!(usize::from(length) != RECORD_LEN - HEADER_LEN);
         let mut bad = bytes.clone();

@@ -65,7 +65,7 @@ use nowayos_update::trust_list::{self, TrustList};
 use nowayos_update::updater::{
     Config, Crypto, ImageHash, Judged, Refusal, SlotStorage, StartError, Started, Updater, Verdict,
 };
-use nowayos_update::{DIGEST_LEN, KEY_ID_LEN, KEY_LEN, SIGNATURE_LEN};
+use nowayos_update::{DIGEST_LEN, KEY_ID_LEN, KEY_LEN, SIGNATURE_LEN, Version};
 use sel4_microkit::{
     Channel, ChannelSet, Handler, Infallible, MessageInfo, debug_println, with_msg_regs,
     with_msg_regs_mut,
@@ -116,6 +116,10 @@ pub const MAX_ANCHORS: usize = 4;
 pub struct Settings {
     /// The product it runs, as manifests name it.
     pub product: &'static str,
+    /// The board it is, as manifests name it.
+    pub board: &'static str,
+    /// The release it is: with no deployment key, no older one is taken.
+    pub version: Version,
 }
 
 /// Starts the PD: binds its regions and reads its anchors, then the update
@@ -221,6 +225,8 @@ impl State {
     fn config(&self) -> Config<'_> {
         Config {
             product: self.settings.product,
+            board: self.settings.board,
+            version: self.settings.version,
             running: self.boot.slot,
             slot_len: self.boot.slot_len,
             anchors: self.anchors.get(..self.anchor_count).unwrap_or_default(),
@@ -632,6 +638,17 @@ fn reason(outcome: Outcome) -> &'static str {
             Refusal::Mismatch => "its image does not match the manifest's length and SHA-256",
             Refusal::Trial => "a trial is running",
             Refusal::Storage(_) => "storage failed",
+            Refusal::OtherBoard => "its manifest names another board",
+            Refusal::AboveCeiling { .. } => {
+                "its security version is above the trust list's ceiling"
+            }
+            Refusal::NotDeployed => "no deployment record names its manifest",
+            Refusal::Downgrade { .. } => "its release is older than the one running",
+            Refusal::NoCheckIn
+            | Refusal::StaleNonce
+            | Refusal::DeploymentNotSigned
+            | Refusal::DeploymentOtherProduct
+            | Refusal::DeploymentOtherBoard => "a deployment record that answers nothing of ours",
         },
     }
 }

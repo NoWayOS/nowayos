@@ -164,6 +164,20 @@ doc = false
 bench = false
 
 [[bin]]
+name = "update_checkin"
+path = "fuzz_targets/update_checkin.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "update_deployment"
+path = "fuzz_targets/update_deployment.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "update_chunk"
 path = "fuzz_targets/update_chunk.rs"
 test = false

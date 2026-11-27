@@ -16,9 +16,10 @@
 //! The records so far:
 //!
 //! * [`TrustList`] - the signed trust list: its version, a development mark,
-//!   up to [`trust_list::MAX_KEYS`] P-256 public keys, each with its
-//!   [`Purpose`], and one or two signatures, each naming its key.
-//! * [`Manifest`] - the update manifest: the product, the
+//!   the security-version ceiling, up to [`trust_list::MAX_KEYS`] P-256
+//!   public keys, each with its [`Purpose`], and one or two signatures, each
+//!   naming its key.
+//! * [`Manifest`] - the update manifest: the product and board, the
 //!   release's [`Version`] and security version, the image's length and
 //!   SHA-256, the trust-list version it needs, a development mark and up to
 //!   [`manifest::MAX_REFERENCE_VALUES`] reference values, kept opaque; then
@@ -27,6 +28,10 @@
 //!   bundle (the trust list, the manifest or the image) and their offset in
 //!   it: the fixed-size record a bundle arrives in on the update PD's
 //!   channel.
+//! * [`CheckIn`] - what a device tells its Update Server: what it is and
+//!   runs, how its last update ended, and a fresh nonce.
+//! * [`Deployment`] - the server's answer, signed by a deployment key: the
+//!   nonce echoed, and the release to install or that there is none.
 //! * [`state::UpdateState`] - the update state: which slot boots,
 //!   a trial pending, the rollback index and the trust list held, kept in
 //!   two copies over [`state::StateStorage`] so that a reset mid-write
@@ -77,14 +82,18 @@
 //! Provisional. No expiry: a
 //! list or manifest that expires needs trusted time, and would come as a new
 //! layout version. The record kinds are the update PD's
-//! channel's own: 1 the trust list, 2 the manifest, 3 a chunk; and 4 the
-//! update state's record, which storage holds.
+//! channel's own: 1 the trust list, 2 the manifest, 3 a chunk; 4 the
+//! update state's record, which storage holds; 5 the check-in and 6 the
+//! deployment record, which pass between a device and its Update Server.
 
 #![cfg_attr(not(test), no_std)]
 #![forbid(unsafe_code)]
 
+pub mod checkin;
 pub mod chunk;
+pub mod deployment;
 pub mod manifest;
+mod names;
 #[cfg(kani)]
 mod proofs;
 mod record;
@@ -92,7 +101,11 @@ pub mod state;
 pub mod trust_list;
 pub mod updater;
 
+pub use checkin::{CheckIn, CheckInError, CheckInFields};
 pub use chunk::{Chunk, ChunkError, Part};
+pub use deployment::{
+    Deployment, DeploymentContents, DeploymentError, DeploymentFields, Instruction,
+};
 pub use manifest::{Manifest, ManifestContents, ManifestError, ManifestFields, Version};
 pub use trust_list::{ListedKey, Purpose, TrustList, TrustListContents, TrustListError};
 

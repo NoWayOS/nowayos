@@ -2,8 +2,8 @@
 //! The update manifest.
 //!
 //! An update is a whole system image and a manifest the image key signs.
-//! The manifest says which release the image is: the product it is for, its
-//! version and **security version** - a counter that rises whenever a
+//! The manifest says which release the image is: the product and the board
+//! it is for, its version and **security version** - a counter that rises whenever a
 //! release fixes something an older one must not come back with - the
 //! image's length and SHA-256, the trust-list version it needs, whether it
 //! is a development build, and its **reference values**: the measurements
@@ -20,8 +20,8 @@
 //!
 //! # Wire layout
 //!
-//! A `nowayos-ipc` record of kind [`Manifest::KIND`] (2), layout version 1,
-//! whose payload is exactly [`Manifest::PAYLOAD_LEN`] (1216) bytes:
+//! A `nowayos-ipc` record of kind [`Manifest::KIND`] (2), layout version 2,
+//! whose payload is exactly [`Manifest::PAYLOAD_LEN`] (1248) bytes:
 //!
 //! | Offset | Size | Field |
 //! | --- | --- | --- |
@@ -34,13 +34,16 @@
 //! | 48 | 8 | The image's length in bytes, at least 1 |
 //! | 56 | 32 | The image's SHA-256 |
 //! | 88 | 1 | The number of reference values, 0 to [`MAX_REFERENCE_VALUES`] |
-//! | 89 | 7 | Reserved, zero |
+//! | 89 | 1 | The board name's length, 1 to [`MAX_BOARD_LEN`] |
+//! | 90 | 6 | Reserved, zero |
 //! | 96 | 32 × [`MAX_REFERENCE_VALUES`] | The reference values, each a SHA-256 |
-//! | 1120 | 96 | The image key's signature: the key's ID ([`KEY_ID_LEN`] bytes), then the signature ([`SIGNATURE_LEN`] bytes) |
+//! | 1120 | [`MAX_BOARD_LEN`] | The board name, then zeros: the board the image is built for |
+//! | 1152 | 96 | The image key's signature: the key's ID ([`KEY_ID_LEN`] bytes), then the signature ([`SIGNATURE_LEN`] bytes) |
 //!
 //! A product name is lowercase ASCII letters, digits and `-`
-//! ([`is_product_character`]). Every byte of the name past its length, and
-//! of a reference value past their number, is zero. The signature covers the
+//! ([`is_product_character`]); a board name may also have `_`
+//! ([`is_board_character`]), as board names do. Every byte of a name past its
+//! length, and of a reference value past their number, is zero. The signature covers the
 //! record's first [`SIGNED_LEN`] bytes: its header and every field before the
 //! signature ([`ManifestContents`]).
 //!
@@ -51,8 +54,10 @@
 //! [`MAX_PRODUCT_LEN`]; a development mark other than 0 or 1; a character
 //! of the name outside the allowed ones, or a byte past the name that is not
 //! zero (the first of either, in byte order); an image length of zero; more
-//! than [`MAX_REFERENCE_VALUES`] reference values; a reserved byte, or a byte
-//! past the reference values, that is not zero.
+//! than [`MAX_REFERENCE_VALUES`] reference values; a board name with no
+//! character, or more than [`MAX_BOARD_LEN`]; a reserved byte, or a byte past
+//! the reference values, that is not zero; a character of the board name
+//! outside the allowed ones, or a byte past it that is not zero.
 
 use core::fmt;
 
@@ -63,6 +68,9 @@ use crate::{DIGEST_LEN, KEY_ID_LEN, NamedSignature, SIGNATURE_LEN, record};
 /// The most characters a product name has.
 pub const MAX_PRODUCT_LEN: usize = 32;
 
+/// The most characters a board name has.
+pub const MAX_BOARD_LEN: usize = 32;
+
 /// The most reference values one manifest carries: a system's program
 /// images and its system description. The largest designed so far needs
 /// 18: a remote-display station's thirteen PDs, the update and storage PDs
@@ -71,8 +79,8 @@ pub const MAX_PRODUCT_LEN: usize = 32;
 /// more.
 pub const MAX_REFERENCE_VALUES: usize = 32;
 
-/// Reserved bytes after the number of reference values.
-const REFERENCES_RESERVED: usize = 7;
+/// Reserved bytes after the board name's length.
+const REFERENCES_RESERVED: usize = 6;
 
 /// Where each field starts in the signed fields.
 const DEVELOPMENT_AT: usize = 1;
@@ -83,10 +91,12 @@ const TRUST_LIST_VERSION_AT: usize = SECURITY_VERSION_AT + 4;
 const IMAGE_LEN_AT: usize = TRUST_LIST_VERSION_AT + 4;
 const IMAGE_SHA256_AT: usize = IMAGE_LEN_AT + 8;
 const REFERENCE_COUNT_AT: usize = IMAGE_SHA256_AT + DIGEST_LEN;
-const REFERENCES_AT: usize = REFERENCE_COUNT_AT + 1 + REFERENCES_RESERVED;
+const BOARD_LEN_AT: usize = REFERENCE_COUNT_AT + 1;
+const REFERENCES_AT: usize = BOARD_LEN_AT + 1 + REFERENCES_RESERVED;
+const BOARD_AT: usize = REFERENCES_AT + DIGEST_LEN * MAX_REFERENCE_VALUES;
 
 /// The length of the signed fields: everything before the signature.
-const CONTENTS_LEN: usize = REFERENCES_AT + DIGEST_LEN * MAX_REFERENCE_VALUES;
+const CONTENTS_LEN: usize = BOARD_AT + MAX_BOARD_LEN;
 
 /// The length of the signature: key ID, signature.
 const SIGNATURE_BLOCK_LEN: usize = KEY_ID_LEN + SIGNATURE_LEN;
@@ -95,18 +105,19 @@ const SIGNATURE_BLOCK_LEN: usize = KEY_ID_LEN + SIGNATURE_LEN;
 const PAYLOAD_LEN: usize = CONTENTS_LEN + SIGNATURE_BLOCK_LEN;
 
 /// The bytes a manifest's signature covers: the record's header and its
-/// signed fields, the record's first 1128 bytes.
+/// signed fields, the record's first 1160 bytes.
 pub const SIGNED_LEN: usize = HEADER_LEN + CONTENTS_LEN;
 
-/// The length of a whole manifest record, header included: 1224 bytes.
+/// The length of a whole manifest record, header included: 1256 bytes.
 pub const RECORD_LEN: usize = HEADER_LEN + PAYLOAD_LEN;
 
 const _: () = assert!(
     SECURITY_VERSION_AT == 40
         && REFERENCE_COUNT_AT == 88
         && REFERENCES_AT == 96
-        && CONTENTS_LEN == 1120
-        && RECORD_LEN == 1224
+        && BOARD_AT == 1120
+        && CONTENTS_LEN == 1152
+        && RECORD_LEN == 1256
         && PAYLOAD_LEN <= 0xFFFF
 );
 
@@ -115,6 +126,13 @@ const _: () = assert!(
 #[must_use]
 pub const fn is_product_character(byte: u8) -> bool {
     matches!(byte, b'a'..=b'z' | b'0'..=b'9' | b'-')
+}
+
+/// Whether `byte` may be a character of a board name: a lowercase ASCII
+/// letter, a digit, `-` or `_`.
+#[must_use]
+pub const fn is_board_character(byte: u8) -> bool {
+    is_product_character(byte) || byte == b'_'
 }
 
 /// A release's version, in Semantic Versioning's `MAJOR.MINOR.PATCH`. Ordered as Semantic Versioning orders them; which version a
@@ -141,6 +159,9 @@ pub struct ManifestFields<'a> {
     /// The product the release is for: 1 to [`MAX_PRODUCT_LEN`] lowercase
     /// ASCII letters, digits and `-`.
     pub product: &'a str,
+    /// The board the image is built for: 1 to [`MAX_BOARD_LEN`] lowercase
+    /// ASCII letters, digits, `-` and `_`.
+    pub board: &'a str,
     /// The release's version.
     pub version: Version,
     /// The release's security version: a device refuses one lower than its
@@ -198,6 +219,19 @@ pub enum ManifestError {
         /// The number it gives.
         count: usize,
     },
+    /// The board name has no character, or more than [`MAX_BOARD_LEN`].
+    BoardNameLength {
+        /// The length the manifest gives.
+        len: usize,
+    },
+    /// A character of the board name is not a lowercase ASCII letter, a
+    /// digit, `-` or `_`.
+    BoardNameCharacter {
+        /// The character's place in the name, from 0.
+        at: usize,
+        /// The byte.
+        byte: u8,
+    },
 }
 
 impl ManifestError {
@@ -221,6 +255,9 @@ impl ManifestError {
             Self::TooManyReferenceValues { .. } => DecodeError::InvalidValue {
                 field: "reference value count",
             },
+            Self::BoardNameLength { .. } | Self::BoardNameCharacter { .. } => {
+                DecodeError::InvalidValue { field: "board" }
+            }
         }
     }
 }
@@ -261,6 +298,15 @@ impl fmt::Display for ManifestError {
                 f,
                 "the update manifest carries {count} reference values, more than {MAX_REFERENCE_VALUES}"
             ),
+            Self::BoardNameLength { len } => write!(
+                f,
+                "the update manifest's board name is {len} characters, not 1 to {MAX_BOARD_LEN}"
+            ),
+            Self::BoardNameCharacter { at, byte } => write!(
+                f,
+                "character {at} of the update manifest's board name is {byte:#04x}, \
+                 not a lowercase letter, a digit, '-' or '_'"
+            ),
         }
     }
 }
@@ -283,15 +329,22 @@ impl ManifestContents {
     /// # Errors
     ///
     /// The first rule `fields` break, as decoding would refuse it:
-    /// [`ManifestError::ProductNameLength`] or
-    /// [`ManifestError::TooManyReferenceValues`], checked first, then
-    /// [`ManifestError::ProductNameCharacter`] or
-    /// [`ManifestError::EmptyImage`].
+    /// [`ManifestError::ProductNameLength`],
+    /// [`ManifestError::TooManyReferenceValues`] or
+    /// [`ManifestError::BoardNameLength`], checked first, then
+    /// [`ManifestError::ProductNameCharacter`],
+    /// [`ManifestError::EmptyImage`] or
+    /// [`ManifestError::BoardNameCharacter`].
     pub fn new(fields: &ManifestFields<'_>) -> Result<Self, ManifestError> {
         let name_len = check_product_len(fields.product.len())?;
         let count = check_reference_count(fields.reference_values.len())?;
+        let board_len = check_board_len(fields.board.len())?;
         let mut name = [0u8; MAX_PRODUCT_LEN];
         for (slot, byte) in name.iter_mut().zip(fields.product.as_bytes()) {
+            *slot = *byte;
+        }
+        let mut board = [0u8; MAX_BOARD_LEN];
+        for (slot, byte) in board.iter_mut().zip(fields.board.as_bytes()) {
             *slot = *byte;
         }
         let mut references = [0u8; DIGEST_LEN * MAX_REFERENCE_VALUES];
@@ -316,8 +369,10 @@ impl ManifestContents {
         .chain(fields.image_len.to_le_bytes())
         .chain(fields.image_sha256)
         .chain([u8::try_from(count).unwrap_or(u8::MAX)])
+        .chain([u8::try_from(board_len).unwrap_or(u8::MAX)])
         .chain([0; REFERENCES_RESERVED])
-        .chain(references);
+        .chain(references)
+        .chain(board);
         let mut out = [0u8; CONTENTS_LEN];
         for (slot, byte) in out.iter_mut().zip(bytes) {
             *slot = byte;
@@ -358,6 +413,24 @@ impl ManifestContents {
         let len = usize::from(self.byte(0));
         self.fields
             .get(PRODUCT_AT..)
+            .and_then(|rest| rest.get(..len))
+            .unwrap_or_default()
+    }
+
+    /// The board the image is built for: lowercase ASCII letters, digits,
+    /// `-` and `_`.
+    #[must_use]
+    pub fn board(&self) -> &str {
+        core::str::from_utf8(self.board_bytes()).unwrap_or_default()
+    }
+
+    /// The board name's bytes: the same characters as
+    /// [`ManifestContents::board`], without a UTF-8 check.
+    #[must_use]
+    pub fn board_bytes(&self) -> &[u8] {
+        let len = usize::from(self.byte(BOARD_LEN_AT));
+        self.fields
+            .get(BOARD_AT..)
             .and_then(|rest| rest.get(..len))
             .unwrap_or_default()
     }
@@ -446,6 +519,7 @@ impl fmt::Debug for ManifestContents {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ManifestContents")
             .field("product", &self.product())
+            .field("board", &self.board())
             .field("version", &self.version())
             .field("security_version", &self.security_version())
             .field("trust_list_version", &self.trust_list_version())
@@ -502,6 +576,12 @@ impl Manifest {
     #[must_use]
     pub fn product(&self) -> &str {
         self.contents.product()
+    }
+
+    /// The board the image is built for.
+    #[must_use]
+    pub fn board(&self) -> &str {
+        self.contents.board()
     }
 
     /// The release's version.
@@ -589,7 +669,7 @@ impl fmt::Debug for Manifest {
 
 impl Message for Manifest {
     const KIND: u16 = 2;
-    const VERSION: u16 = 1;
+    const VERSION: u16 = 2;
     const PAYLOAD_LEN: usize = PAYLOAD_LEN;
 
     fn encode_payload(&self, out: &mut Writer<'_>) -> Result<(), EncodeError> {
@@ -608,6 +688,15 @@ fn check_product_len(len: usize) -> Result<usize, ManifestError> {
         Ok(len)
     } else {
         Err(ManifestError::ProductNameLength { len })
+    }
+}
+
+/// A board name's length, if it is from 1 to `MAX_BOARD_LEN`.
+fn check_board_len(len: usize) -> Result<usize, ManifestError> {
+    if (1..=MAX_BOARD_LEN).contains(&len) {
+        Ok(len)
+    } else {
+        Err(ManifestError::BoardNameLength { len })
     }
 }
 
@@ -649,10 +738,21 @@ fn check_contents(fields: &[u8; CONTENTS_LEN]) -> Result<(), ManifestError> {
     }
     input.read_array::<DIGEST_LEN>()?;
     let count = check_reference_count(usize::from(input.read_u8()?))?;
+    let board_len = check_board_len(usize::from(input.read_u8()?))?;
     record::zeros::<REFERENCES_RESERVED>(&mut input)?;
     for entry in 0..MAX_REFERENCE_VALUES {
         let value: [u8; DIGEST_LEN] = input.read_array()?;
         if entry >= count && value != [0; DIGEST_LEN] {
+            return Err(ManifestError::ReservedNotZero);
+        }
+    }
+    let board: [u8; MAX_BOARD_LEN] = input.read_array()?;
+    for (at, byte) in board.iter().enumerate() {
+        if at < board_len {
+            if !is_board_character(*byte) {
+                return Err(ManifestError::BoardNameCharacter { at, byte: *byte });
+            }
+        } else if *byte != 0 {
             return Err(ManifestError::ReservedNotZero);
         }
     }
@@ -677,6 +777,7 @@ mod tests {
     fn fields() -> ManifestFields<'static> {
         ManifestFields {
             product: "nowayos-test-1",
+            board: "qemu_virt_aarch64",
             version: Version {
                 major: 0x0102,
                 minor: 0x0304,
@@ -711,8 +812,8 @@ mod tests {
     #[test]
     fn layout_is_exactly_as_documented() {
         let bytes = encoded(&sample());
-        // Header: kind 2, version 1, payload length 1216, reserved.
-        assert_eq!(bytes[..8], [2, 0, 1, 0, 0xC0, 0x04, 0, 0]);
+        // Header: kind 2, version 2, payload length 1248, reserved.
+        assert_eq!(bytes[..8], [2, 0, 2, 0, 0xE0, 0x04, 0, 0]);
         let payload = &bytes[HEADER_LEN..];
         assert_eq!(payload[..8], [14, 1, 0x02, 0x01, 0x04, 0x03, 0x06, 0x05]);
         assert_eq!(&payload[8..22], b"nowayos-test-1");
@@ -724,13 +825,15 @@ mod tests {
             [0x38, 0x37, 0x36, 0x35, 0x34, 0x33, 0x32, 0x31]
         );
         assert_eq!(payload[56..88], [0xA5; 32]);
-        assert_eq!(payload[88..96], [2, 0, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(payload[88..96], [2, 17, 0, 0, 0, 0, 0, 0]);
         assert_eq!(payload[96..128], [0xD1; 32]);
         assert_eq!(payload[128..160], [0xD2; 32]);
         assert!(payload[160..1120].iter().all(|byte| *byte == 0));
-        assert_eq!(payload[1120..1152], [0x51; 32]);
-        assert_eq!(payload[1152..1216], [0x52; 64]);
-        assert_eq!(payload.len(), 1216);
+        assert_eq!(&payload[1120..1137], b"qemu_virt_aarch64");
+        assert!(payload[1137..1152].iter().all(|byte| *byte == 0));
+        assert_eq!(payload[1152..1184], [0x51; 32]);
+        assert_eq!(payload[1184..1248], [0x52; 64]);
+        assert_eq!(payload.len(), 1248);
     }
 
     #[test]
@@ -742,6 +845,7 @@ mod tests {
         assert_eq!(manifest.signed_bytes()[..], bytes[..SIGNED_LEN]);
         assert_eq!(record::header_bytes::<Manifest>()[..], bytes[..HEADER_LEN]);
         assert_eq!(manifest.product(), "nowayos-test-1");
+        assert_eq!(manifest.board(), "qemu_virt_aarch64");
         assert_eq!(manifest.version().to_string(), "258.772.1286");
         assert_eq!(manifest.security_version(), 0x1112_1314);
         assert_eq!(manifest.trust_list_version(), 0x2122_2324);
@@ -758,7 +862,7 @@ mod tests {
     fn the_constructor_keeps_the_rules() {
         let long = "a".repeat(MAX_PRODUCT_LEN + 1);
         let full = "z".repeat(MAX_PRODUCT_LEN);
-        let cases: [(ManifestFields<'_>, Result<(), ManifestError>); 6] = [
+        let cases: [(ManifestFields<'_>, Result<(), ManifestError>); 9] = [
             (
                 ManifestFields {
                     product: "",
@@ -800,7 +904,31 @@ mod tests {
             ),
             (
                 ManifestFields {
+                    board: "",
+                    ..fields()
+                },
+                Err(ManifestError::BoardNameLength { len: 0 }),
+            ),
+            (
+                ManifestFields {
+                    board: &long,
+                    ..fields()
+                },
+                Err(ManifestError::BoardNameLength {
+                    len: MAX_BOARD_LEN + 1,
+                }),
+            ),
+            (
+                ManifestFields {
+                    board: "rpi5b.2gb",
+                    ..fields()
+                },
+                Err(ManifestError::BoardNameCharacter { at: 5, byte: b'.' }),
+            ),
+            (
+                ManifestFields {
                     product: &full,
+                    board: &full,
                     reference_values: &[[1; DIGEST_LEN]; MAX_REFERENCE_VALUES],
                     ..fields()
                 },
@@ -828,11 +956,24 @@ mod tests {
             })
         );
         let mut bad = bytes;
-        bad[HEADER_LEN + REFERENCE_COUNT_AT + 1] = 1;
+        bad[HEADER_LEN + BOARD_LEN_AT + 1] = 1;
         assert_eq!(Manifest::decode(&bad), Err(ManifestError::ReservedNotZero));
         assert_eq!(
             decode_exact::<Manifest>(&bad),
             Err(DecodeError::NonZeroPadding)
+        );
+        let mut bad = bytes;
+        bad[HEADER_LEN + BOARD_AT + 17] = b'x';
+        assert_eq!(Manifest::decode(&bad), Err(ManifestError::ReservedNotZero));
+        let mut bad = bytes;
+        bad[HEADER_LEN + BOARD_AT] = b'Q';
+        assert_eq!(
+            Manifest::decode(&bad),
+            Err(ManifestError::BoardNameCharacter { at: 0, byte: b'Q' })
+        );
+        assert_eq!(
+            decode_exact::<Manifest>(&bad),
+            Err(DecodeError::InvalidValue { field: "board" })
         );
         let mut bad = bytes;
         bad[6] = 1;
@@ -850,6 +991,13 @@ mod tests {
         let expected: Vec<u8> = (b'a'..=b'z').chain(b'0'..=b'9').chain([b'-']).collect();
         assert_eq!(allowed.len(), expected.len());
         assert!(expected.iter().all(|byte| allowed.contains(byte)));
+        let board: Vec<u8> = (0..=u8::MAX)
+            .filter(|byte| is_board_character(*byte))
+            .collect();
+        let mut expected = expected;
+        expected.push(b'_');
+        expected.sort_unstable();
+        assert_eq!(board, expected);
     }
 
     #[test]
@@ -862,6 +1010,8 @@ mod tests {
             ManifestError::ProductNameCharacter { at: 3, byte: b'_' },
             ManifestError::EmptyImage,
             ManifestError::TooManyReferenceValues { count: 33 },
+            ManifestError::BoardNameLength { len: 0 },
+            ManifestError::BoardNameCharacter { at: 0, byte: b'.' },
         ];
         for error in errors {
             assert!(!error.to_string().is_empty());
