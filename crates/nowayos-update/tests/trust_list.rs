@@ -25,10 +25,10 @@ use proptest::prelude::*;
 /// Where the payload's fields start, in the whole record.
 const KEY_COUNT_AT: usize = HEADER_LEN + 5;
 const DEVELOPMENT_AT: usize = HEADER_LEN + 4;
-const KEYS_AT: usize = HEADER_LEN + 8;
+const KEYS_AT: usize = HEADER_LEN + 16;
 const KEY_ENTRY_LEN: usize = 72;
-const SIGNATURE_COUNT_AT: usize = HEADER_LEN + 584;
-const SIGNATURES_AT: usize = HEADER_LEN + 592;
+const SIGNATURE_COUNT_AT: usize = HEADER_LEN + 592;
+const SIGNATURES_AT: usize = HEADER_LEN + 600;
 const SIGNATURE_ENTRY_LEN: usize = 96;
 
 fn purpose() -> impl Strategy<Value = Purpose> {
@@ -36,6 +36,7 @@ fn purpose() -> impl Strategy<Value = Purpose> {
         Just(Purpose::TrustList),
         Just(Purpose::Image),
         Just(Purpose::Configuration),
+        Just(Purpose::Deployment),
     ]
 }
 
@@ -75,7 +76,7 @@ fn contents() -> impl Strategy<Value = TrustListContents> {
                     key: key_bytes(entry, *x, *y),
                 })
                 .collect();
-            TrustListContents::new(version, development, &keys).unwrap()
+            TrustListContents::new(version, development, version ^ 0x5A5A_5A5A, &keys).unwrap()
         })
 }
 
@@ -152,6 +153,7 @@ fn decode_both(bytes: &[u8]) -> Result<TrustList, TrustListError> {
 /// entries past each count.
 fn reserved_offsets(list: &TrustList) -> Vec<usize> {
     let mut offsets = vec![HEADER_LEN + 6, HEADER_LEN + 7];
+    offsets.extend(HEADER_LEN + 12..HEADER_LEN + 16);
     for entry in 0..MAX_KEYS {
         let at = KEYS_AT + entry * KEY_ENTRY_LEN;
         if entry < list.contents().key_count() {
@@ -238,7 +240,7 @@ proptest! {
     fn an_unknown_purpose_is_refused(
         list in list(),
         entry in any::<prop::sample::Index>(),
-        code in prop_oneof![Just(0u8), 4u8..],
+        code in prop_oneof![Just(0u8), 5u8..],
     ) {
         let mut bytes = encoded(&list);
         let entry = entry.index(list.contents().key_count());
@@ -249,7 +251,7 @@ proptest! {
     #[test]
     fn a_list_with_no_trust_list_key_is_refused(
         list in list(),
-        purposes in prop::collection::vec(prop_oneof![Just(Purpose::Image), Just(Purpose::Configuration)], MAX_KEYS),
+        purposes in prop::collection::vec(prop_oneof![Just(Purpose::Image), Just(Purpose::Configuration), Just(Purpose::Deployment)], MAX_KEYS),
     ) {
         let mut bytes = encoded(&list);
         for entry in 0..list.contents().key_count() {
@@ -329,7 +331,7 @@ proptest! {
     }
 
     #[test]
-    fn a_bad_frame_is_refused(list in list(), kind in 2u16.., version in 2u16.., length in any::<u16>(), cut in 0..RECORD_LEN) {
+    fn a_bad_frame_is_refused(list in list(), kind in 2u16.., version in prop_oneof![0u16..2, 3u16..], length in any::<u16>(), cut in 0..RECORD_LEN) {
         let bytes = encoded(&list);
         let mut bad = bytes.clone();
         bad[..2].copy_from_slice(&kind.to_le_bytes());
@@ -341,7 +343,7 @@ proptest! {
         bad[2..4].copy_from_slice(&version.to_le_bytes());
         prop_assert_eq!(
             decode_both(&bad),
-            Err(TrustListError::Frame(DecodeError::UnsupportedVersion { expected: 1, found: version }))
+            Err(TrustListError::Frame(DecodeError::UnsupportedVersion { expected: 2, found: version }))
         );
         prop_assume!(usize::from(length) != RECORD_LEN - HEADER_LEN);
         let mut bad = bytes.clone();

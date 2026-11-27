@@ -72,7 +72,7 @@ class MadeOnce(unittest.TestCase):
         for name in ("list-v0.rec", "list-v1.rec", "list-v2.rec"):
             record = self.read(name)
             self.assertEqual(len(record), BUNDLES.HEADER_LEN + BUNDLES.LIST_PAYLOAD_LEN, name)
-            self.assertEqual(struct.unpack("<HHHH", record[:8]), (1, 1, 784, 0), name)
+            self.assertEqual(struct.unpack("<HHHH", record[:8]), (1, 2, 792, 0), name)
         for entry in self.index["bundles"]:
             data = self.read(entry["file"])
             self.assertEqual(len(data) % 512, 0, entry["name"])
@@ -82,7 +82,8 @@ class MadeOnce(unittest.TestCase):
     def test_the_index_names_every_bundle_and_its_refusal(self):
         names = [entry["name"] for entry in self.index["bundles"]]
         self.assertEqual(names, ["good", "unsigned", "unknown-key", "removed-key", "list-version",
-                                 "development", "security-version", "hash"])
+                                 "development", "security-version", "hash", "other-board",
+                                 "above-ceiling", "downgrade"])
         with open(os.path.join(self.out, "bundles.json"), encoding="utf-8") as handle:
             self.assertEqual(json.load(handle), self.index)
 

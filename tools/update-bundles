@@ -31,8 +31,9 @@ reach DIR - `build/update-bundles/` by default:
                            list-v1.rec - what update-test's storage stand-in
                            starts with
 
-The device the bundles are made for holds `list-v1.rec` and rollback index 3,
-and its product is `kiosk`. Its bundles:
+The device the bundles are made for holds `list-v1.rec` and rollback index 3;
+its product is `kiosk`, its board `qemu_virt_aarch64`, and it runs release
+1.0.0. Its bundles:
 
     good             trust list v2 (removes the old image key), a manifest by
                      the image key, security version 5: accepted
@@ -43,6 +44,10 @@ and its product is `kiosk`. Its bundles:
     development      a development manifest under a production list
     security-version security version 1, below the rollback index
     hash             an image whose SHA-256 is not the manifest's
+    other-board      a manifest for another board (rpi5b_2gb)
+    above-ceiling    security version 101, above every list's ceiling (100)
+    downgrade        version 0.9.0, older than the running 1.0.0, and the
+                     list names no deployment key
 
 OpenSSL signs; NoWayOS's RustCrypto check verifies (nowayos-update's
 `openssl_bundles` test), so a signature from another implementation, as an
@@ -73,15 +78,21 @@ DIGEST_LEN = 32
 TRUST_LIST_KIND = 1
 MAX_KEYS = 8
 MAX_SIGNATURES = 2
-LIST_CONTENTS_LEN = 4 + 1 + 1 + 2 + 72 * MAX_KEYS
+TRUST_LIST_VERSION = 2
+LIST_CONTENTS_LEN = 4 + 1 + 1 + 2 + 4 + 4 + 72 * MAX_KEYS
 LIST_PAYLOAD_LEN = LIST_CONTENTS_LEN + 8 + 96 * MAX_SIGNATURES
-PURPOSE = {"trust-list": 1, "image": 2, "configuration": 3}
+PURPOSE = {"trust-list": 1, "image": 2, "configuration": 3, "deployment": 4}
+# Every list's security-version ceiling: above every release here but
+# above-ceiling's.
+CEILING = 100
 
 # The manifest (manifest.rs).
 MANIFEST_KIND = 2
+MANIFEST_VERSION = 2
 MAX_PRODUCT_LEN = 32
+MAX_BOARD_LEN = 32
 MAX_REFERENCE_VALUES = 32
-MANIFEST_CONTENTS_LEN = 96 + DIGEST_LEN * MAX_REFERENCE_VALUES
+MANIFEST_CONTENTS_LEN = 96 + DIGEST_LEN * MAX_REFERENCE_VALUES + MAX_BOARD_LEN
 MANIFEST_PAYLOAD_LEN = MANIFEST_CONTENTS_LEN + KEY_ID_LEN + SIGNATURE_LEN
 
 # A chunk (chunk.rs).
@@ -91,6 +102,8 @@ CHUNK_PAYLOAD_LEN = 16 + CHUNK_LEN
 PART = {"trust-list": 1, "manifest": 2, "image": 3}
 
 PRODUCT = "kiosk"
+# The board update-test runs on, and the release it runs: 1.0.0.
+BOARD = "qemu_virt_aarch64"
 HELD_LIST_VERSION = 1
 ROLLBACK_INDEX = 3
 
@@ -101,10 +114,10 @@ STATE_PAYLOAD_LEN = 16 + KEY_ID_LEN
 SLOT_A = 1
 
 
-def header(kind, payload_len):
-    """A nowayos-ipc record header: kind, layout version 1, payload length,
+def header(kind, payload_len, version=1):
+    """A nowayos-ipc record header: kind, layout version, payload length,
     two reserved zero bytes, all little-endian."""
-    return struct.pack("<HHHH", kind, 1, payload_len, 0)
+    return struct.pack("<HHHH", kind, version, payload_len, 0)
 
 
 class Key:
@@ -160,10 +173,10 @@ def der_signature(der):
 
 def list_contents(version, development, keys):
     """A trust list's signed part: its header and contents."""
-    head = struct.pack("<IBBH", version, int(development), len(keys), 0)
+    head = struct.pack("<IBBHII", version, int(development), len(keys), 0, CEILING, 0)
     entries = b"".join(bytes([PURPOSE[purpose]]) + bytes(7) + key.public for purpose, key in keys)
     contents = head + entries.ljust(72 * MAX_KEYS, b"\x00")
-    return header(TRUST_LIST_KIND, LIST_PAYLOAD_LEN) + contents
+    return header(TRUST_LIST_KIND, LIST_PAYLOAD_LEN, TRUST_LIST_VERSION) + contents
 
 
 def trust_list(version, development, keys, signers):
@@ -177,19 +190,22 @@ def trust_list(version, development, keys, signers):
 
 
 def manifest(signer, image_sha256, image_len, security_version=5, trust_list_version=2,
-             development=False, signature=None):
-    """A whole manifest record for `PRODUCT`, version 1.1.0, signed by
-    `signer` - or carrying `signature` instead, naming `signer`."""
+             development=False, signature=None, board=BOARD, version=(1, 1, 0)):
+    """A whole manifest record for `PRODUCT` on `board`, version 1.1.0 unless
+    another is given, signed by `signer` - or carrying `signature` instead,
+    naming `signer`."""
     product = PRODUCT.encode()
+    board = board.encode()
     fields = (
-        struct.pack("<BBHHH", len(product), int(development), 1, 1, 0)
+        struct.pack("<BBHHH", len(product), int(development), *version)
         + product.ljust(MAX_PRODUCT_LEN, b"\x00")
         + struct.pack("<IIQ", security_version, trust_list_version, image_len)
         + image_sha256
-        + bytes([0]) + bytes(7)
+        + bytes([0, len(board)]) + bytes(6)
         + bytes(DIGEST_LEN * MAX_REFERENCE_VALUES)
+        + board.ljust(MAX_BOARD_LEN, b"\x00")
     )
-    signed = header(MANIFEST_KIND, MANIFEST_PAYLOAD_LEN) + fields
+    signed = header(MANIFEST_KIND, MANIFEST_PAYLOAD_LEN, MANIFEST_VERSION) + fields
     assert len(signed) == HEADER_LEN + MANIFEST_CONTENTS_LEN
     if signature is None:
         signature = signer.sign(signed)
@@ -253,6 +269,12 @@ def make(out):
                                  "rollback"),
             "hash": (bundle(v2, manifest(image_key, hashlib.sha256(b"another image").digest(), len(image)), image),
                      "mismatch"),
+            "other-board": (bundle(v2, manifest(image_key, digest, len(image), board="rpi5b_2gb"), image),
+                            "other-board"),
+            "above-ceiling": (bundle(v2, manifest(image_key, digest, len(image), security_version=CEILING + 1),
+                                     image), "above-ceiling"),
+            "downgrade": (bundle(v2, manifest(image_key, digest, len(image), version=(0, 9, 0)), image),
+                          "downgrade"),
         }
         write(out, "anchors.bin", root.public)
         for name, record in lists.items():

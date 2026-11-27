@@ -2,18 +2,23 @@
 //! The signed trust list.
 //!
 //! The root key signs only the trust list: which public keys may sign
-//! images, configuration and the next trust list, each with its purpose,
-//! and the list's own version. A device takes a new list only if its
-//! version is higher than the one it holds; a root change is a list signed
-//! by both the old root and the new one; and a development list is marked
-//! as one, so that production refuses it. Those decisions, and checking the
-//! signatures, are the update PD's: this module decodes, so that nothing
-//! about a list is used before its bytes are checked.
+//! images, configuration, deployment records and the next trust list, each
+//! with its purpose; the highest security version a release may have, the
+//! **security-version ceiling**; and the list's own version. A device takes
+//! a new list only if its version is higher than the one it holds; a root
+//! change is a list signed by both the old root and the new one; a
+//! development list is marked as one, so that production refuses it; and a
+//! list that names a deployment key makes the device install only what a
+//! deployment record signed by that key names. The ceiling bounds how far
+//! an image key used by an attacker could raise a device's rollback index,
+//! so that a genuine release can always come after it. Those decisions, and
+//! checking the signatures, are the update PD's: this module decodes, so
+//! that nothing about a list is used before its bytes are checked.
 //!
 //! # Wire layout
 //!
-//! A `nowayos-ipc` record of kind [`TrustList::KIND`] (1), layout version 1,
-//! whose payload is exactly [`TrustList::PAYLOAD_LEN`] (784) bytes:
+//! A `nowayos-ipc` record of kind [`TrustList::KIND`] (1), layout version 2,
+//! whose payload is exactly [`TrustList::PAYLOAD_LEN`] (792) bytes:
 //!
 //! | Offset | Size | Field |
 //! | --- | --- | --- |
@@ -21,10 +26,12 @@
 //! | 4 | 1 | The development mark: 1 for a development list, else 0 |
 //! | 5 | 1 | The number of keys, 1 to [`MAX_KEYS`] |
 //! | 6 | 2 | Reserved, zero |
-//! | 8 | 72 × [`MAX_KEYS`] | The keys, each: its purpose's code (1 byte), 7 reserved bytes, the key ([`KEY_LEN`] bytes) |
-//! | 584 | 1 | The number of signatures, 1 or 2 |
-//! | 585 | 7 | Reserved, zero |
-//! | 592 | 96 × [`MAX_SIGNATURES`] | The signatures, each: the signing key's ID ([`KEY_ID_LEN`] bytes), then the signature ([`SIGNATURE_LEN`] bytes) |
+//! | 8 | 4 | The security-version ceiling: no release above it is taken |
+//! | 12 | 4 | Reserved, zero |
+//! | 16 | 72 × [`MAX_KEYS`] | The keys, each: its purpose's code (1 byte), 7 reserved bytes, the key ([`KEY_LEN`] bytes) |
+//! | 592 | 1 | The number of signatures, 1 or 2 |
+//! | 593 | 7 | Reserved, zero |
+//! | 600 | 96 × [`MAX_SIGNATURES`] | The signatures, each: the signing key's ID ([`KEY_ID_LEN`] bytes), then the signature ([`SIGNATURE_LEN`] bytes) |
 //!
 //! Every byte of an entry past its count is zero. The signatures cover the
 //! record's first [`SIGNED_LEN`] bytes: its header and every field before
@@ -34,7 +41,8 @@
 //!
 //! Besides a malformed frame ([`TrustListError::Frame`]), in the order the
 //! fields are read: a development mark other than 0 or 1; no key, or more
-//! than [`MAX_KEYS`]; a reserved byte of the header that is not zero; then,
+//! than [`MAX_KEYS`]; a reserved byte of the header, before or after the
+//! ceiling, that is not zero; then,
 //! key entry by entry, a used entry's unknown purpose code, then its
 //! reserved bytes not zero, or any non-zero byte of an unused entry; no key
 //! that may sign the next trust list; one key listed twice, or for two
@@ -69,8 +77,8 @@ const SIGNATURE_ENTRY_LEN: usize = KEY_ID_LEN + SIGNATURE_LEN;
 const SIGNATURES_RESERVED: usize = 7;
 
 /// The length of the signed fields: version, mark, number of keys, reserved
-/// bytes, keys.
-const CONTENTS_LEN: usize = 4 + 1 + 1 + 2 + KEY_ENTRY_LEN * MAX_KEYS;
+/// bytes, ceiling, reserved bytes, keys.
+const CONTENTS_LEN: usize = KEYS_AT + KEY_ENTRY_LEN * MAX_KEYS;
 
 /// The length of the signatures: their number, reserved bytes, entries.
 const SIGNATURES_LEN: usize = 1 + SIGNATURES_RESERVED + SIGNATURE_ENTRY_LEN * MAX_SIGNATURES;
@@ -79,18 +87,21 @@ const SIGNATURES_LEN: usize = 1 + SIGNATURES_RESERVED + SIGNATURE_ENTRY_LEN * MA
 const PAYLOAD_LEN: usize = CONTENTS_LEN + SIGNATURES_LEN;
 
 /// The bytes a trust list's signatures cover: the record's header and its
-/// signed fields, the record's first 592 bytes.
+/// signed fields, the record's first 600 bytes.
 pub const SIGNED_LEN: usize = HEADER_LEN + CONTENTS_LEN;
 
-/// The length of a whole trust list record, header included: 792 bytes.
+/// The length of a whole trust list record, header included: 800 bytes.
 pub const RECORD_LEN: usize = HEADER_LEN + PAYLOAD_LEN;
+
+/// Where the ceiling starts in the signed fields.
+const CEILING_AT: usize = 8;
 
 /// Where the key entries start in the signed fields, and the signature
 /// entries in the signatures.
-const KEYS_AT: usize = 8;
+const KEYS_AT: usize = 16;
 const SIGNATURES_AT: usize = 8;
 
-const _: () = assert!(CONTENTS_LEN == 584 && RECORD_LEN == 792 && PAYLOAD_LEN <= 0xFFFF);
+const _: () = assert!(CONTENTS_LEN == 592 && RECORD_LEN == 800 && PAYLOAD_LEN <= 0xFFFF);
 
 /// What a listed key may sign (one key per purpose).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -101,6 +112,10 @@ pub enum Purpose {
     Image,
     /// A device's configuration, when it is shipped apart from the image.
     Configuration,
+    /// Deployment records: which release a device installs, and when. A
+    /// list naming one makes a device install only what such a record
+    /// names.
+    Deployment,
 }
 
 impl Purpose {
@@ -111,6 +126,7 @@ impl Purpose {
             Self::TrustList => 1,
             Self::Image => 2,
             Self::Configuration => 3,
+            Self::Deployment => 4,
         }
     }
 
@@ -121,6 +137,7 @@ impl Purpose {
             1 => Some(Self::TrustList),
             2 => Some(Self::Image),
             3 => Some(Self::Configuration),
+            4 => Some(Self::Deployment),
             _ => None,
         }
     }
@@ -283,8 +300,8 @@ impl fmt::Display for TrustListError {
 
 impl core::error::Error for TrustListError {}
 
-/// What a trust list's signatures cover: its version, its development mark
-/// and its keys. It holds the fields' bytes, checked when it was made -
+/// What a trust list's signatures cover: its version, its development mark,
+/// its security-version ceiling and its keys. It holds the fields' bytes, checked when it was made -
 /// built by [`TrustListContents::new`] or decoded - and reads what it says
 /// from them, so it keeps the module's rules and encodes as exactly the
 /// bytes it came from.
@@ -294,8 +311,8 @@ pub struct TrustListContents {
 }
 
 impl TrustListContents {
-    /// The signed part of a trust list with this version, development mark
-    /// and keys, in this order.
+    /// The signed part of a trust list with this version, development mark,
+    /// security-version ceiling and keys, in this order.
     ///
     /// # Errors
     ///
@@ -306,15 +323,21 @@ impl TrustListContents {
     pub fn new(
         version: u32,
         development: bool,
+        ceiling: u32,
         keys: &[ListedKey],
     ) -> Result<Self, TrustListError> {
         let count = check_key_count(keys.len())?;
-        let head = version.to_le_bytes().into_iter().chain([
-            u8::from(development),
-            u8::try_from(count).unwrap_or(u8::MAX),
-            0,
-            0,
-        ]);
+        let head = version
+            .to_le_bytes()
+            .into_iter()
+            .chain([
+                u8::from(development),
+                u8::try_from(count).unwrap_or(u8::MAX),
+                0,
+                0,
+            ])
+            .chain(ceiling.to_le_bytes())
+            .chain([0; 4]);
         let entries = keys.iter().flat_map(|key| {
             [key.purpose.code()]
                 .into_iter()
@@ -342,6 +365,23 @@ impl TrustListContents {
     #[must_use]
     pub fn is_development(&self) -> bool {
         self.fields.get(4) == Some(&1)
+    }
+
+    /// The security-version ceiling: a device takes no release whose
+    /// security version is above it.
+    #[must_use]
+    pub fn security_ceiling(&self) -> u32 {
+        self.fields
+            .get(CEILING_AT..)
+            .and_then(<[u8]>::first_chunk::<4>)
+            .map_or(0, |bytes| u32::from_le_bytes(*bytes))
+    }
+
+    /// Whether the list names a deployment key, so that a device installs
+    /// only what a deployment record names.
+    #[must_use]
+    pub fn names_deployment_key(&self) -> bool {
+        self.keys().any(|key| key.purpose == Purpose::Deployment)
     }
 
     /// How many keys the list names: from 1 to [`MAX_KEYS`].
@@ -392,6 +432,7 @@ impl fmt::Debug for TrustListContents {
         f.debug_struct("TrustListContents")
             .field("version", &self.version())
             .field("development", &self.is_development())
+            .field("security_ceiling", &self.security_ceiling())
             .field("keys", &DebugList(|| self.keys()))
             .finish()
     }
@@ -465,6 +506,18 @@ impl TrustList {
         self.contents.is_development()
     }
 
+    /// The security-version ceiling.
+    #[must_use]
+    pub fn security_ceiling(&self) -> u32 {
+        self.contents.security_ceiling()
+    }
+
+    /// Whether the list names a deployment key.
+    #[must_use]
+    pub fn names_deployment_key(&self) -> bool {
+        self.contents.names_deployment_key()
+    }
+
     /// The keys, in the order the list names them.
     pub fn keys(&self) -> impl Iterator<Item = ListedKey> + '_ {
         self.contents.keys()
@@ -526,7 +579,7 @@ impl fmt::Debug for TrustList {
 
 impl Message for TrustList {
     const KIND: u16 = 1;
-    const VERSION: u16 = 1;
+    const VERSION: u16 = 2;
     const PAYLOAD_LEN: usize = PAYLOAD_LEN;
 
     fn encode_payload(&self, out: &mut Writer<'_>) -> Result<(), EncodeError> {
@@ -584,6 +637,8 @@ fn check_contents(fields: &[u8; CONTENTS_LEN]) -> Result<(), TrustListError> {
     }
     let count = check_key_count(usize::from(input.read_u8()?))?;
     record::zeros::<2>(&mut input)?;
+    input.read_u32()?;
+    record::zeros::<4>(&mut input)?;
     let mut keys: [&[u8]; MAX_KEYS] = [&[]; MAX_KEYS];
     let mut purposes = [Purpose::TrustList; MAX_KEYS];
     for (entry, (key, purpose)) in keys.iter_mut().zip(purposes.iter_mut()).enumerate() {
@@ -675,6 +730,7 @@ mod tests {
         let contents = TrustListContents::new(
             0x0102_0304,
             true,
+            0x0A0B_0C0D,
             &[
                 ListedKey {
                     purpose: Purpose::TrustList,
@@ -703,21 +759,22 @@ mod tests {
     #[test]
     fn layout_is_exactly_as_documented() {
         let bytes = encoded(&sample());
-        // Header: kind 1, version 1, payload length 784, reserved.
-        assert_eq!(bytes[..8], [1, 0, 1, 0, 0x10, 0x03, 0, 0]);
+        // Header: kind 1, version 2, payload length 792, reserved.
+        assert_eq!(bytes[..8], [1, 0, 2, 0, 0x18, 0x03, 0, 0]);
         let payload = &bytes[HEADER_LEN..];
         assert_eq!(payload[..8], [4, 3, 2, 1, 1, 3, 0, 0]);
+        assert_eq!(payload[8..16], [0x0D, 0x0C, 0x0B, 0x0A, 0, 0, 0, 0]);
         for (entry, (code, fill)) in [(1u8, 0xA1u8), (2, 0xB2), (3, 0xC3)].iter().enumerate() {
-            let at = 8 + entry * 72;
+            let at = 16 + entry * 72;
             assert_eq!(payload[at], *code);
             assert_eq!(payload[at + 1..at + 8], [0; 7]);
             assert_eq!(payload[at + 8..at + 72], [*fill; 64]);
         }
-        assert!(payload[8 + 3 * 72..584].iter().all(|byte| *byte == 0));
-        assert_eq!(payload[584..592], [1, 0, 0, 0, 0, 0, 0, 0]);
-        assert_eq!(payload[592..624], [0x51; 32]);
-        assert_eq!(payload[624..688], [0x52; 64]);
-        assert!(payload[688..].iter().all(|byte| *byte == 0));
+        assert!(payload[16 + 3 * 72..592].iter().all(|byte| *byte == 0));
+        assert_eq!(payload[592..600], [1, 0, 0, 0, 0, 0, 0, 0]);
+        assert_eq!(payload[600..632], [0x51; 32]);
+        assert_eq!(payload[632..696], [0x52; 64]);
+        assert!(payload[696..].iter().all(|byte| *byte == 0));
     }
 
     #[test]
@@ -730,6 +787,8 @@ mod tests {
         assert_eq!(record::header_bytes::<TrustList>()[..], bytes[..HEADER_LEN]);
         assert_eq!(list.version(), 0x0102_0304);
         assert!(list.is_development());
+        assert_eq!(list.security_ceiling(), 0x0A0B_0C0D);
+        assert!(!list.names_deployment_key());
         assert_eq!(list.contents().key_count(), 3);
         let keys: Vec<ListedKey> = list.keys().collect();
         assert_eq!(keys.len(), 3);
@@ -751,21 +810,21 @@ mod tests {
             key: key(2),
         };
         assert_eq!(
-            TrustListContents::new(1, false, &[]),
+            TrustListContents::new(1, false, 9, &[]),
             Err(TrustListError::NoKey)
         );
         assert_eq!(
-            TrustListContents::new(1, false, &[root; MAX_KEYS + 1]),
+            TrustListContents::new(1, false, 9, &[root; MAX_KEYS + 1]),
             Err(TrustListError::TooManyKeys {
                 count: MAX_KEYS + 1
             })
         );
         assert_eq!(
-            TrustListContents::new(1, false, &[image]),
+            TrustListContents::new(1, false, 9, &[image]),
             Err(TrustListError::NoTrustListKey)
         );
         assert_eq!(
-            TrustListContents::new(1, false, &[root, image, root]),
+            TrustListContents::new(1, false, 9, &[root, image, root]),
             Err(TrustListError::KeyListedTwice {
                 first: 0,
                 second: 2
@@ -776,13 +835,13 @@ mod tests {
             key: root.key,
         };
         assert_eq!(
-            TrustListContents::new(1, false, &[image, root, root_as_image]),
+            TrustListContents::new(1, false, 9, &[image, root, root_as_image]),
             Err(TrustListError::KeyForTwoPurposes {
                 first: 1,
                 second: 2
             })
         );
-        let contents = TrustListContents::new(1, false, &[root, image]).unwrap();
+        let contents = TrustListContents::new(1, false, 9, &[root, image]).unwrap();
         assert_eq!(
             TrustList::new(contents.clone(), &[]),
             Err(TrustListError::NoSignature)
@@ -826,6 +885,12 @@ mod tests {
             Err(DecodeError::NonZeroPadding)
         );
         let mut bad = bytes;
+        bad[HEADER_LEN + 12] = 1;
+        assert_eq!(
+            TrustList::decode(&bad),
+            Err(TrustListError::ReservedNotZero)
+        );
+        let mut bad = bytes;
         bad[6] = 1;
         assert_eq!(
             TrustList::decode(&bad),
@@ -839,7 +904,7 @@ mod tests {
             if let Some(purpose) = Purpose::from_code(code) {
                 assert_eq!(purpose.code(), code);
             } else {
-                assert!(code == 0 || code > 3);
+                assert!(code == 0 || code > 4);
             }
         }
     }
@@ -852,7 +917,7 @@ mod tests {
             TrustListError::DevelopmentMark { found: 7 },
             TrustListError::NoKey,
             TrustListError::TooManyKeys { count: 9 },
-            TrustListError::UnknownPurpose { entry: 1, code: 4 },
+            TrustListError::UnknownPurpose { entry: 1, code: 5 },
             TrustListError::NoTrustListKey,
             TrustListError::KeyListedTwice {
                 first: 0,

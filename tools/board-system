@@ -208,7 +208,7 @@ TRUST_ANCHORS = "test-trust-anchors.bin"
 UPDATE_STATE = "test-update-state.bin"
 KEY_LEN = 64
 MAX_ANCHORS = 4
-STATE_COPY_LEN = 860
+STATE_COPY_LEN = 868
 PLACEHOLDER = re.compile(r"@([A-Za-z_][A-Za-z0-9_]*)(?:\[([0-9]+)\])?")
 
 

@@ -18,7 +18,8 @@ use libfuzzer_sys::fuzz_target;
 use nowayos_fuzz::{FRAME_MAX, Input, check_decode, check_header, frame};
 use nowayos_ipc::{decode_exact, encode};
 use nowayos_update::manifest::{
-    MAX_PRODUCT_LEN, MAX_REFERENCE_VALUES, RECORD_LEN, SIGNED_LEN, is_product_character,
+    MAX_BOARD_LEN, MAX_PRODUCT_LEN, MAX_REFERENCE_VALUES, RECORD_LEN, SIGNED_LEN,
+    is_board_character, is_product_character,
 };
 use nowayos_update::{
     Manifest, ManifestContents, ManifestError, ManifestFields, NamedSignature, Version,
@@ -36,6 +37,10 @@ fn expected_refusal(fields: &ManifestFields<'_>) -> Option<ManifestError> {
             count: fields.reference_values.len(),
         });
     }
+    let board = fields.board.as_bytes();
+    if board.is_empty() || board.len() > MAX_BOARD_LEN {
+        return Some(ManifestError::BoardNameLength { len: board.len() });
+    }
     if let Some((at, byte)) = name
         .iter()
         .enumerate()
@@ -43,7 +48,40 @@ fn expected_refusal(fields: &ManifestFields<'_>) -> Option<ManifestError> {
     {
         return Some(ManifestError::ProductNameCharacter { at, byte: *byte });
     }
-    (fields.image_len == 0).then_some(ManifestError::EmptyImage)
+    if fields.image_len == 0 {
+        return Some(ManifestError::EmptyImage);
+    }
+    board
+        .iter()
+        .enumerate()
+        .find(|(_, byte)| !is_board_character(**byte))
+        .map(|(at, byte)| ManifestError::BoardNameCharacter { at, byte: *byte })
+}
+
+/// A name of up to `max + 1` bytes from the fuzzer: mostly `alphabet`'s
+/// characters, sometimes any byte below 0x80.
+fn fuzz_name<'b>(
+    input: &Input<'_>,
+    max: usize,
+    alphabet: &[u8],
+    out: &'b mut [u8; 34],
+) -> Option<&'b str> {
+    let len = usize::from(input.byte())
+        .checked_rem(max.saturating_add(2))
+        .unwrap_or(0);
+    for byte in out.iter_mut().take(len) {
+        let choice = input.byte();
+        *byte = if choice < 0xF0 {
+            usize::from(choice)
+                .checked_rem(alphabet.len())
+                .and_then(|at| alphabet.get(at))
+                .copied()
+                .unwrap_or(b'a')
+        } else {
+            input.byte() % 0x80
+        };
+    }
+    core::str::from_utf8(out.get(..len)?).ok()
 }
 
 /// A manifest built from the fuzzer's bytes, if the constructor takes it.
@@ -68,8 +106,16 @@ fn built(input: &Input<'_>) -> Option<Manifest> {
     for value in values.iter_mut().take(count) {
         *value = input.array();
     }
+    let mut board = [0u8; 34];
+    let board = fuzz_name(
+        input,
+        MAX_BOARD_LEN,
+        b"abcdefghijklmnopqrstuvwxyz0123456789-_",
+        &mut board,
+    )?;
     let fields = ManifestFields {
         product,
+        board,
         version: Version {
             major: input.u16(),
             minor: input.u16(),

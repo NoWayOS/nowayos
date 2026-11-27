@@ -30,6 +30,7 @@ use nowayos_update::state::{
 use nowayos_update::updater::{Config, Crypto, ImageHash, Refusal, SlotStorage, Updater};
 use nowayos_update::{
     Chunk, DIGEST_LEN, KEY_ID_LEN, KEY_LEN, Manifest, Part, Purpose, SIGNATURE_LEN, TrustList,
+    Version,
 };
 
 /// `nowayos-signature`, as a PD gives it.
@@ -186,7 +187,7 @@ fn every_record_decodes_every_openssl_signature_verifies_and_each_bad_bundle_is_
         })
         .collect();
 
-    let cases: [(&str, Option<Refusal>); 8] = [
+    let cases: [(&str, Option<Refusal>); 11] = [
         ("good", None),
         ("unsigned", Some(Refusal::ManifestNotSigned)),
         ("unknown-key", Some(Refusal::ManifestNotSigned)),
@@ -207,6 +208,29 @@ fn every_record_decodes_every_openssl_signature_verifies_and_each_bad_bundle_is_
             }),
         ),
         ("hash", Some(Refusal::Mismatch)),
+        ("other-board", Some(Refusal::OtherBoard)),
+        (
+            "above-ceiling",
+            Some(Refusal::AboveCeiling {
+                ceiling: 100,
+                offered: 101,
+            }),
+        ),
+        (
+            "downgrade",
+            Some(Refusal::Downgrade {
+                running: Version {
+                    major: 1,
+                    minor: 0,
+                    patch: 0,
+                },
+                offered: Version {
+                    major: 0,
+                    minor: 9,
+                    patch: 0,
+                },
+            }),
+        ),
     ];
     for (name, expected) in cases {
         assert!(
@@ -240,6 +264,12 @@ fn every_record_decodes_every_openssl_signature_verifies_and_each_bad_bundle_is_
         let anchors = [anchor];
         let config = Config {
             product: "kiosk",
+            board: "qemu_virt_aarch64",
+            version: Version {
+                major: 1,
+                minor: 0,
+                patch: 0,
+            },
             running: Slot::A,
             slot_len: 1 << 20,
             anchors: &anchors,
