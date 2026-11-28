@@ -22,7 +22,7 @@ pd console priority=200 budget=1000 period=1000
 pd unnamed_faulter priority=100 budget=1000 period=1000
 
 # The supervisor: its children, and the SMC capability for PSCI SYSTEM_RESET
-# (unbadged in Microkit 2.3.1: it could make any firmware call).
+# (unbadged in Microkit 2.4.0: it could make any firmware call).
 child failsafe_release_supervisor console
 child failsafe_release_supervisor unnamed_faulter
 smc failsafe_release_supervisor

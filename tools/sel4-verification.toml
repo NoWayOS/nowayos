@@ -24,25 +24,26 @@
 [sdk]
 # The SDK this position was checked against: tools/container/Containerfile's
 # MICROKIT_VERSION, MICROKIT_SHA256_ARM64 and MICROKIT_SHA256_AMD64.
-version = "2.3.1"
-sha256-arm64 = "979553f288e8e2c099dae8fbec86cbe2cfda2ca006ee36de8234649d6d23bbee"
-sha256-amd64 = "b1b285b8785db7557eba6d0665dd4fbf2f265ea5c0b39d6f91ae3dcc43d2c424"
+version = "2.4.0"
+sha256-arm64 = "1ec1006235995a7d100a2b08b2b60cac264b8685208659fa7829342dd37e9a67"
+sha256-amd64 = "10bc305713965a01e52b6c7567cea4952b0cc4dde4befa2e6e72b8dce2715f6b"
 # The commits the dev image builds the Pi 5's kernel from, and where its RAM
 # ends: tools/container/Containerfile's SEL4_COMMIT, MICROKIT_COMMIT and
 # SEL4_RPI5B_RAM_END. A change to any of them is a kernel this position has
 # not been checked for.
-sel4-commit = "6e7c3b733d296cfd88d5fbf635c96e447a882374"
-microkit-commit = "ec86afdcd662b5976d11d4994acf1b11a2979882"
+sel4-commit = "62e345c240a15671484530b4e6e069ce266c28d7"
+microkit-commit = "b2558a900c036bded0b7c54437fcebbdff96f937"
 rpi5b-ram-end = "0x3f400000"
 # The seL4 release the SDK's kernels are built from.
-sel4 = "16.0.0"
-checked = "2026-10-03"
+sel4 = "17.0.0"
+checked = "2026-11-27"
 sources = [
     "https://docs.sel4.systems/projects/sel4/verified-configurations.html (AArch64: C-level functional correctness including the fast path, integrity, confidentiality; kernel in EL2, hypervisor mode; MCS proofs in progress)",
-    "seL4 16.0.0, configs/include/AARCH64_verified_include.cmake: the option values below, as facts only",
+    "seL4 17.0.0, configs/include/AARCH64_verified_include.cmake: the option values below, as facts only; 17.0.0 adds KernelAArch64SErrorIgnore ON, the other options and values are 16.0.0's",
+    "seL4 17.0.0, CHANGES.md, Security-relevant Changes: each fix for AArch64 with hypervisor support (verified configurations included) needs a guest VM, VCPU or TCB capabilities, endpoint or ASID-pool deletion, frame unmapping, or a VSpace capability with a frame mapped outside the kernel's physical memory window. A NoWayOS system hands a PD none of these: check-system refuses every element (rule 5) and every capability kind (rule 6) it does not model, virtual_machine among them, and the highest device a board file places, QEMU virt's at 0x40_1001_8000, lies inside the window",
 ]
 
-# seL4's AArch64 verified configuration (seL4 16.0.0), with each option named
+# seL4's AArch64 verified configuration (seL4 17.0.0), with each option named
 # as the SDK's board/BOARD/CONFIG/include/kernel/gen_config.json names it.
 # DEBUG_BUILD, ENABLE_SMP_SUPPORT and KERNEL_MCS are the values that
 # configuration implies (a verification build, one node, no MCS).
@@ -64,6 +65,7 @@ NUM_DOMAINS = "16"
 MAX_NUM_BOOTINFO_UNTYPED_CAPS = "50"
 ARM_SMMU = false
 ALLOW_SMC_CALLS = true
+AARCH64_SERROR_IGNORE = true
 
 [platforms]
 # gen_config.json's PLAT for each board NoWayOS builds for, and whether

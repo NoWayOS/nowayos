@@ -7,7 +7,7 @@
 //! The kernel knows: a debug kernel's `seL4_DebugDumpScheduler` prints the
 //! threads bound to the calling thread's core - each one's name, state,
 //! priority and core - and rust-sel4 does not wrap it, so this is the one
-//! system call, as the Microkit 2.3.1 SDK's libsel4 makes it
+//! system call, as the Microkit 2.4.0 SDK's libsel4 makes it
 //! (`sel4/arch/syscalls.h`). A release kernel has no such call, and a PD
 //! that makes it there takes an unknown-syscall fault: the probe runs only
 //! in debug configurations.
@@ -16,7 +16,7 @@ use core::arch::asm;
 
 use sel4_microkit::debug_println;
 
-/// `seL4_SysDebugDumpScheduler`, from the Microkit 2.3.1 SDK's
+/// `seL4_SysDebugDumpScheduler`, from the Microkit 2.4.0 SDK's
 /// `sel4/syscall.h` (present when the kernel is built with printing).
 const SYS_DEBUG_DUMP_SCHEDULER: isize = -13;
 

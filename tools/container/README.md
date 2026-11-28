@@ -16,7 +16,7 @@ make container ENGINE=docker    # or Docker
 A first build, with no layer cache, took 3 min 46 s on an Apple-silicon Mac
 (2026-11-01, the base image already pulled); about 4 s when every layer comes
 from the cache. The image is about 4.7 GB. The image is built under a candidate tag and only replaces
-`nowayos-dev:0.1` once two checks pass:
+`nowayos-dev:0.2` once two checks pass:
 
 - it is labelled with the sha256 of the `Containerfile` it was built from
   (`nowayos.containerfile.sha256`). Every run through
@@ -65,20 +65,20 @@ machine.
 
 | Component | Version | Checked by |
 | --- | --- | --- |
-| Base image | `debian:bookworm` | index digest `sha256:f37a335e82bca302e955fa39f9dfe28f1be618f016f8a2b56318e5a5111afc26` |
+| Base image | `debian:bookworm` | index digest `sha256:268fb24c39bca92d326dd83ea3abebe4a3f7751c804ffef23bb6d857dd343ff8` |
 | Debian packages | listed in `debian-packages-<arch>.lock` | Debian archive signatures; the list, by `make container` |
 | rustup | 1.29.1 | sha256 per architecture (`RUSTUP_SHA256_*`) |
 | Rust (libraries, host tools) | 1.93.1: rustfmt, clippy, target `aarch64-unknown-none` | rustup channel manifests |
-| Rust (protection domains) | nightly-2026-04-04 (rust-sel4 v5.0.0's pin): rust-src, rustfmt, clippy, miri | rustup channel manifests |
+| Rust (protection domains) | nightly-2026-08-21 (rust-sel4 v6.0.0's pin, and Kani's, so the image holds one nightly): rust-src, rustfmt, clippy, miri | rustup channel manifests |
 | cargo-deny | 0.20.2 (MIT OR Apache-2.0) | sha256 per architecture (`CARGO_DENY_SHA256_*`) |
-| seL4 Microkit SDK | 2.3.1, at `/opt/microkit/sdk` (`MICROKIT_SDK`) | sha256 per architecture (`MICROKIT_SHA256_*`) |
-| seL4 for the Pi 5 | `rpi5b_2gb`'s kernel and `platform_gen.json`, every configuration, built in the `sel4-rpi5b` stage from seL4 16.0.0 and Microkit 2.3.1's `build_sdk.py` with seL4's RAM ending at `0x3f40_0000`, below the framebuffer; its build tools - cmake, ninja, dtc, xmllint, Python's ply, jinja2, yaml, lxml and pyfdt - stay in that stage | the commits (`SEL4_COMMIT`, `MICROKIT_COMMIT`), Debian versions and pyfdt's sha256 (`PYFDT_SHA256`) in the Containerfile; the RAM's end, by the build |
+| seL4 Microkit SDK | 2.4.0, at `/opt/microkit/sdk` (`MICROKIT_SDK`) | sha256 per architecture (`MICROKIT_SHA256_*`) |
+| seL4 for the Pi 5 | `rpi5b_2gb`'s kernel and `platform_gen.json`, every configuration, built in the `sel4-rpi5b` stage from seL4 17.0.0 and Microkit 2.4.0's `build_sdk.py` with seL4's RAM from `0x20_0000` (seL4 17 aligns the kernel to 2 MiB) to `0x3f40_0000`, below the framebuffer; its build tools - cmake, ninja, dtc, xmllint, Python's ply, jinja2, yaml, lxml, typing_extensions and pyfdt - stay in that stage | the commits (`SEL4_COMMIT`, `MICROKIT_COMMIT`), Debian versions and pyfdt's sha256 (`PYFDT_SHA256`) in the Containerfile; the RAM's start and end, by the build |
 | QEMU | Debian `qemu-system-arm` (`qemu-system-aarch64` 7.2) | Debian archive signatures |
 | U-Boot source | 2026.07, at `/opt/u-boot` (`UBOOT_SOURCE`); built by `make uboot` | sha256 (`UBOOT_SHA256`); release signature checked once, key `F3CE A874 3D60 E019 2F9B 4C7A 2BE2 A0F5 0ABF E40A` (Tom Rini, U-Boot maintainer) |
 | U-Boot build tools | Debian `bc`, `bison`, `flex` (and `m4`) | Debian archive signatures |
 | Raspberry Pi firmware (SD-card files) | release 1.20260915, at `/opt/rpi-firmware/boot` (`RPI_FIRMWARE`); used by `make sdcard` | every file's sha256 in `rpi-firmware.sha256`, written from the release commit's git tree |
 | bindgen support | Debian `libclang-dev` (clang 14) | Debian archive signatures |
-| Kani (bounded model checker, `make kani`) | 0.68.0, at `/opt/kani` (`KANI_HOME`): its release bundle with CBMC 6.11.0, the `cargo-kani` launcher, and Kani's own Rust nightly (2026-08-21); on arm64, `kani-driver` rebuilt from the release's source, because the bundle's needs glibc 2.39 | the bundle's sha256 per architecture (`KANI_BUNDLE_SHA256_*`); the launcher by version, `--locked`; the source by commit (`KANI_COMMIT`, `KANI_CHARON_COMMIT`); the nightly through rustup's channel manifest |
+| Kani (bounded model checker, `make kani`) | 0.68.0, at `/opt/kani` (`KANI_HOME`): its release bundle with CBMC 6.11.0, the `cargo-kani` launcher, and Kani's own Rust nightly (2026-08-21, the protection domains' too); on arm64, `kani-driver` rebuilt from the release's source, because the bundle's needs glibc 2.39 | the bundle's sha256 per architecture (`KANI_BUNDLE_SHA256_*`); the launcher by version, `--locked`; the source by commit (`KANI_COMMIT`, `KANI_CHARON_COMMIT`); the nightly through rustup's channel manifest |
 
 Every pin is an `ARG` at the top of the `Containerfile`, except those one layer alone uses (U-Boot's, the Pi firmware's, Kani's), which sit just above that layer: an `ARG` is an implicit input to every `RUN` after it, so changing such a pin rebuilds only that layer.
 
@@ -104,7 +104,7 @@ is a separate decision).
 | Raspberry Pi firmware: `start4.elf`, `fixup4.dat` | Broadcom binary licence (`LICENCE.broadcom`): redistribution without modification, only for developing for, running or using a Raspberry Pi device | **signed off for development use**; never on a non-Pi target |
 | Raspberry Pi firmware: `bcm2712-rpi-5-b.dtb`, `overlays/` | GPL-2.0 OR MIT (the dtb); mostly GPL-2.0 (the overlays, `COPYING.linux`) | **signed off for development use** |
 | `bc`, `bison`, `m4`, `flex` (U-Boot's build tools) | GPL-2.0-or-later (`bc`), GPL-3.0-or-later (`bison`, `m4`), BSD-style FLEX licence (`flex`) | outside the house list - **signed off for development use**. U-Boot's OpenSSL- and GnuTLS-based host tools are turned off, so those libraries are not installed |
-| Microkit SDK capDL initialiser (packed into every `loader.img`) | audited for 2.3.1 (`tools/initialiser-audit.toml`): 41 crates - Microkit's own, 22 from rust-sel4, 15 from crates.io, and Rust 1.94.0's prebuilt `core`, `alloc` and `compiler_builtins` - all under house-list licences but `compiler_builtins` (MIT AND Apache-2.0 WITH LLVM-exception AND (MIT OR Apache-2.0)) | signed off 2026-10-04 (extending its earlier sign-off to the initialiser's copy of `compiler_builtins`) |
+| Microkit SDK capDL initialiser (packed into every `loader.img`) | audited for 2.4.0 (`tools/initialiser-audit.toml`): 41 crates - Microkit's own, 22 from rust-sel4, 15 from crates.io, and Rust 1.95.0's prebuilt `core`, `alloc` and `compiler_builtins` - all under house-list licences but `compiler_builtins` (MIT AND Apache-2.0 WITH LLVM-exception AND (MIT OR Apache-2.0)) | signed off 2026-10-04 (extending its earlier sign-off to the initialiser's copy of `compiler_builtins`) |
 | OpenSSL 3 (`openssl`) | Apache-2.0 | house list; `tools/update-bundles` drives it to make each run's throwaway test keys and signatures |
 | Rust toolchains, rustup, cargo-deny | MIT OR Apache-2.0 (Rust's standard library includes some crates under other permissive terms) | house list |
 | Kani: `cargo-kani`, `kani-driver`, `kani-compiler` and its libraries; the SAT solvers MiniSat, CaDiCaL and Kissat | MIT OR Apache-2.0 (Kani); MIT (the solvers) | house list |
@@ -122,6 +122,7 @@ listed here and signed off before it is installed.
 1. Edit the `ARG` in the `Containerfile`. For downloads, take the sha256 from
    the upstream release and check it against the file you downloaded.
    For the Microkit SDK also check the `.asc` signature (signing key
+   `CF62 2A1E 98B6 DDC3 F546 E388 2FD1 D940 9180 3025` since 2.4.0; 2.3.1's was
    `FE91 4864 43B0 F4EB 9ECC 3652 4D86 8A34 EDF3 FDCA`); for U-Boot, the
    `.sig` (key `F3CE A874 3D60 E019 2F9B 4C7A 2BE2 A0F5 0ABF E40A`, from
    keys.openpgp.org), with `gpgv`, which the image has. For the Raspberry Pi

@@ -19,7 +19,7 @@
 
     The timer PD reads the counter and programs the CPU's EL1 physical
     timer, whose interrupt (phys_timer in the qemu_virt_aarch64 board file)
-    Microkit 2.3.1 exports to user level on QEMU only. The Pi 5
+    Microkit 2.4.0 exports to user level on QEMU only. The Pi 5
     builds rpi5b_2gb/timer-demo.system instead: this system with the
     timer PD woken by BCM2712's system timer; the same expect file.
 

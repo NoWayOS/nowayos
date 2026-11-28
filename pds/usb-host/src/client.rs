@@ -205,11 +205,8 @@ impl Client {
             if let Some((record, played)) = self.playing.as_mut() {
                 let at = played.saturating_mul(frame_bytes);
                 if let Some(frame) = record.bytes().get(at..at.saturating_add(frame_bytes)) {
-                    for (sample, pair) in out.iter_mut().zip(frame.chunks_exact(2)) {
-                        *sample = i16::from_le_bytes([
-                            pair.first().copied().unwrap_or(0),
-                            pair.get(1).copied().unwrap_or(0),
-                        ]);
+                    for (sample, pair) in out.iter_mut().zip(frame.as_chunks::<2>().0) {
+                        *sample = i16::from_le_bytes(*pair);
                     }
                     *played = played.saturating_add(1);
                     return true;

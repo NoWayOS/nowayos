@@ -19,7 +19,7 @@ pd update_storage priority=3 budget=1000 period=1000
 pd update priority=2 budget=1000 period=1000
 
 # The supervisor: every other PD its child, and the SMC capability for PSCI
-# SYSTEM_RESET (unbadged in Microkit 2.3.1: refused in a product).
+# SYSTEM_RESET (unbadged in Microkit 2.4.0: refused in a product).
 child update_supervisor update_storage
 child update_supervisor update
 child update_supervisor update_bundles

@@ -8,7 +8,7 @@
 //! CNTP_CTL_EL0, ISB, DSB and DC CVAC.
 //!
 //! seL4 lets a PD read the **physical** counter on both NoWayOS boards: the
-//! Microkit 2.3.1 kernels for `qemu_virt_aarch64` and `rpi5b_2gb` are built
+//! Microkit 2.4.0 kernels for `qemu_virt_aarch64` and `rpi5b_2gb` are built
 //! with `KernelArmExportPCNTUser`, and neither with the virtual counter. The
 //! physical timer's compare and control registers - [`set_timer`] and
 //! [`stop_timer`] - are exported on QEMU only (`KernelArmExportPTMRUser`):

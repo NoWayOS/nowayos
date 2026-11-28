@@ -110,11 +110,9 @@ impl Scanout {
         for (cell, word) in self
             .span(offset, bytes.len())?
             .iter()
-            .zip(bytes.chunks_exact(WORD))
+            .zip(bytes.as_chunks::<WORD>().0)
         {
-            let mut value = [0u8; WORD];
-            value.copy_from_slice(word);
-            cell.store(u64::from_le_bytes(value), Ordering::Relaxed);
+            cell.store(u64::from_le_bytes(*word), Ordering::Relaxed);
         }
         let start = self.words.as_ptr().addr().saturating_add(offset);
         crate::cpu::clean_data_cache(start, bytes.len());
@@ -128,8 +126,8 @@ impl Scanout {
     /// As for [`write`](Self::write); nothing is read then.
     pub fn read(&self, offset: usize, out: &mut [u8]) -> Result<(), HwError> {
         let span = self.span(offset, out.len())?;
-        for (word, cell) in out.chunks_exact_mut(WORD).zip(span) {
-            word.copy_from_slice(&cell.load(Ordering::Relaxed).to_le_bytes());
+        for (word, cell) in out.as_chunks_mut::<WORD>().0.iter_mut().zip(span) {
+            *word = cell.load(Ordering::Relaxed).to_le_bytes();
         }
         Ok(())
     }

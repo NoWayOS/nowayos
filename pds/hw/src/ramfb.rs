@@ -36,10 +36,12 @@ pub fn config(address: u64, width: u32, height: u32, stride: u32) -> [u8; CONFIG
     if let Some((head, rest)) = config.split_first_chunk_mut::<8>() {
         *head = address.to_be_bytes();
         for (slot, value) in rest
-            .chunks_exact_mut(4)
+            .as_chunks_mut::<4>()
+            .0
+            .iter_mut()
             .zip([XRGB8888, 0, width, height, stride])
         {
-            slot.copy_from_slice(&value.to_be_bytes());
+            *slot = value.to_be_bytes();
         }
     }
     config

@@ -2,11 +2,11 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 """A getrandom back end only from nowayos-entropy, in every library a PD links.
 
-    check-backends --deps DIR
+    check-backends --out DIR
 
-DIR is a PD build's deps directory (make std-crates-check passes it): every
-library (lib*.rlib) the repo's PDs are linked from, third-party crates'
-included. Each object inside each is read, and every definition of
+DIR is a PD build's profile directory, TARGET_DIR/aarch64-sel4/release (make
+std-crates-check passes it): every library (lib*.rlib) the repo's PDs are
+linked from, third-party crates' included, in either of cargo's layouts. Each object inside each is read, and every definition of
 getrandom's back-end symbols - `__getrandom_custom` (0.2) and
 `__getrandom_v03_custom` (0.3 and 0.4) - must be in nowayos-entropy's
 library. A stray definition fails the check, naming its library: any
@@ -19,6 +19,7 @@ own source. Exit status: 0 pass; 1 a stray definition; 2 usage or input
 error. Python standard library only.
 """
 import argparse
+import glob
 import os
 import re
 import struct
@@ -67,14 +68,22 @@ def defined(obj):
     return found
 
 
-def strays(deps):
+def libraries(out):
+    """[(file name, path)] of every lib*.rlib a PD build's profile directory
+    OUT holds: in OUT/deps, cargo's layout until mid-2026, or in
+    OUT/build/CRATE/HASH/out, the layout of the PD nightly's cargo
+    (nightly-2026-08-21), which has no deps directory."""
+    paths = glob.glob(os.path.join(out, "deps", "lib*.rlib"))
+    paths += glob.glob(os.path.join(out, "build", "*", "*", "out", "lib*.rlib"))
+    return sorted((os.path.basename(path), path) for path in paths if RLIB.match(os.path.basename(path)))
+
+
+def strays(out):
     """[(library, symbol)]: every back-end definition outside nowayos-entropy."""
     found = []
-    for file in sorted(os.listdir(deps)):
+    for file, path in libraries(out):
         match = RLIB.match(file)
-        if not match:
-            continue
-        with open(os.path.join(deps, file), "rb") as handle:
+        with open(path, "rb") as handle:
             data = handle.read()
         for _, body in members(data):
             for symbol in sorted(defined(body) & SYMBOLS):
@@ -85,12 +94,12 @@ def strays(deps):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--deps", required=True)
+    parser.add_argument("--out", required=True, help="a PD build's profile directory")
     args = parser.parse_args(argv)
-    if not os.path.isdir(args.deps):
-        print(f"check-backends: no deps directory {args.deps}: build the PDs first", file=sys.stderr)
+    if not libraries(args.out):
+        print(f"check-backends: no PD libraries in {args.out}: build the PDs first", file=sys.stderr)
         return 2
-    found = strays(args.deps)
+    found = strays(args.out)
     if found:
         print("check-backends: FAIL - a getrandom back end outside nowayos-entropy:", file=sys.stderr)
         for library, symbol in found:

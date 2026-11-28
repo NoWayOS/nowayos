@@ -540,8 +540,8 @@ fn read_allow_list() -> Result<AllowList, AllowListError> {
         .and_then(|region| region.into_words())
         .map_err(AllowListError::Region)?;
     let mut bytes = [0u8; ALLOW_LIST_MAX_LEN];
-    for (index, chunk) in bytes.chunks_exact_mut(4).enumerate() {
-        chunk.copy_from_slice(&words.load(index).unwrap_or(0).to_le_bytes());
+    for (index, chunk) in bytes.as_chunks_mut::<4>().0.iter_mut().enumerate() {
+        *chunk = words.load(index).unwrap_or(0).to_le_bytes();
     }
     AllowList::decode(&bytes).map_err(AllowListError::List)
 }

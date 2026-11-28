@@ -124,9 +124,11 @@ The check fails (exit 1) unless all of these hold:
    children, and no capability of a kind this checker does not model. It
    receives only on its own notification and endpoint; it can signal a PD's
    notification exactly when it may notify that PD, and send to a PD's
-   endpoint exactly when it may call that PD - besides the endpoints that
-   take its faults (its parent's, or the Microkit monitor's). The monitor
-   holds the scheduling contexts of exactly the passive PDs.
+   endpoint exactly when it may call that PD - and a passive PD to the
+   Microkit monitor's, to say its init has finished. No PD can send on an
+   endpoint that takes faults: its faults reach its parent, or the monitor,
+   through its thread alone, so it cannot forge one. The monitor holds the
+   scheduling contexts of exactly the passive PDs.
 7. Device memory: a memory_region with phys_addr is exactly one device's
    register window on the board, no device is covered by two regions, its
    map is uncached (cached="false"), and the device is mapped into one PD
@@ -239,7 +241,7 @@ EXIT_PASS = 0
 EXIT_FAIL = 1
 EXIT_ERROR = 2
 
-# Microkit 2.3.1 defaults (manual, "System Description File").
+# Microkit 2.4.0 defaults (manual, "System Description File"; as 2.3.1's).
 DEFAULT_PRIORITY = 0
 DEFAULT_BUDGET = 1000
 DEFAULT_PERMS = "rw"
@@ -658,7 +660,7 @@ def read_sdf(path, board):
         on_cpu = f" cpu={cpu}" if cpu else ""
         facts.add(f"pd {name} priority={priority} budget={budget} period={period}{passive}{on_cpu}")
         if boolean(element, "smc", "false", where):
-            # Microkit 2.3.1 gives the PD an unbadged SMC capability: it may
+            # Microkit 2.4.0 gives the PD an unbadged SMC capability: it may
             # make any call the firmware offers.
             facts.add(f"smc {name}")
             model.smc.add(name)
@@ -1760,7 +1762,9 @@ def signal_cap_problems(pd, kind, cap, obj, written):
 
 def channel_cap_problems(pd, signals, sends, model):
     """Rule 6: `pd` signals exactly the PDs it may notify, and sends to
-    exactly the PDs it may call, besides the endpoints that take its faults."""
+    exactly the PDs it may call - and, if it is passive, to the monitor, to say
+    its init has finished. It holds no endpoint that takes its faults (its
+    parent's, or the monitor's), so it cannot send its parent a forged fault."""
     problems = []
     may_notify = {CAPDL_NOTIFICATION.format(peer) for who, peer in model.notifies if who == pd}
     for name in sorted(signals - may_notify):
@@ -1770,12 +1774,14 @@ def channel_cap_problems(pd, signals, sends, model):
         problems.append(f"rule 6: capDL: {pd!r} may notify through {name!r}, but holds no "
                         f"capability to it")
     may_call = {CAPDL_ENDPOINT.format(callee) for caller, callee in model.calls if caller == pd}
-    fault_handlers = {CAPDL_MONITOR_ENDPOINT}
-    if pd in model.parent:
-        fault_handlers.add(CAPDL_ENDPOINT.format(model.parent[pd]))
-    for name in sorted(sends - may_call - fault_handlers):
-        problems.append(f"rule 6: capDL: {pd!r} can send to endpoint {name!r}, which is neither a "
-                        f"call it may make nor its fault handler")
+    init_done = {CAPDL_MONITOR_ENDPOINT} if pd in model.passive else set()
+    for name in sorted(sends - may_call - init_done):
+        if name == CAPDL_MONITOR_ENDPOINT or (pd in model.parent and name == CAPDL_ENDPOINT.format(model.parent[pd])):
+            problems.append(f"rule 6: capDL: {pd!r} can send to endpoint {name!r}, which takes its faults: "
+                            f"it could send a forged fault")
+        else:
+            problems.append(f"rule 6: capDL: {pd!r} can send to endpoint {name!r}, which is neither a "
+                            f"call it may make nor, for a passive PD, the monitor's")
     for name in sorted(may_call - sends):
         problems.append(f"rule 6: capDL: {pd!r} may call through {name!r}, but holds no "
                         f"capability to it")

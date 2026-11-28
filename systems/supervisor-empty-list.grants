@@ -19,7 +19,7 @@ pd stopped_child priority=50 budget=1000 period=1000
 pd unnamed_child priority=40 budget=1000 period=1000
 
 # The supervisor: its children, and the SMC capability for PSCI SYSTEM_RESET
-# (unbadged in Microkit 2.3.1: it could make any firmware call).
+# (unbadged in Microkit 2.4.0: it could make any firmware call).
 child empty_list_supervisor stopped_child
 child empty_list_supervisor unnamed_child
 smc empty_list_supervisor

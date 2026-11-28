@@ -93,9 +93,9 @@ fn draw_test_pattern(framebuffer: &mut DmaRegion) -> Result<(), HwError> {
     let mut row = [0u8; ROW];
     let mut offset = 0usize;
     for y in 0..HEIGHT {
-        for (x, pixel) in (0u32..).zip(row.chunks_exact_mut(BYTES_PER_PIXEL)) {
+        for (x, pixel) in (0u32..).zip(row.as_chunks_mut::<BYTES_PER_PIXEL>().0) {
             let (red, green, blue) = test_pattern(x, y);
-            pixel.copy_from_slice(&[blue, green, red, 0]);
+            *pixel = [blue, green, red, 0];
         }
         framebuffer.write(offset, &row)?;
         offset = offset.saturating_add(ROW);

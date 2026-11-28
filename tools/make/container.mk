@@ -41,7 +41,7 @@
 #
 # Variables (override on the command line, e.g. `make ci ENGINE=docker`):
 #   ENGINE               podman (default) or docker
-#   IMAGE                dev container image (nowayos-dev:0.1)
+#   IMAGE                dev container image (nowayos-dev:0.2)
 #   WS                   workspace root, bind-mounted at /work
 #   CARGO_VOLUME         named volume for CARGO_HOME (registry, git, advisory DB)
 #   TARGET_VOLUME        named volume for cargo target directories
@@ -62,7 +62,7 @@ $(error IN=$(IN): use IN=container (the default) or IN=host)
 endif
 
 ENGINE ?= podman
-IMAGE ?= nowayos-dev:0.1
+IMAGE ?= nowayos-dev:0.2
 WS ?= $(abspath $(_ts_container_mk_dir)../../..)
 CARGO_VOLUME ?= nowayos-cargo
 TARGET_VOLUME ?= nowayos-target

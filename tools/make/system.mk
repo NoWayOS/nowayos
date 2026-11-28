@@ -9,7 +9,7 @@
 # container.mk); inside the container (NOWAYOS_CONTAINER=1, set by the
 # image) the recipes run directly. `container` runs on the host only.
 #
-#   make container        build the dev container image (IMAGE, nowayos-dev:0.1),
+#   make container        build the dev container image (IMAGE, nowayos-dev:0.2),
 #                         labelled with the Containerfile's sha256 and checked
 #                         against the reviewed Debian package list
 #                         (UPDATE_DEBIAN_LOCK=1 rewrites that list instead;
@@ -277,7 +277,7 @@ PDS_STD_CRATES ?= $(_ts_nowayos)/pds/std-crates.txt
 UNSAFE_ALLOWLIST ?= $(if $(_ts_is_nowayos),$(_ts_nowayos)/tools/unsafe-allowlist.toml)
 _ts_unsafe_args = --root $(_ts_repo_dir) $(if $(UNSAFE_ALLOWLIST),--allowlist $(abspath $(UNSAFE_ALLOWLIST)),--no-allowlist)
 
-# QEMU command for qemu_virt_aarch64, as given in the Microkit 2.3.1 manual,
+# QEMU command for qemu_virt_aarch64, as given in the Microkit 2.4.0 manual,
 # plus `-nic none`: QEMU's default network card is unused (no networking
 # here) and would need an iPXE option ROM that the container leaves out.
 QEMU_MACHINE ?= virt,virtualization=on
@@ -881,10 +881,10 @@ fuzz-run:
 	exit $$failed
 
 std-crates-check:
-	$(PYTHON) $(_ts_nowayos)/tools/check-std-crates --deps $(_ts_pd_elf_dir)/deps \
+	$(PYTHON) $(_ts_nowayos)/tools/check-std-crates --out $(_ts_pd_elf_dir) \
 		--lock $(PDS_DIR)/Cargo.lock --list $(PDS_STD_CRATES) \
 		--library "$$(rustc +$(_ts_pds_toolchain) --print sysroot)/lib/rustlib/src/rust/library"
-	$(PYTHON) $(_ts_nowayos)/tools/check-backends --deps $(_ts_pd_elf_dir)/deps
+	$(PYTHON) $(_ts_nowayos)/tools/check-backends --out $(_ts_pd_elf_dir)
 
 tools-test:
 	cd $(_ts_nowayos) && PYTHONDONTWRITEBYTECODE=1 $(PYTHON) tools/run-tests

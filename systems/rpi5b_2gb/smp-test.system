@@ -2,7 +2,7 @@
 <!--
     smp-test for the Raspberry Pi 5: ../smp-test.system, with the
     timer PD woken by BCM2712's system timer instead of the CPU's EL1
-    physical timer, which Microkit 2.3.1 does not export to user level on
+    physical timer, which Microkit 2.4.0 does not export to user level on
     this board, exactly as rpi5b_2gb/timer-demo.system does: the
     timer maps the system timer's register page uncached, bound as device
     0, and holds channel 1's interrupt (INTID 97), on core 0. Everything

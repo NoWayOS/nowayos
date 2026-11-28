@@ -26,7 +26,7 @@
 
     Capabilities: failsafe_supervisor holds its children's thread
     capabilities, the SMC capability (smc="true"; unbadged in Microkit
-    2.3.1) and its stand-in counts, read-only - in a test system only:
+    2.4.0) and its stand-in counts, read-only - in a test system only:
     the grants check refuses the supervisor any memory in a demo or product
     system (supervisor-no-memory). kept_child maps one page read-only;
     stopped_child and unnamed_child hold nothing.

@@ -10,25 +10,33 @@
 #     RUSTC_BOOTSTRAP=1 SEL4_PREFIX=<that build's seL4> cargo build \
 #         --target aarch64-unknown-none --locked --release -p initialiser
 # against the workspace Cargo.lock of the release's tag, with the Rust its
-# flake pins (1.94.0). The standard library is Rust's prebuilt one for the
+# flake pins (1.95.0). The standard library is Rust's prebuilt one for the
 # target (no build-std).
 #
-# How the list was made (2026-10-04, in scratch containers from the dev
-# image): cargo's unit graph for that command in Microkit 2.3.1's source at
+# How the list was made (2026-11-27, in scratch containers from the dev
+# image): cargo's unit graph for that command in Microkit 2.4.0's source at
 # its tag (Cargo.lock sha256
-# 3fba64e70688e6766f697499d3aad74474a8b99d3bef32f751c075e97e38b3e2): the 38
+# d1fa422026feb5ec8d23b1f76731856fdb5aa7bbc2eececc26b1f26b5304b3c6): the 38
 # packages compiled for aarch64-unknown-none, plus core, alloc and
-# compiler_builtins. Licences come from each crate's manifest; every source
+# compiler_builtins. They are 2.3.1's 38 at the same versions, with Microkit's
+# own crate at 2.4.0 and rust-sel4 at v6.0.0; every crates.io checksum below
+# is the lock's. Licences come from each crate's manifest; every source
 # file of the rust-sel4 crates was read for its SPDX tag. The binaries agree:
-# each initialiser.elf of the pinned SDK's qemu_virt_aarch64 and rpi5b_2gb
-# boards, debug and release, names rustc 1.94.0 (4a4ef493e 2026-03-02) in its
-# .comment section; its panic locations name rust-sel4's checkout at dbe6445,
-# log 0.4.33, miniz_oxide 0.9.1 and rkyv 0.8.17; and its symbols name only
+# all 159 initialiser.elf files of the pinned SDK - every board and
+# configuration - name rustc 1.95.0 (59807616e 2026-04-14) in their .comment
+# section; their panic locations name rust-sel4's checkout at c819c27,
+# log 0.4.33, miniz_oxide 0.9.1 and rkyv 0.8.17; and their symbols name only
 # crates listed here. It was not rebuilt bit for bit. The linux-x86-64
 # archive, the other one pinned, holds the same initialiser: its 159
 # initialiser.elf files are byte for byte the linux-aarch64 archive's. What
-# only built it - build scripts, proc macros and their dependencies, 48
+# only built it - build scripts, proc macros and their dependencies, 50
 # crates - none of it is in the binary.
+#
+# The rustc that built it, 1.95.0, lies inside the range of rust-lang/rust#158206
+# (1.94.0 to 1.96.0, fixed in 1.96.1): a silent miscompilation of safe code by
+# the SimplifyComparisonIntegral MIR pass, which optimised builds run. It is
+# not a RustSec advisory, and whether the initialiser's code hits it is not
+# known: the SDK's prebuilt initialiser is used as it is.
 #
 # The audit holds only for the SDK and target [audit] names. When the
 # Containerfile pins another SDK, image-sbom marks the initialiser
@@ -45,33 +53,32 @@
 # none is.
 
 [audit]
-date = "2026-10-04"
+date = "2026-11-27"
 # The SDK audited: the Containerfile's MICROKIT_VERSION and both archives' sha256.
-sdk = "2.3.1"
-sdk-sha256-arm64 = "979553f288e8e2c099dae8fbec86cbe2cfda2ca006ee36de8234649d6d23bbee"
-sdk-sha256-amd64 = "b1b285b8785db7557eba6d0665dd4fbf2f265ea5c0b39d6f91ae3dcc43d2c424"
+sdk = "2.4.0"
+sdk-sha256-arm64 = "1ec1006235995a7d100a2b08b2b60cac264b8685208659fa7829342dd37e9a67"
+sdk-sha256-amd64 = "10bc305713965a01e52b6c7567cea4952b0cc4dde4befa2e6e72b8dce2715f6b"
 # What the initialiser is built for: the SDK's AArch64 boards.
 target = "aarch64-unknown-none"
-# seL4/microkit's tag 2.3.1, and the rust-sel4 commit its Cargo.toml and Cargo.lock pin.
-microkit-commit = "ec86afdcd662b5976d11d4994acf1b11a2979882"
-rust-sel4-commit = "dbe6445d56059ed9a757e53c7137892aece1d179"
-rust = "1.94.0 (4a4ef493e 2026-03-02)"
-established = "cargo's unit graph for build_sdk.py's initialiser build in Microkit 2.3.1's source at its tag, against its Cargo.lock; licences from each crate's manifest, rust-sel4's file by file; checked against each initialiser.elf's .comment section, panic locations and symbols, not rebuilt bit for bit; the linux-x86-64 archive's initialiser.elf files are byte for byte the linux-aarch64 archive's"
-advisories = "None open: cargo-deny 0.20.2 (unmaintained, unsound and yanked all errors) over Microkit 2.3.1's Cargo.lock against the RustSec advisory database at ef6173cbc5c5 (2026-10-03); rkyv 0.8.17 is the release that fixes RUSTSEC-2026-0233, -0234 and -0235; no RustSec advisory for Rust's standard library affects 1.94.0"
+# seL4/microkit's tag 2.4.0, and the rust-sel4 commit its Cargo.toml and Cargo.lock pin (tag v6.0.0).
+microkit-commit = "b2558a900c036bded0b7c54437fcebbdff96f937"
+rust-sel4-commit = "c819c27b076130cba9821c4555f23773e4b0bffd"
+rust = "1.95.0 (59807616e 2026-04-14)"
+established = "cargo's unit graph for build_sdk.py's initialiser build in Microkit 2.4.0's source at its tag, against its Cargo.lock; licences from each crate's manifest, rust-sel4's file by file; checked against each initialiser.elf's .comment section, panic locations and symbols, not rebuilt bit for bit; the linux-x86-64 archive's initialiser.elf files are byte for byte the linux-aarch64 archive's"
+advisories = "None open: cargo-deny 0.20.2 (unmaintained, unsound and yanked all errors) over Microkit 2.4.0's Cargo.lock against the RustSec advisory database at c5279d0 (2026-11-27); rkyv 0.8.17 is the release that fixes RUSTSEC-2026-0233, -0234 and -0235; no RustSec advisory for Rust's standard library affects 1.95.0 (the newest was fixed in 1.58.1)"
 
 # ---- Microkit's own crate -----------------------------------------------------
 
 [[crates]]
 name = "initialiser"
-version = "2.3.1"
+version = "2.4.0"
 licence = "BSD-2-Clause"
 source = "microkit"
 note = "Microkit's initialiser/ crate: its Cargo.toml declares no licence; both its files carry SPDX-License-Identifier BSD-2-Clause"
 
-# ---- rust-sel4, at rust-sel4-commit (four commits before v5.0.0; none of the
-# four touches these crates). All 156 .rs files of the 28 rust-sel4 crates the
-# build compiles, the six build-time ones included, carry SPDX tags: 96
-# BSD-2-Clause, 60 MIT. --------------------------------------------------------
+# ---- rust-sel4, at rust-sel4-commit (tag v6.0.0). All 156 .rs files of the 28
+# rust-sel4 crates the build compiles, the six build-time ones included, carry
+# SPDX tags: 96 BSD-2-Clause, 60 MIT (read 2026-11-27). -------------------------
 
 [[crates]]
 name = "sel4"
@@ -316,7 +323,7 @@ licence = "MIT OR Apache-2.0"
 source = "crates.io"
 checksum = "e3a9fe34e3e7a50316060351f37187a3f546bce95496156754b601a5fa71b76e"
 
-# ---- Rust's standard library, prebuilt for aarch64-unknown-none in Rust 1.94.0.
+# ---- Rust's standard library, prebuilt for aarch64-unknown-none in Rust 1.95.0.
 # Licences as the pinned nightly's rust-src declares them (pds/std-crates.txt). --
 
 [[crates]]
@@ -331,7 +338,7 @@ version = "0.1.160"
 licence = "MIT AND Apache-2.0 WITH LLVM-exception AND (MIT OR Apache-2.0)"
 source = "rust"
 signed-off = "2026-10-04"
-note = "Gives the binary its memcpy and memset. Version 0.1.160 is inferred: the last crates.io release (2025-05-30) and the pinned nightly's rust-src (2026-04-04), either side of Rust 1.94.0, both carry it; 1.94.0's own source was not read"
+note = "Gives the binary its memcpy and memset. Version 0.1.160, as Rust 1.95.0's library/Cargo.lock pins it (read 2026-11-27); the same version and licence were signed off on 2026-10-04"
 
 [[crates]]
 name = "core"

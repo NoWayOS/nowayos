@@ -371,12 +371,10 @@ fn report(what: &str, bytes: &[u8; COPY_LEN], slots: &[SlotRegion; 2]) {
 fn hex(bytes: &[u8], out: &mut [u8]) -> usize {
     const DIGITS: &[u8; 16] = b"0123456789abcdef";
     let mut len = 0_usize;
-    for (byte, pair) in bytes.iter().zip(out.chunks_exact_mut(2)) {
-        if let [high, low] = pair {
-            *high = DIGITS.get(usize::from(byte >> 4)).copied().unwrap_or(b'0');
-            *low = DIGITS.get(usize::from(byte & 0xF)).copied().unwrap_or(b'0');
-            len = len.saturating_add(2);
-        }
+    for (byte, [high, low]) in bytes.iter().zip(out.as_chunks_mut::<2>().0) {
+        *high = DIGITS.get(usize::from(byte >> 4)).copied().unwrap_or(b'0');
+        *low = DIGITS.get(usize::from(byte & 0xF)).copied().unwrap_or(b'0');
+        len = len.saturating_add(2);
     }
     len
 }

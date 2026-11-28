@@ -53,7 +53,7 @@ version = "Microkit"
 description = "Microkit's loader: starts the CPU, places the kernel and the initial task in memory and jumps to the kernel"
 licence = "BSD-2-Clause"
 vcs = "https://github.com/seL4/microkit"
-checked = "Microkit: checked for the pinned 2.3.1 on 2026-10-01"
+checked = "Microkit: checked for the pinned 2.4.0 on 2026-11-28 (every source file of its loader, monitor, tool, libmicrokit and initialiser: BSD-2-Clause)"
 
 [sdk.monitor]
 file = "monitor.elf"
@@ -63,7 +63,7 @@ version = "Microkit"
 description = "Microkit's monitor: the protection domains' fault handler, which reports their faults"
 licence = "BSD-2-Clause"
 vcs = "https://github.com/seL4/microkit"
-checked = "Microkit: checked for the pinned 2.3.1 on 2026-10-01"
+checked = "Microkit: checked for the pinned 2.4.0 on 2026-11-28 (every source file of its loader, monitor, tool, libmicrokit and initialiser: BSD-2-Clause)"
 
 [sdk.initialiser]
 file = "initialiser.elf"
@@ -73,10 +73,10 @@ version = "Microkit"
 description = "The capDL initialiser, the initial task: creates every kernel object and capability the system description grants, from the capDL specification the Microkit tool packs with it"
 licence = "BSD-2-Clause"
 vcs = "https://github.com/seL4/microkit"
-checked = "Microkit 2.3.1's initialiser crate and rust-sel4's sel4-capdl-initializer, which it wraps, are BSD-2-Clause (2026-10-04)"
+checked = "Microkit 2.4.0's initialiser crate and rust-sel4's sel4-capdl-initializer at v6.0.0, which it wraps, are BSD-2-Clause (2026-11-27)"
 composition = "audited"
 audit = "initialiser-audit.toml"
-note = "Audited for Microkit 2.3.1: 41 crates, all on the house list but compiler_builtins, whose licence is signed off for the protection domains and for the initialiser's copy"
+note = "Audited for Microkit 2.4.0: 41 crates, all on the house list but compiler_builtins, whose licence is signed off for the protection domains and for the initialiser's copy"
 
 # The Microkit tool made the image but is not in it: listed as excluded.
 [sdk-tool]
@@ -87,7 +87,7 @@ version = "Microkit"
 description = "The Microkit tool, which made loader.img from the system description, the program images and the parts above"
 licence = "BSD-2-Clause"
 vcs = "https://github.com/seL4/microkit"
-checked = "Microkit: checked for the pinned 2.3.1 on 2026-10-01"
+checked = "Microkit: checked for the pinned 2.4.0 on 2026-11-28 (every source file of its loader, monitor, tool, libmicrokit and initialiser: BSD-2-Clause)"
 
 # ---- The Raspberry Pi 5's SD card: beside loader.img --------------------------
 

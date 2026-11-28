@@ -2,7 +2,7 @@
 <!--
     timer-demo for the Raspberry Pi 5: ../timer-demo.system, with
     the timer PD woken by BCM2712's system timer instead of the CPU's EL1
-    physical timer, which Microkit 2.3.1 does not export to user level on
+    physical timer, which Microkit 2.4.0 does not export to user level on
     this board. make image BOARD=rpi5b_2gb SYSTEM=timer-demo
     builds this file (and checks it against timer-demo.grants beside it);
     every other board builds ../timer-demo.system. The clients, channels,
