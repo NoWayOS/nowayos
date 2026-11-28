@@ -12,7 +12,7 @@
 //!
 //! Written from the Arm A64 instruction set (Arm DDI 0487: `BL`, `CBNZ`, `B`,
 //! `UDF`), the ELF specification's program headers (`PT_LOAD`, `PF_W`), and
-//! rust-sel4 v5.0.0's runtime (`sel4-runtime-common`'s `_start`,
+//! rust-sel4's runtime (`sel4-runtime-common`'s `_start`, as v5.0.0 and v6.0.0 have it,
 //! `sel4-phdrs`).
 
 use core::arch::global_asm;

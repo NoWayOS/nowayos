@@ -1,7 +1,7 @@
-# Protection-domain toolchain: the nightly pinned by rust-sel4 v5.0.0
-# (its own rust-toolchain.toml). Used only inside the dev container; it moves
+# Protection-domain toolchain: the nightly pinned by rust-sel4 v6.0.0
+# (its own rust-toolchain.toml), which is also Kani's. Used only inside the dev container; it moves
 # together with rust-sel4 and the Microkit SDK, in one reviewed change.
 [toolchain]
-channel = "nightly-2026-04-04"
+channel = "nightly-2026-08-21"
 profile = "minimal"
 components = ["rust-src", "rustfmt", "clippy"]

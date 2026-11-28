@@ -185,10 +185,10 @@ fn bind(settings: Settings) -> Result<State, &'static str> {
     }
     for (anchor, key) in anchors
         .iter_mut()
-        .zip(bytes.get(4..).unwrap_or_default().chunks_exact(KEY_LEN))
+        .zip(bytes.get(4..).unwrap_or_default().as_chunks::<KEY_LEN>().0)
         .take(count)
     {
-        anchor.copy_from_slice(key);
+        *anchor = *key;
     }
     let boot = Window(&window)
         .boot()

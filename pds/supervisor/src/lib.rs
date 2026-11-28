@@ -9,7 +9,7 @@
 //!
 //! 1. reads the fault's **label first** and decodes the rest only for a
 //!    label it knows - a memory fault (`nowayos-fault`) - since rust-sel4
-//!    v5.0.0's parser panics on labels it does not know, such as a debug
+//!    v6.0.0's parser (as v5.0.0's) panics on labels it does not know, such as a debug
 //!    kernel's debug exception, which is how a panic arrives. Everything else in a fault message is chosen by the PD that
 //!    faulted: it is only ever reported, never acted on;
 //! 2. stops the child for good (suspends its thread and never replies);
@@ -30,13 +30,13 @@
 //! In a test system, also a ring to a console PD and one channel to it, and
 //! its stand-in counts, read-only (below). It reads the counter, to know how
 //! long the system has run (`nowayos-hw`). No device, interrupt, call,
-//! `unsafe` or heap. Microkit 2.3.1 gives the SMC capability unbadged: it
+//! `unsafe` or heap. Microkit 2.4.0 gives the SMC capability unbadged: it
 //! could make any call the firmware offers, so no product system may
 //! hold it until it can be limited to `SYSTEM_RESET` (the grants check
 //! refuses it).
 //!
 //! Written from the PSCI specification (Arm DEN 0022, `SYSTEM_RESET`,
-//! function ID `0x8400_0009`) and Microkit 2.3.1's `microkit.h`, which puts
+//! function ID `0x8400_0009`) and Microkit's `microkit.h` (2.3.1's, unchanged in 2.4.0), which puts
 //! a PD's SMC capability in slot 7 and its children's thread capabilities
 //! in the 64 slots from 202.
 //!
@@ -856,11 +856,8 @@ impl Handler for SupervisorPd {
 /// they are read, as bytes in memory order.
 fn copy_out(words: &Words<ReadOnly>) -> [u8; COUNTS_BYTES] {
     let mut bytes = [0; COUNTS_BYTES];
-    for (index, chunk) in bytes.chunks_exact_mut(4).enumerate() {
-        let word = words.load(index).unwrap_or(0).to_le_bytes();
-        for (slot, byte) in chunk.iter_mut().zip(word) {
-            *slot = byte;
-        }
+    for (index, chunk) in bytes.as_chunks_mut::<4>().0.iter_mut().enumerate() {
+        *chunk = words.load(index).unwrap_or(0).to_le_bytes();
     }
     bytes
 }

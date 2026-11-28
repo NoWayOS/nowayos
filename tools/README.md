@@ -13,7 +13,7 @@
 | `make lint` | container (`IN=host`: host) | `cargo fmt --check`, then clippy with `-D warnings` |
 | `make fmt` / `make doc` | container (`IN=host`: host) | format / build docs with warnings as errors |
 | `make clean` | container (`IN=host`: host) | remove that environment's target directory |
-| `make container` | host | build the dev image `nowayos-dev:0.1` (again after Containerfile changes) |
+| `make container` | host | build the dev image `nowayos-dev:0.2` (again after Containerfile changes) |
 | `make shell` | container | an interactive shell in the dev container, the workspace at `/work` |
 | `make sdk-boards` | container | the boards and configurations in the pinned Microkit SDK |
 | `make system-clean` | container | remove `build/`, the PDs' build output and U-Boot's tree |

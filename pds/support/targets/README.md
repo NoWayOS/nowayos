@@ -10,18 +10,18 @@ It is **third-party material, copied unmodified** from the seL4 Foundation's
 | | |
 | --- | --- |
 | Source file | `support/targets/aarch64-sel4.json` |
-| Upstream release | tag `v5.0.0`, commit `d441a880938209f661201704dfbee7b91c5aa905` |
-| sha256 of the file | `60b0fccca963f958850a5be6fa4c0b84d6e3d5add3b086698e037ad0d7263b66` |
+| Upstream release | tag `v6.0.0`, commit `c819c27b076130cba9821c4555f23773e4b0bffd` |
+| sha256 of the file | `bf89bdfc5b42a0f5b88715dd826fad6936fabe8d408338ebeba0a84b3f565182` |
 | Copyright | Copyright 2023, Colias Group, LLC |
 | Licence | `SPDX-License-Identifier: BSD-2-Clause` (declared for `support/*.json` in upstream's `.reuse/dep5`) |
 
 JSON has no comments, so the notice lives in this file. Keep it with the spec.
 
 Why the plain `aarch64-sel4` spec: since Microkit 2.3.0 the `microkit` tool
-places each PD's IPC buffer at a fixed virtual address itself, and rust-sel4
-v5.0.0's `sel4-microkit` computes that address, so the older
+places each PD's IPC buffer at a fixed virtual address itself, and rust-sel4's
+`sel4-microkit` (v5.0.0 on) computes that address, so the older
 `aarch64-sel4-microkit.json` linker-script fragment (`__sel4_ipc_buffer_obj`)
-is no longer needed. rust-sel4 v5.0.0 builds its own Microkit examples for
+is no longer needed. rust-sel4 v6.0.0 builds its own Microkit examples for
 this spec.
 
 Updating: copy the file again from the rust-sel4 release that the pds

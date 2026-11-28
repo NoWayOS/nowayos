@@ -145,8 +145,13 @@ impl Mailbox {
     /// ([`parse_temperature`]).
     pub fn temperature(&mut self) -> Result<i32, HwError> {
         let mut bytes = [0_u8; MESSAGE_BYTES];
-        for (chunk, word) in bytes.chunks_exact_mut(4).zip(temperature_request()) {
-            chunk.copy_from_slice(&word.to_le_bytes());
+        for (chunk, word) in bytes
+            .as_chunks_mut::<4>()
+            .0
+            .iter_mut()
+            .zip(temperature_request())
+        {
+            *chunk = word.to_le_bytes();
         }
         self.buffer.write(0, &bytes)?;
         cpu::dsb();
@@ -181,8 +186,8 @@ impl Mailbox {
         cpu::dsb();
         self.buffer.read(0, &mut bytes)?;
         let mut answer = [0_u32; MESSAGE_WORDS];
-        for (word, chunk) in answer.iter_mut().zip(bytes.chunks_exact(4)) {
-            *word = chunk.try_into().map(u32::from_le_bytes).unwrap_or_default();
+        for (word, chunk) in answer.iter_mut().zip(bytes.as_chunks::<4>().0) {
+            *word = u32::from_le_bytes(*chunk);
         }
         parse_temperature(&answer)
     }

@@ -719,11 +719,13 @@ GOOD_RIGHTS = {
     "consumer": [("messages", True, False, False), ("control", True, True, False)],
     "helper": [],
 }
-# Each end of the producer-consumer channel can signal the other.
+# Each end of the producer-consumer channel can signal the other; the helper,
+# the producer's child, holds no endpoint of its parent's (Microkit 2.4.0
+# gives a PD no capability to the endpoint that takes its faults).
 GOOD_CAPS = {
     "producer": [("Notification", "ntfn_producer", "r"), ("Notification", "ntfn_consumer", "w")],
     "consumer": [("Notification", "ntfn_consumer", "r"), ("Notification", "ntfn_producer", "w")],
-    "helper": [("Notification", "ntfn_helper", "r"), ("Endpoint", "ep_producer", "w")],
+    "helper": [("Notification", "ntfn_helper", "r")],
 }
 
 
@@ -1534,20 +1536,20 @@ CHANNEL_GRANTS = textwrap.dedent("""\
 R, W, RW_REPLY = {"read": True}, {"write": True}, {"write": True, "grant_reply": True}
 
 # Each PD's Notification and Endpoint caps, (kind, object name, rights), as
-# the Microkit 2.3.1 tool generates them for CHANNEL_SDF (checked against its
-# --capdl-json output on 2026-10-03): its own notification (or, when it is
-# called or has children, its own endpoint) to receive on; the endpoint that
-# takes its faults (the monitor's, or its parent's for a child; a passive PD
-# holds the monitor's twice); a notification cap for each PD it may notify;
-# and an endpoint cap for each PD it may call.
+# the Microkit 2.4.0 tool generates them for CHANNEL_SDF (checked against its
+# --capdl-json output on 2026-11-27): its own notification (or, when it is
+# called or has children, its own endpoint) to receive on; a passive PD's one
+# endpoint to the monitor, to say its init has finished; a notification cap
+# for each PD it may notify; and an endpoint cap for each PD it may call. No
+# PD holds the endpoint that takes its faults (Microkit 2.3.1 gave every PD
+# one: the monitor's, or its parent's for a child).
 GOOD_CHANNEL_CAPS = {
     "server": [("Endpoint", "ep_server", R), ("Endpoint", "ep_fault_monitor", RW_REPLY),
-               ("Endpoint", "ep_fault_monitor", RW_REPLY), ("Notification", "ntfn_client", W)],
-    "client": [("Notification", "ntfn_client", R), ("Endpoint", "ep_fault_monitor", RW_REPLY),
-               ("Notification", "ntfn_server", W), ("Notification", "ntfn_driver", W),
-               ("Endpoint", "ep_server", RW_REPLY)],
-    "driver": [("Endpoint", "ep_driver", R), ("Endpoint", "ep_fault_monitor", RW_REPLY)],
-    "helper": [("Notification", "ntfn_helper", R), ("Endpoint", "ep_driver", RW_REPLY)],
+               ("Notification", "ntfn_client", W)],
+    "client": [("Notification", "ntfn_client", R), ("Notification", "ntfn_server", W),
+               ("Notification", "ntfn_driver", W), ("Endpoint", "ep_server", RW_REPLY)],
+    "driver": [("Endpoint", "ep_driver", R)],
+    "helper": [("Notification", "ntfn_helper", R)],
 }
 # (region, write, paddr) per PD; a region_paddr region's frames carry their
 # physical address, as device frames do.
@@ -1756,6 +1758,22 @@ class CheckSystemChannels(unittest.TestCase):
         self.assert_fails(self.check(spec=channel_capdl(caps=with_cap("server", ("Endpoint", "ep_fault_monitor",
                                                                                  {"write": True, "grant": True})))),
                           "'server' holds Endpoint 'ep_fault_monitor' with the grant right")
+
+    def test_rule_6_capdl_no_pd_can_send_on_the_endpoint_that_takes_its_faults(self):
+        # A child that holds its parent's endpoint could send the parent a
+        # forged fault; so could an active PD that holds the monitor's.
+        self.assert_fails(self.check(spec=channel_capdl(caps=with_cap("helper", ("Endpoint", "ep_driver", RW_REPLY)))),
+                          "'helper' can send to endpoint 'ep_driver', which takes its faults")
+        self.assert_fails(self.check(spec=channel_capdl(caps=with_cap("client", ("Endpoint", "ep_fault_monitor",
+                                                                                 RW_REPLY)))),
+                          "'client' can send to endpoint 'ep_fault_monitor', which takes its faults")
+        # A passive PD sends on the monitor's endpoint to say its init has
+        # finished; active, the same capability is refused.
+        self.assertEqual(self.check(spec=channel_capdl())[0], 0)
+        active = mutated(CHANNEL_SDF, ' passive="true"', "")
+        grants = mutated(CHANNEL_GRANTS, "period=1000 passive\n", "period=1000\n")
+        self.assert_fails(self.check(sdf=active, grants=grants, spec=channel_capdl(passive=())),
+                          "'server' can send to endpoint 'ep_fault_monitor', which takes its faults")
 
     def test_rule_6_capdl_notifications_follow_the_channels(self):
         self.assert_fails(self.check(spec=channel_capdl(caps=with_cap("driver", ("Notification", "ntfn_client", W)))),
@@ -3545,12 +3563,23 @@ class CheckBackends(unittest.TestCase):
     """Getrandom's back end only from nowayos-entropy."""
     tool = load("check-backends")
 
-    def strays(self, libraries):
+    def strays(self, libraries, layout="deps"):
+        """The tool's strays for `libraries`, laid out as cargo's `deps`
+        directory or as the PD nightly's `build/CRATE/HASH/out`."""
         with tempfile.TemporaryDirectory() as tmp:
             for file, objects in libraries.items():
-                with open(os.path.join(tmp, file), "wb") as handle:
+                folder = (os.path.join(tmp, "deps") if layout == "deps"
+                          else os.path.join(tmp, "build", file.split("-")[0][3:], "0123", "out"))
+                os.makedirs(folder, exist_ok=True)
+                with open(os.path.join(folder, file), "wb") as handle:
                     handle.write(rlib(*objects))
             return self.tool.strays(tmp)
+
+    def test_both_cargo_layouts_are_read(self):
+        stray = {"libstray-89abcdef.rlib": [elf_object(b"__getrandom_custom")]}
+        for layout in ("deps", "build"):
+            with self.subTest(layout):
+                self.assertEqual(self.strays(stray, layout), [("libstray-89abcdef.rlib", "__getrandom_custom")])
 
     def test_nowayos_entropys_definitions_pass(self):
         self.assertEqual(self.strays({
@@ -3570,13 +3599,14 @@ class CheckBackends(unittest.TestCase):
 class CheckStdCrates(unittest.TestCase):
     tool = load("check-std-crates")
 
-    def check(self, rlibs, listed, licence="MIT OR Apache-2.0", lib_manifest=True):
+    def check(self, rlibs, listed, licence="MIT OR Apache-2.0", lib_manifest=True, layout="deps"):
+        """The tool on a PD build of `rlibs`, laid out as cargo's `deps`
+        directory or as the PD nightly's `build/CRATE/HASH/out`."""
         with tempfile.TemporaryDirectory() as tmp:
-            deps = os.path.join(tmp, "deps")
-            os.makedirs(deps)
             for name in rlibs:
-                write(deps, f"lib{name}-0123abcd.rlib", "")
-            write(deps, "libsel4-89ab.rmeta", "")
+                folder = os.path.join(tmp, "deps") if layout == "deps" else os.path.join(tmp, "build", name, "0123", "out")
+                write(folder, f"lib{name}-0123abcd.rlib", "")
+            write(os.path.join(tmp, "deps"), "libsel4-89ab.rmeta", "")
             lock = write(tmp, "Cargo.lock", '[[package]]\nname = "sel4-microkit"\nversion = "0.1.0"\n'
                          '[[package]]\nname = "rustls-webpki"\nversion = "0.103.15"\n'
                          'source = "registry+https://github.com/rust-lang/crates.io-index"\n')
@@ -3591,7 +3621,7 @@ class CheckStdCrates(unittest.TestCase):
             write(library, "compiler-builtins/compiler-builtins/Cargo.toml",
                   '[package]\nname = "compiler_builtins"\nlicense = "MIT AND (MIT OR Apache-2.0)"\n')
             listing = write(tmp, "std-crates.txt", listed)
-            return run_main(self.tool, ["--deps", deps, "--lock", lock, "--list", listing, "--library", library,
+            return run_main(self.tool, ["--out", tmp, "--lock", lock, "--list", listing, "--library", library,
                                         "--cargo-home", cargo_home])
 
     LIST = """\
@@ -3605,6 +3635,12 @@ class CheckStdCrates(unittest.TestCase):
     def test_the_reviewed_set_passes(self):
         status, out, err = self.check(self.BUILT, self.LIST)
         self.assertEqual(status, 0, err)
+
+    def test_the_pd_nightlys_build_layout_is_read(self):
+        status, out, err = self.check(self.BUILT, self.LIST, layout="build")
+        self.assertEqual(status, 0, err)
+        status, _, err = self.check(self.BUILT + ["stray"], self.LIST, layout="build")
+        self.assertEqual(status, 1, err)
         self.assertIn("compiler_builtins (MIT AND (MIT OR Apache-2.0))", out)
 
     def test_a_new_standard_crate_fails(self):
@@ -4450,8 +4486,8 @@ class BoardSystem(unittest.TestCase):
         """Rule 14: the RAM the Microkit SDK's kernel hands out for
         the board (its platform_gen.json) may end at or below the Pi 5's
         framebuffer, whose reservation runs from 0x3f40_0000 to 0x4000_0000,
-        but never cover any of it: Microkit 2.3.1's release, whose RAM ran
-        to 0x3fc0_0000, is refused; something that is not a memory
+        but never cover any of it: Microkit's release (2.3.1 and 2.4.0), whose
+        RAM runs to 0x3fc0_0000, is refused; something that is not a memory
         description is an input error."""
         with open(os.path.join(self.SYSTEMS, "rpi5b_2gb", "fb-test.system"), encoding="utf-8") as handle:
             resolved, _ = self.tool.resolve(handle.read(), self.devices("rpi5b_2gb"), "rpi5b_2gb")

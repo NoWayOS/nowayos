@@ -322,8 +322,8 @@ pub(crate) fn facts_in<A: Access>(words: &Words<A>) -> Result<DeviceFacts, Regio
         });
     }
     let mut compatible = [0u8; COMPATIBLE_MAX];
-    for (bytes, word) in compatible.chunks_exact_mut(4).zip(string) {
-        bytes.copy_from_slice(&word.to_ne_bytes());
+    for (bytes, word) in compatible.as_chunks_mut::<4>().0.iter_mut().zip(string) {
+        *bytes = word.to_ne_bytes();
     }
     let printable = compatible
         .get(..len)

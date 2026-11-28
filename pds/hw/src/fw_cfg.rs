@@ -81,18 +81,22 @@ pub fn find_file(entries: &[u8], name: &[u8]) -> Option<File> {
     if name.is_empty() || name.len() > FILE_NAME_LEN {
         return None;
     }
-    entries.chunks_exact(FILE_ENTRY_LEN).find_map(|entry| {
-        let (size, rest) = entry.split_first_chunk::<4>()?;
-        let (key, rest) = rest.split_first_chunk::<2>()?;
-        let entry_name = rest.get(2..)?;
-        let padding = entry_name.get(name.len()..)?;
-        (entry_name.get(..name.len())? == name && padding.first().is_none_or(|&b| b == 0)).then(
-            || File {
-                key: u16::from_be_bytes(*key),
-                size: u32::from_be_bytes(*size),
-            },
-        )
-    })
+    entries
+        .as_chunks::<FILE_ENTRY_LEN>()
+        .0
+        .iter()
+        .find_map(|entry| {
+            let (size, rest) = entry.split_first_chunk::<4>()?;
+            let (key, rest) = rest.split_first_chunk::<2>()?;
+            let entry_name = rest.get(2..)?;
+            let padding = entry_name.get(name.len()..)?;
+            (entry_name.get(..name.len())? == name && padding.first().is_none_or(|&b| b == 0)).then(
+                || File {
+                    key: u16::from_be_bytes(*key),
+                    size: u32::from_be_bytes(*size),
+                },
+            )
+        })
 }
 
 const CONTROL_ERROR: u32 = 1 << 0;
@@ -403,8 +407,13 @@ mod directory_tests {
 
     fn directory(entries: &[[u8; FILE_ENTRY_LEN]]) -> [u8; 4 * FILE_ENTRY_LEN] {
         let mut out = [0; 4 * FILE_ENTRY_LEN];
-        for (slot, entry) in out.chunks_exact_mut(FILE_ENTRY_LEN).zip(entries) {
-            slot.copy_from_slice(entry);
+        for (slot, entry) in out
+            .as_chunks_mut::<FILE_ENTRY_LEN>()
+            .0
+            .iter_mut()
+            .zip(entries)
+        {
+            *slot = *entry;
         }
         out
     }

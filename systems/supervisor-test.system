@@ -10,7 +10,7 @@
     until the test has seen two boots.
 
     Capabilities: fault_supervisor holds its children's thread capabilities
-    and the SMC capability (smc="true"; Microkit 2.3.1 gives it unbadged, so
+    and the SMC capability (smc="true"; Microkit 2.4.0 gives it unbadged, so
     the grants check refuses it in a product system), and nothing else.
     faulter maps its marker page read-write and one page read-only, and its
     end of the channel trigger notifies it on. trigger holds that channel only.

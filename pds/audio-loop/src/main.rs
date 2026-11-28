@@ -337,7 +337,7 @@ impl AudioLoop {
             .bytes()
             .get(..take.saturating_mul(frame_bytes))
             .unwrap_or_default();
-        for pair in bytes.chunks_exact(2) {
+        for pair in bytes.as_chunks::<2>().0 {
             let level = sample_at(pair, 0).unsigned_abs();
             self.peak = self.peak.max(level);
         }

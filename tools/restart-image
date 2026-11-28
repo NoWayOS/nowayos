@@ -16,7 +16,7 @@ format (pds/restart/src/image.rs):
 
   * the program's entry point, which must be nowayos_restart_entry (the PD's
     build.rs passes --entry=nowayos_restart_entry to the linker);
-  * the stack pointer every PD starts with under Microkit 2.3.1, the top of
+  * the stack pointer every PD starts with under Microkit 2.4.0, the top of
     its stack, 0xff_ffff_e000;
   * each writable loadable segment: its address, its sizes, its file bytes;
   * the kept ranges: every symbol the Microkit tool patches into PD as it
@@ -26,7 +26,7 @@ format (pds/restart/src/image.rs):
     - where it lies in a writable segment's file bytes, adjacent ones joined.
 
 The image must fit its memory region, and is padded with zeros to its size
-(the Microkit tool 2.3.1 needs a prefill file as long as its region). At
+(the Microkit tool 2.4.0 needs a prefill file as long as its region). At
 every cold start the PD checks that
 its writable memory is exactly the image, kept ranges aside, so a word the
 Microkit tool patches that this list misses stops the PD at once.
@@ -59,11 +59,11 @@ MAX_SEGMENTS = 4
 MAX_KEEPS = 64
 
 ENTRY_SYMBOL = "nowayos_restart_entry"
-# Microkit 2.3.1 starts every PD's stack pointer here: its stack's top, 1 TiB
+# Microkit 2.4.0 starts every PD's stack pointer here: its stack's top, 1 TiB
 # less two pages, below its IPC buffer (check-system and --capdl confirm it
 # for each image).
 STACK_TOP = 0xFF_FFFF_E000
-# The symbols the Microkit tool 2.3.1 patches into every PD it builds.
+# The symbols the Microkit tool 2.4.0 patches into every PD it builds.
 MICROKIT_SYMBOLS = ("microkit_name", "microkit_passive", "microkit_irqs",
                     "microkit_notifications", "microkit_pps", "microkit_ioports")
 PREFILL = re.compile(r"restart-([A-Za-z_][A-Za-z0-9_]*)\.bin")
@@ -264,7 +264,7 @@ def main():
                 problems.append(f"{pd!r}: its restart image is {len(image):#x} bytes, but memory_region "
                                 f"{region!r} is {size:#x}: make the region larger")
                 continue
-            # Padded with zeros to the region's size: the Microkit tool 2.3.1
+            # Padded with zeros to the region's size: the Microkit tool 2.4.0
             # slices a prefill file page by page, and panics on a file that
             # ends a page or more before its region does.
             image += bytes(size - len(image))

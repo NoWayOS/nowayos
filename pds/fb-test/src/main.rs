@@ -64,9 +64,9 @@ fn run() -> Result<(), FbError> {
     let (mut pattern, mut written) = (FrameHash::new(), FrameHash::new());
     let mut row = [0u8; ROW];
     for y in 0..TEST_PATTERN.height {
-        for (x, pixel) in (0u32..).zip(row.chunks_exact_mut(4)) {
+        for (x, pixel) in (0u32..).zip(row.as_chunks_mut::<4>().0) {
             let (red, green, blue) = test_pattern(x, y);
-            pixel.copy_from_slice(&[blue, green, red, 0]);
+            *pixel = [blue, green, red, 0];
         }
         pattern.update(&row);
         screen.show_row(y, &row, &mut written)?;

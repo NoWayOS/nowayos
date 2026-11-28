@@ -130,7 +130,7 @@ reason = "a PD that knows a region's physical address can point a device's DMA a
 id = "smc-only-supervisor"
 role = "supervisor"
 grant = "smc"
-reason = "the SMC capability reaches the firmware: Microkit 2.3.1 gives it unbadged, so it can reset or power off the board, or start an idle core outside seL4's control; only the supervisor, which resets the board after a fault, may hold it"
+reason = "the SMC capability reaches the firmware: Microkit 2.4.0 gives it unbadged, so it can reset or power off the board, or start an idle core outside seL4's control; only the supervisor, which resets the board after a fault, may hold it"
 
 # The framebuffer the firmware set up, which the display hardware scans out
 # to the screen (firmware_fb in platforms/rpi5b_2gb.toml).
@@ -164,7 +164,7 @@ id = "smc-unbadged-not-in-product"
 role = "supervisor"
 grant = "smc"
 systems = ["product"]
-reason = "a product's SMC capability must be badged to PSCI SYSTEM_RESET alone (0x8400_0009), which neither Microkit 2.3.1's tool nor its capDL initialiser can express yet: until they can, no product system may hold one"
+reason = "a product's SMC capability must be badged to PSCI SYSTEM_RESET alone (0x8400_0009), which Microkit 2.4.0's tool cannot express yet (its capDL initialiser, from rust-sel4 v6.0.0, can): until the tool can, no product system may hold one"
 
 [[forbid]]
 id = "supervisor-no-device-memory"

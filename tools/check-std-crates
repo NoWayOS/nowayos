@@ -3,14 +3,15 @@
 """Check the standard-library crates compiled into the protection domains.
 
 Usage:
-    check-std-crates --deps DIR --lock pds/Cargo.lock --list pds/std-crates.txt
+    check-std-crates --out DIR --lock pds/Cargo.lock --list pds/std-crates.txt
                      --library RUST_SRC_LIBRARY [--cargo-home DIR]
 
 The protection domains are built with build-std, which compiles core, alloc
 and compiler_builtins (and whatever they need) from the pinned nightly's
 rust-src. They are not in Cargo.lock, so cargo-deny never sees them. This
 check takes the crates the PD build actually compiled for the target (the
-`lib*.rlib` files in DIR, the target's `deps` directory), sets aside those
+`lib*.rlib` files under DIR, a PD build's profile directory, in either of
+cargo's layouts), sets aside those
 that Cargo.lock accounts for - by package name, or by the library name a
 registry package's manifest gives it (rustls-webpki's is `webpki`),
 read from the sources in CARGO_HOME (--cargo-home, or the environment's) -
@@ -41,6 +42,16 @@ EXIT_FAIL = 1
 EXIT_ERROR = 2
 
 RLIB = re.compile(r"^lib(.+)-[0-9a-f]+\.rlib$")
+
+
+def libraries(out):
+    """[(file name, path)] of every lib*.rlib a PD build's profile directory
+    OUT holds: in OUT/deps, cargo's layout until mid-2026, or in
+    OUT/build/CRATE/HASH/out, the layout of the PD nightly's cargo
+    (nightly-2026-08-21), which has no deps directory."""
+    paths = glob.glob(os.path.join(out, "deps", "lib*.rlib"))
+    paths += glob.glob(os.path.join(out, "build", "*", "*", "out", "lib*.rlib"))
+    return sorted((os.path.basename(path), path) for path in paths if RLIB.match(os.path.basename(path)))
 
 
 class InputError(Exception):
@@ -115,7 +126,7 @@ def library_licences(library):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n", 1)[0])
-    parser.add_argument("--deps", required=True, help="the PD target's deps directory")
+    parser.add_argument("--out", required=True, help="a PD build's profile directory (TARGET_DIR/aarch64-sel4/release)")
     parser.add_argument("--lock", required=True, help="pds/Cargo.lock")
     parser.add_argument("--list", required=True, help="the reviewed list")
     parser.add_argument("--library", required=True, help="rust-src's library/ directory")
@@ -126,15 +137,9 @@ def main():
         print("check-std-crates: needs Python 3.11 or later (tomllib); run it in the dev container", file=sys.stderr)
         return EXIT_ERROR
     try:
-        if not os.path.isdir(args.deps):
-            raise InputError(f"no PD build output at {args.deps}: build the PDs first (make qemu-test-all)")
-        built = {
-            crate_name(match.group(1))
-            for match in (RLIB.match(name) for name in os.listdir(args.deps))
-            if match
-        }
+        built = {crate_name(RLIB.match(name).group(1)) for name, _ in libraries(args.out)}
         if not built:
-            raise InputError(f"no .rlib files in {args.deps}: build the PDs first")
+            raise InputError(f"no .rlib files under {args.out}: build the PDs first (make qemu-test-all)")
         locked = locked_crates(args.lock, args.cargo_home)
         standard = built - locked
         listed = read_list(args.list)

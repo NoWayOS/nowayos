@@ -11,7 +11,7 @@ publish.workspace = true
 # The allocator sel4-microkit's `heap_size` declares: dlmalloc over a static
 # arena, behind a one-shot mutex (a PD has one thread). BSD-2-Clause, from
 # the pinned rust-sel4; it brings dlmalloc and lock_api (MIT OR Apache-2.0).
-sel4-dlmalloc = { git = "https://github.com/seL4/rust-sel4", rev = "d441a880938209f661201704dfbee7b91c5aa905" }
+sel4-dlmalloc.workspace = true
 # MIT OR Apache-2.0, as sel4-microkit takes it.
 one-shot-mutex = "=0.2.1"
 

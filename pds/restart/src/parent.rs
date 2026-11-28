@@ -4,8 +4,8 @@
 //!
 //! Written from the seL4 16.0.0 reference manual (`seL4_TCB_ReadRegisters`,
 //! `seL4_TCB_WriteRegisters` with `resume`, which restarts a thread blocked
-//! on its fault reply and drops that reply) and rust-sel4 v5.0.0's `sel4`
-//! and `sel4-microkit` crates.
+//! on its fault reply and drops that reply) and rust-sel4's `sel4`
+//! and `sel4-microkit` crates (v5.0.0; their code here is unchanged in v6.0.0).
 
 use core::fmt;
 

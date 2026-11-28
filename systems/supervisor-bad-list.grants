@@ -20,7 +20,7 @@ pd kept_app priority=100 budget=1000 period=1000
 pd stopped_child priority=50 budget=1000 period=1000
 
 # The supervisor: its children, and the SMC capability for PSCI SYSTEM_RESET
-# (unbadged in Microkit 2.3.1: it could make any firmware call).
+# (unbadged in Microkit 2.4.0: it could make any firmware call).
 child bad_list_supervisor kept_app
 child bad_list_supervisor stopped_child
 smc bad_list_supervisor

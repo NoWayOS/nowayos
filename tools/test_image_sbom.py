@@ -46,11 +46,12 @@ COMPONENTS = os.path.join(HERE, "image-components.toml")
 INITIALISER = "microkit-sdk:board/qemu_virt_aarch64/debug/elf/initialiser.elf"
 with open(os.path.join(HERE, "initialiser-audit.toml"), "rb") as _handle:
     AUDIT = tomllib.load(_handle)
-# The SDK the real audit was done for.
+# The SDK the real audit was done for; the synthetic SDK takes its version.
 AUDITED_SHA = {"arm64": AUDIT["audit"]["sdk-sha256-arm64"], "amd64": AUDIT["audit"]["sdk-sha256-amd64"]}
+SDK_VERSION = AUDIT["audit"]["sdk"]
 # A synthetic audit's crates: one from each source, and one licence off the house list.
 CRATES = [
-    {"name": "initialiser", "version": "2.3.1", "licence": "BSD-2-Clause", "source": "microkit"},
+    {"name": "initialiser", "version": SDK_VERSION, "licence": "BSD-2-Clause", "source": "microkit"},
     {"name": "sel4", "version": "0.1.0", "licence": "MIT", "source": "rust-sel4"},
     {"name": "log", "version": "0.4.33", "licence": "MIT OR Apache-2.0", "source": "crates.io", "checksum": "1" * 64},
     {"name": "dlmalloc", "version": "0.2.14", "licence": "MIT/Apache-2.0", "source": "crates.io",
@@ -99,7 +100,7 @@ def audit_text(crates, **head):
     """A synthetic audit file: [audit] for the default fixture's SDK, then the
     crates. Values are written as JSON, which TOML reads alike for strings and
     numbers."""
-    values = {"date": "2026-01-02", "sdk": "2.3.1", "sdk-sha256-arm64": SDK_SHA["arm64"],
+    values = {"date": "2026-01-02", "sdk": SDK_VERSION, "sdk-sha256-arm64": SDK_SHA["arm64"],
               "sdk-sha256-amd64": SDK_SHA["amd64"], "target": "aarch64-unknown-none", "microkit-commit": "e" * 40,
               "rust-sel4-commit": "f" * 40, "rust": "1.94.0 (test)", "established": "by a test",
               "advisories": "none"}
@@ -129,7 +130,7 @@ class Fixture:
         self.pds = os.path.join(root, "pds")
         for path in (self.elf, os.path.join(self.sdk, "bin"), self.dir, self.pds):
             os.makedirs(path)
-        self.write(os.path.join(self.sdk, "VERSION"), "2.3.1\n")
+        self.write(os.path.join(self.sdk, "VERSION"), f"{SDK_VERSION}\n")
         for name in ("sel4.elf", "loader.elf", "monitor.elf", "initialiser.elf"):
             self.write(os.path.join(self.elf, name), f"sdk {name}")
         self.write(os.path.join(self.sdk, "bin", "microkit"), "the microkit tool")
@@ -143,7 +144,7 @@ class Fixture:
         self.write(os.path.join(self.glyphs, "src", "atlas", "manifest.toml"), GLYPH_MANIFEST)
         self.write(os.path.join(self.dir, "OFL.txt"), NOTICE)
         self.containerfile = self.write(os.path.join(root, "Containerfile"), "\n".join([
-            "ARG MICROKIT_VERSION=2.3.1",
+            f"ARG MICROKIT_VERSION={SDK_VERSION}",
             f"ARG MICROKIT_SHA256_ARM64={sdk_sha['arm64']}",
             f"ARG MICROKIT_SHA256_AMD64={sdk_sha['amd64']}",
             "ARG UBOOT_VERSION=2026.07",
@@ -152,7 +153,7 @@ class Fixture:
             f"ARG RPI_FIRMWARE_COMMIT={'d' * 40}",
         ]) + "\n")
         self.position = self.write(os.path.join(root, "position.toml"), "\n".join([
-            "[sdk]", 'version = "2.3.1"', f'sha256-arm64 = "{sdk_sha["arm64"]}"',
+            "[sdk]", f'version = "{SDK_VERSION}"', f'sha256-arm64 = "{sdk_sha["arm64"]}"',
             f'sha256-amd64 = "{sdk_sha["amd64"]}"', 'sel4 = "16.0.0"',
         ]) + "\n")
         self.std_crates = self.write(os.path.join(root, "std-crates.txt"), "\n".join([
@@ -310,9 +311,9 @@ class ImageSbomTest(unittest.TestCase):
         self.assertEqual(props(document["metadata"])["nowayos:image-sha256"], sha(b"built loader.img"))
         elf = "microkit-sdk:board/qemu_virt_aarch64/debug/elf/"
         expected = {"sel4.elf": ("sel4", "16.0.0", "GPL-2.0-only"),
-                    "loader.elf": ("microkit-loader", "2.3.1", "BSD-2-Clause"),
-                    "monitor.elf": ("microkit-monitor", "2.3.1", "BSD-2-Clause"),
-                    "initialiser.elf": ("microkit-capdl-initialiser", "2.3.1", "BSD-2-Clause")}
+                    "loader.elf": ("microkit-loader", SDK_VERSION, "BSD-2-Clause"),
+                    "monitor.elf": ("microkit-monitor", SDK_VERSION, "BSD-2-Clause"),
+                    "initialiser.elf": ("microkit-capdl-initialiser", SDK_VERSION, "BSD-2-Clause")}
         for name, (component, version, licence) in expected.items():
             entry = parts[elf + name]
             self.assertEqual((entry["name"], entry["version"], entry["scope"]), (component, version, "required"))
@@ -419,7 +420,7 @@ class ImageSbomTest(unittest.TestCase):
                                           f"the {len(crates)} crates"), marker)
         for crate in pending:
             self.assertIn(f"{crate['name']} {crate['version']}", marker)
-        self.assertIn("tools/initialiser-audit.toml: 2026-10-04", props(initialiser)["nowayos:audit"])
+        self.assertIn(f"tools/initialiser-audit.toml: {AUDIT['audit']['date']}", props(initialiser)["nowayos:audit"])
         self.assertEqual(document["compositions"], [{"aggregate": "complete", "assemblies": [INITIALISER]}])
         inside = {entry["bom-ref"]: entry for entry in initialiser["components"]}
         self.assertEqual(sorted(inside), sorted(f"initialiser:{c['name']}@{c['version']}" for c in crates))
@@ -742,7 +743,7 @@ class ImageSbomTest(unittest.TestCase):
         _, parts = self.make()
         kernel = parts["microkit-sdk:board/qemu_virt_aarch64/debug/elf/sel4.elf"]
         self.assertEqual(kernel["externalReferences"][0]["type"], "distribution")
-        self.assertIn("in the Microkit SDK 2.3.1", props(kernel)["nowayos:source"])
+        self.assertIn(f"in the Microkit SDK {SDK_VERSION}", props(kernel)["nowayos:source"])
 
     def test_a_stale_verification_position_leaves_the_kernel_version_unknown(self):
         self.fx.write(self.fx.position, "\n".join([

@@ -58,7 +58,7 @@ compatible = "arm,armv8-timer"
 irqs = [30]
 trigger = "level"
 source = "QEMU 7.2's own device tree for this machine, observed 2026-10-03 (qemu-system-aarch64 -machine virt,virtualization=on,dumpdtb=FILE, decoded with dtc): /timer, compatible arm,armv8-timer, interrupts = <1 13 0x104>, <1 14 0x104>, <1 11 0x104>, <1 10 0x104> - PPIs, level-high, in the arm,arch_timer devicetree binding's order (secure, non-secure EL1 physical, virtual, hypervisor timer), so the EL1 physical timer is PPI 14, INTID 16 + 14 = 30"
-note = "The CPU's EL1 physical timer: system registers, no memory window. Microkit 2.3.1 exports it to user level on this board only (KernelArmExportPTMRUser); not on rpi5b_2gb. A per-CPU interrupt (PPI)."
+note = "The CPU's EL1 physical timer: system registers, no memory window. Microkit 2.4.0 exports it to user level on this board only (KernelArmExportPTMRUser); not on rpi5b_2gb. A per-CPU interrupt (PPI)."
 
 [[device]]
 name = "debug_uart"

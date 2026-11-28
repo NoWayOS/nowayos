@@ -22,7 +22,7 @@
 
     Capabilities: failsafe_release_supervisor holds its children's thread
     capabilities, the SMC capability (smc="true"; unbadged in Microkit
-    2.3.1), a ring to the console - its messages read-write, its
+    2.4.0), a ring to the console - its messages read-write, its
     control read-only - with one channel to it, and its stand-in counts,
     read-only: in a test system only, as the grants check refuses the
     supervisor any memory in a demo or product system

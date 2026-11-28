@@ -155,17 +155,19 @@ license = "MIT OR Apache-2.0"
 publish = false
 
 [workspace.dependencies]
-# rust-sel4 is not on crates.io. Pinned by the full commit hash of tag v5.0.0,
-# which states compatibility with seL4 16.0.0 and Microkit 2.3.0 (built here
-# against Microkit 2.3.1, which uses the same seL4 16.0.0 commit).
-sel4-microkit = { git = "https://github.com/seL4/rust-sel4", rev = "d441a880938209f661201704dfbee7b91c5aa905", default-features = false }
+# rust-sel4 is not on crates.io. Pinned by the full commit hash of tag v6.0.0,
+# which states compatibility with seL4 17.0.0 and Microkit 2.4.0. Every crate
+# from it is named here, so this file holds the one copy of the pin.
+sel4-microkit = { git = "https://github.com/seL4/rust-sel4", rev = "c819c27b076130cba9821c4555f23773e4b0bffd", default-features = false }
 # The `sel4` crate from the same pinned checkout. It is already in the tree as
 # a dependency of sel4-microkit; the fault-handling PD names its fault types.
-sel4 = { git = "https://github.com/seL4/rust-sel4", rev = "d441a880938209f661201704dfbee7b91c5aa905" }
+sel4 = { git = "https://github.com/seL4/rust-sel4", rev = "c819c27b076130cba9821c4555f23773e4b0bffd" }
 # The runtime's view of a PD's program headers, from the same pinned checkout
 # (BSD-2-Clause; already in the tree as a dependency of sel4-microkit's
 # runtime): the restart entry finds the program's writable segments with it.
-sel4-phdrs = { git = "https://github.com/seL4/rust-sel4", rev = "d441a880938209f661201704dfbee7b91c5aa905" }
+sel4-phdrs = { git = "https://github.com/seL4/rust-sel4", rev = "c819c27b076130cba9821c4555f23773e4b0bffd" }
+# The allocator under nowayos-heap, from the same pinned checkout (BSD-2-Clause).
+sel4-dlmalloc = { git = "https://github.com/seL4/rust-sel4", rev = "c819c27b076130cba9821c4555f23773e4b0bffd" }
 
 # NoWayOS's library crates (../crates), by path.
 # The audio channel's records: PCM to and from a client PD.

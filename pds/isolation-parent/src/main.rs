@@ -15,7 +15,7 @@
 //! 3. notifies the bystander PD, which answers only if it is still running.
 //!
 //! It reads each fault's label before parsing it, and decodes only a memory
-//! fault: rust-sel4 v5.0.0's parser panics on labels it does not know, such
+//! fault: rust-sel4 v6.0.0's parser (as v5.0.0's) panics on labels it does not know, such
 //! as a debug kernel's debug exception - a panic in the child (the fault
 //! policy's first rule).
 //!
@@ -27,7 +27,7 @@
 //! Microkit gives every parent), and one channel to the bystander. No memory
 //! regions, no `unsafe`, no heap.
 //!
-//! `Child::tcb` is public but hidden from rust-sel4 v5.0.0's documentation;
+//! `Child::tcb` is public but hidden from rust-sel4's documentation (v5.0.0, and v6.0.0 unchanged);
 //! it is the only way there to reach a child's thread, and it is exactly what
 //! libmicrokit's public `microkit_pd_stop` uses. Recheck when rust-sel4 is
 //! bumped.

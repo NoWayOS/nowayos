@@ -8,14 +8,14 @@
 # Updating a pin is a deliberate, reviewed change: Microkit, rust-sel4 and the
 # nightly toolchain move together. See tools/container/README.md.
 
-# debian:bookworm, multi-arch index digest (arm64 + amd64), resolved 2026-09-30.
-ARG BASE_IMAGE=docker.io/library/debian:bookworm@sha256:f37a335e82bca302e955fa39f9dfe28f1be618f016f8a2b56318e5a5111afc26
+# debian:bookworm, multi-arch index digest (arm64 + amd64), resolved 2026-11-22.
+ARG BASE_IMAGE=docker.io/library/debian:bookworm@sha256:268fb24c39bca92d326dd83ea3abebe4a3f7751c804ffef23bb6d857dd343ff8
 
 # --- seL4 for the Raspberry Pi 5, from source ---------------------
-# Microkit 2.3.1's release gives rpi5b_2gb's kernel RAM up to 0x3fc0_0000, over
+# Microkit 2.4.0's release gives rpi5b_2gb's kernel RAM up to 0x3fc0_0000, over
 # the framebuffer the firmware scans out from 0x3f80_0000. This stage
 # builds that board's kernel again from the commits the release was made from -
-# seL4 16.0.0 and Microkit 2.3.1, as microkit-manifest 5fd3777 pins them - with
+# seL4 17.0.0 and Microkit 2.4.0, as microkit-manifest 083062f pins them - with
 # Microkit's own build_sdk.py and one more device-tree overlay, which ends the
 # RAM at 0x3f40_0000: below the largest framebuffer a station supports, a 32-bit
 # 1080p one. The dev image takes only each configuration's kernel
@@ -23,16 +23,19 @@ ARG BASE_IMAGE=docker.io/library/debian:bookworm@sha256:f37a335e82bca302e955fa39
 # (platform_gen.json); the rest of the SDK stays the release's. Built from the
 # same source without the overlay, platform_gen.json, object_sizes.json,
 # address_space_constants.json, invocations_all.json and the headers match the
-# release's (2026-10-16; only the headers' source-path comments differ).
+# release's byte for byte, in all six configurations (2026-11-27).
 # The build's tools stay in this stage and never reach the dev image: cmake
 # (BSD-3-Clause), ninja (Apache-2.0), xmllint (libxml2-utils, MIT), Python's ply
-# (BSD-3-Clause), jinja2 (BSD-3-Clause), yaml (MIT), lxml (BSD-3-Clause) and
+# (BSD-3-Clause), jinja2 (BSD-3-Clause), yaml (MIT), lxml (BSD-3-Clause),
+# typing_extensions (PSF-2.0; seL4 17.0.0's header generators import it) and
 # pyfdt (Apache-2.0, PyPI's sdist, pinned by sha256), and dtc
 # (device-tree-compiler, GPL-2.0-or-later), signed off for this build only.
 # Each is pinned by version, so a Debian update stops the build until
 # it is reviewed.
-ARG SEL4_COMMIT=6e7c3b733d296cfd88d5fbf635c96e447a882374
-ARG MICROKIT_COMMIT=ec86afdcd662b5976d11d4994acf1b11a2979882
+ARG SEL4_COMMIT=62e345c240a15671484530b4e6e069ce266c28d7
+ARG MICROKIT_COMMIT=b2558a900c036bded0b7c54437fcebbdff96f937
+# The Microkit release the stage rebuilds, and the SDK the image installs.
+ARG MICROKIT_VERSION=2.4.0
 ARG PYFDT_VERSION=0.3
 ARG PYFDT_SHA256=61601c2005ff394a25a6c84c6da2088bbf888328038400d27e4eeb1b04b9f4f0
 # The Debian archive as it stood at one moment, from snapshot.debian.org: every
@@ -41,13 +44,17 @@ ARG PYFDT_SHA256=61601c2005ff394a25a6c84c6da2088bbf888328038400d27e4eeb1b04b9f4f
 # `make container NO_CACHE=1 UPDATE_DEBIAN_LOCK=1` and the lists' diff. Plain
 # HTTP, as Debian's own mirrors are: apt checks every file against the
 # archive's signed Release files.
-ARG DEBIAN_SNAPSHOT=20261031T000000Z
-# The RAM the overlay leaves seL4 on rpi5b_2gb: [0x8_0000, SEL4_RPI5B_RAM_END).
+ARG DEBIAN_SNAPSHOT=20261122T000000Z
+# The RAM the overlay leaves seL4 on rpi5b_2gb: [SEL4_RPI5B_RAM_START,
+# SEL4_RPI5B_RAM_END). seL4 17.0.0 aligns the AArch64 kernel to 2 MiB, so the
+# RAM below the first 2 MiB boundary is device untyped, not RAM.
+ARG SEL4_RPI5B_RAM_START=0x200000
 ARG SEL4_RPI5B_RAM_END=0x3f400000
 
 FROM ${BASE_IMAGE} AS sel4-rpi5b
 ARG SEL4_COMMIT
 ARG MICROKIT_COMMIT
+ARG MICROKIT_VERSION
 ARG PYFDT_VERSION
 ARG PYFDT_SHA256
 ARG SEL4_RPI5B_RAM_END
@@ -81,6 +88,7 @@ RUN set -eu; apt-get update -q; \
         python3-jinja2=3.1.2-1+deb12u3 \
         python3-lxml=4.9.2-1+deb12u1 \
         python3-ply=3.11-5 \
+        python3-typing-extensions=4.4.0-1 \
         python3-yaml=6.0-3+b2; \
     rm -rf /var/lib/apt/lists/*
 RUN set -eu; mkdir -p /src /py /out; cd /src; \
@@ -101,9 +109,9 @@ RUN set -eu; mkdir -p /src /py /out; cd /src; \
     test "$(grep -c '"KernelCustomDTSOverlay": Path("/src/rpi5b-ram.dts")' build_sdk.py)" = 1; \
     PYTHONPATH=/py python3 build_sdk.py --sel4 /src/seL4 --boards rpi5b_2gb \
         --skip-tool --skip-initialiser --skip-docs --skip-tar \
-        --gcc-toolchain-prefix-aarch64 aarch64-linux-gnu --version 2.3.1 > /src/build.log 2>&1 \
+        --gcc-toolchain-prefix-aarch64 aarch64-linux-gnu --version "$MICROKIT_VERSION" > /src/build.log 2>&1 \
         || { tail -40 /src/build.log; exit 1; }; \
-    cd release/microkit-sdk-2.3.1/board/rpi5b_2gb; \
+    cd "release/microkit-sdk-${MICROKIT_VERSION}/board/rpi5b_2gb"; \
     for config in *; do \
         mkdir -p "/out/$config/elf"; \
         cp "$config/elf/sel4.elf" "/out/$config/elf/sel4.elf"; \
@@ -117,8 +125,9 @@ FROM ${BASE_IMAGE}
 
 # Library / host toolchain (every repo's rust-toolchain.toml).
 ARG RUST_STABLE=1.93.1
-# Protection-domain toolchain: the rust-sel4 v5.0.0 pin (nowayos/pds only).
-ARG RUST_NIGHTLY=nightly-2026-04-04
+# Protection-domain toolchain: the rust-sel4 v6.0.0 pin (nowayos/pds only),
+# which is also Kani's nightly, so the image holds one nightly.
+ARG RUST_NIGHTLY=nightly-2026-08-21
 
 ARG RUSTUP_VERSION=1.29.1
 ARG RUSTUP_SHA256_ARM64=15f6e4ce9f583b929c996c91562bad6d4454f3281de858b02cdfdef615fac433
@@ -132,9 +141,9 @@ ARG CARGO_DENY_SHA256_AMD64=9f12ed4c49936e09b48bf862b595cde2fe64fcbd9d74dfacac61
 # seL4 Microkit SDK. The SDK is a host tool plus prebuilt kernel/loader images;
 # the seL4 kernel inside it is GPL-2.0-only (development use approved by the
 # project owner, 2026-09-30).
-ARG MICROKIT_VERSION=2.3.1
-ARG MICROKIT_SHA256_ARM64=979553f288e8e2c099dae8fbec86cbe2cfda2ca006ee36de8234649d6d23bbee
-ARG MICROKIT_SHA256_AMD64=b1b285b8785db7557eba6d0665dd4fbf2f265ea5c0b39d6f91ae3dcc43d2c424
+ARG MICROKIT_VERSION
+ARG MICROKIT_SHA256_ARM64=1ec1006235995a7d100a2b08b2b60cac264b8685208659fa7829342dd37e9a67
+ARG MICROKIT_SHA256_AMD64=10bc305713965a01e52b6c7567cea4952b0cc4dde4befa2e6e72b8dce2715f6b
 
 # --- Debian packages ----------------------------------------------------------
 # From the snapshot DEBIAN_SNAPSHOT names (see its ARG above).
@@ -243,7 +252,9 @@ RUN set -eu; arch="$(dpkg --print-architecture)"; \
 # The pins are declared here rather than at the top so that changing
 # them rebuilds only this layer: an ARG is an implicit input to every RUN after
 # it. The release's signature was checked once against the U-Boot maintainer's
-# key (tools/container/README.md); the sha256 pins it from then on.
+# key (tools/container/README.md); the sha256 pins it from then on, so the
+# file may come from any host: when ftp.denx.de does not answer, Buildroot's
+# source mirror, which holds the same file (checked 2026-11-28).
 ARG UBOOT_VERSION=2026.07
 ARG UBOOT_SHA256=78e8bfc382fe388f9b55aa1daf8c563522a037779b5d4c349d1415e381f1243e
 ENV UBOOT_SOURCE=/opt/u-boot/u-boot-${UBOOT_VERSION}.tar.bz2
@@ -255,8 +266,10 @@ RUN set -eu; apt-get update -q; \
         flex; \
     rm -rf /var/lib/apt/lists/*; \
     mkdir -p /opt/u-boot; \
-    curl -sSfL -o "$UBOOT_SOURCE" \
-        "https://ftp.denx.de/pub/u-boot/u-boot-${UBOOT_VERSION}.tar.bz2"; \
+    curl -sSfL --connect-timeout 30 -o "$UBOOT_SOURCE" \
+        "https://ftp.denx.de/pub/u-boot/u-boot-${UBOOT_VERSION}.tar.bz2" \
+    || curl -sSfL -o "$UBOOT_SOURCE" \
+        "https://sources.buildroot.net/uboot/u-boot-${UBOOT_VERSION}.tar.bz2"; \
     echo "${UBOOT_SHA256}  $UBOOT_SOURCE" | sha256sum -c -; \
     chmod -R a+rX /opt/u-boot
 
@@ -344,13 +357,14 @@ RUN set -eu; arch="$(dpkg --print-architecture)"; \
 # release's, so that no seL4 RAM covers a framebuffer; the check
 # below fails the build if the RAM does not end where the stage was told. Here,
 # not beside the SDK, so that changing the stage rebuilds only this layer.
+ARG SEL4_RPI5B_RAM_START
 ARG SEL4_RPI5B_RAM_END
 COPY --from=sel4-rpi5b /out/ /opt/microkit/sdk/board/rpi5b_2gb/
 RUN set -eu; cd "$MICROKIT_SDK/board/rpi5b_2gb"; \
     for config in *; do \
         python3 -c 'import json, sys; memory = json.load(open(sys.argv[1]))["memory"]; \
-assert memory == [{"start": 0x80000, "end": int(sys.argv[2], 16)}], memory' \
-            "$config/platform_gen.json" "$SEL4_RPI5B_RAM_END"; \
+assert memory == [{"start": int(sys.argv[2], 16), "end": int(sys.argv[3], 16)}], memory' \
+            "$config/platform_gen.json" "$SEL4_RPI5B_RAM_START" "$SEL4_RPI5B_RAM_END"; \
     done
 
 # --- Run-time layout ------------------------------------------------------------
@@ -372,7 +386,7 @@ ENV CARGO_HOME=/cache/cargo \
 
 # Labels last, so changing one rebuilds only this layer.
 LABEL org.opencontainers.image.title="nowayos-dev" \
-      org.opencontainers.image.version="0.1" \
+      org.opencontainers.image.version="0.2" \
       org.opencontainers.image.description="NoWayOS development toolchain: Rust ${RUST_STABLE} and ${RUST_NIGHTLY}, seL4 Microkit SDK ${MICROKIT_VERSION}, QEMU (AArch64), cargo-deny ${CARGO_DENY_VERSION}"
 
 WORKDIR /work

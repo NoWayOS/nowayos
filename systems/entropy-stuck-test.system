@@ -10,7 +10,7 @@
 
         entropy_supervisor  NoWayOS's supervisor (254): its children's thread
                           capabilities and the SMC capability (smc="true";
-                          unbadged in Microkit 2.3.1, so a test system only)
+                          unbadged in Microkit 2.4.0, so a test system only)
         entropy           the entropy PD (200), as in entropy-test
         seed_consumer     its consumer (100), as in entropy-test: never
                           seeded

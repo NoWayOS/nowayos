@@ -5,9 +5,9 @@ the small libraries they share. This is a Cargo workspace of its own,
 separate from the library crates in `../crates/`, because PDs need:
 
 - the nightly toolchain rust-sel4 is built with (`rust-toolchain.toml`,
-  `nightly-2026-04-04`, the rust-sel4 v5.0.0 pin);
+  `nightly-2026-08-21`, the rust-sel4 v6.0.0 pin);
 - the custom target `aarch64-sel4` (`support/targets/`, copied from rust-sel4
-  v5.0.0; licence notice there) with `core`/`alloc` rebuilt from source
+  v6.0.0; licence notice there) with `core`/`alloc` rebuilt from source
   (`.cargo/config.toml`);
 - rust-sel4's `sel4-microkit`, a git dependency pinned by full commit hash
   (`Cargo.toml`), built against the Microkit SDK's headers for one board and
@@ -247,7 +247,7 @@ name. The standard-library crates that build-std compiles into every PD are
 not in `Cargo.lock`, so cargo-deny cannot see them: `std-crates.txt` lists
 them with their licences, and `make std-crates-check` fails if the set or a
 licence changes (for example with a nightly bump). rust-sel4's crates in this tree are BSD-2-Clause or MIT (checked file by
-file at v5.0.0: no GPL files; rust-sel4's GPL-2.0-only files belong to
+file at v6.0.0, 2026-11-28: 146 source files in its 23 packages, 88 BSD-2-Clause and 58 MIT, no GPL files; rust-sel4's GPL-2.0-only files belong to
 `sel4-kernel-loader`, which is not used). The PD crates depend only on each
 other, on `../crates/nowayos-ipc`, `../crates/nowayos-input`,
 `../crates/nowayos-net`, `../crates/nowayos-time` and
@@ -288,8 +288,8 @@ PD compiles.
 `hello` was written for NoWayOS. It follows the minimal protection-domain
 shape that `sel4-microkit`'s API dictates — the `use` line, a
 `#[protection_domain]` init function returning a handler, and an empty
-`Handler` impl — which is also the shape of rust-sel4 v5.0.0's
-`crates/examples/microkit/hello` example (BSD-2-Clause, Copyright 2023,
+`Handler` impl — which is also the shape of rust-sel4's
+`crates/examples/microkit/hello` example (v5.0.0, and v6.0.0 unchanged) (BSD-2-Clause, Copyright 2023,
 Colias Group, LLC); only that API boilerplate is shared. To be safe, the
 project owner decided (2026-10-02) that the file keeps upstream's
 copyright line and SPDX identifier.
